@@ -33,6 +33,15 @@ VLC is required for video playback.
 Ensure you have Rust and Cargo installed. If not, you can install them using
 rustup.
 
+### From Cargo
+
+```bash
+# Build from the cargo.io crate registry.
+$ cargo install classi-cine
+```
+
+### From Source
+
 ```bash
 # Clone this repository
 $ git clone https://github.com/mason-larobina/classi-cine.git
