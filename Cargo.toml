@@ -1,0 +1,20 @@
+[package]
+name = "classi-cine"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/mason-larobina/classi-cine"
+readme = "README.md"
+authors = ["Mason Larobina <mason.larobina@pm.me>"]
+description = "A filename based interactive video tagging tool."
+license = "MIT"
+keywords = ["bayes", "classification", "tokenization", "inference", "vlc"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+env_logger = "0"
+log = "0"
+reqwest = { version = "0", features = ["blocking"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"

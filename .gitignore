@@ -1,0 +1,4 @@
+*.txt
+Cargo.lock
+debug/
+target/
