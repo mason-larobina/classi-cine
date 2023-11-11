@@ -268,6 +268,9 @@ struct Args {
     #[clap(long, default_value = "info")]
     log_level: String,
 
+    #[clap(short, long)]
+    fullscreen: bool,
+
     #[arg(
         long,
         value_delimiter = ',',
@@ -398,7 +401,7 @@ struct VLCProcessHandle {
 }
 
 impl VLCProcessHandle {
-    pub fn new(path: &Path) -> Self {
+    pub fn new(args: &Args, path: &Path) -> Self {
         let mut command = Command::new("vlc");
         command
             .args(&[
@@ -418,6 +421,10 @@ impl VLCProcessHandle {
             .arg(path)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+
+        if args.fullscreen {
+            command.arg("--fullscreen");
+        }
 
         debug!("Spawn {:?}", command);
 
@@ -517,7 +524,7 @@ fn main() -> io::Result<()> {
         let path_str = path.to_string_lossy().to_string();
         info!("{:?}", path);
 
-        let vlc = VLCProcessHandle::new(&path);
+        let vlc = VLCProcessHandle::new(&args, &path);
         match vlc.wait_for_status() {
             Ok(status) => {
                 let found_file_name = status.file_name();
