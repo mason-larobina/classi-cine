@@ -36,6 +36,8 @@ struct Ngram(u32);
 
 #[derive(Debug)]
 struct Tokenizer {
+    tokenize: Tokenize,
+
     token_count: u32,
     tokens: HashMap<String, Token>,
 
@@ -45,13 +47,15 @@ struct Tokenizer {
 }
 
 impl Tokenizer {
-    fn new(k: usize, files: &HashSet<PathBuf>) -> Self {
+    fn new(k: usize, tokenize: Tokenize, files: &HashSet<PathBuf>) -> Self {
         assert!(k > 0);
 
         let file_count = files.len();
         assert!(file_count > 0);
 
         let mut tokenizer = Self {
+            tokenize,
+
             token_count: 0,
             tokens: HashMap::new(),
 
@@ -63,7 +67,7 @@ impl Tokenizer {
         // Unique token count per file.
         let mut token_counts: HashMap<String, usize> = HashMap::new();
         for path in files {
-            let mut tokens = Self::tokenize_new(path);
+            let mut tokens = tokenizer.tokenize_new(path);
             tokens.sort();
             tokens.dedup();
             for token in tokens {
@@ -130,23 +134,37 @@ impl Tokenizer {
         })
     }
 
-    fn tokenize_new(path: &Path) -> Vec<String> {
+    fn tokenize_new(&self, path: &Path) -> Vec<String> {
         let mut path: String = path.to_string_lossy().to_string();
         path.make_ascii_lowercase();
 
         let mut ret = Vec::new();
-        for token in path
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|word| !word.is_empty())
-        {
-            ret.push(token.to_string());
+        match self.tokenize {
+            Tokenize::Words => {
+                for token in path
+                    .split(|c: char| !c.is_alphanumeric())
+                    .filter(|word| !word.is_empty())
+                {
+                    ret.push(token.to_string());
+                }
+            }
+            Tokenize::Chars => {
+                for c in path.chars() {
+                    if c.is_alphanumeric() || c == '/' {
+                        ret.push(c.into());
+                        continue;
+                    } else if Some(" ") != ret.last().map(|x| x.as_str()) {
+                        ret.push(' '.into());
+                    }
+                }
+            }
         }
         ret
     }
 
     fn tokenize_cached(&self, path: &Path) -> Vec<Token> {
         let mut ret = Vec::new();
-        for token in Self::tokenize_new(path) {
+        for token in self.tokenize_new(path) {
             ret.push(self.tokens.get(&token).cloned().unwrap_or_default());
         }
         ret
@@ -251,6 +269,12 @@ impl NaiveBayesClassifier {
     }
 }
 
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+enum Tokenize {
+    Words,
+    Chars,
+}
+
 #[derive(Parser, Debug, Clone)]
 struct Args {
     #[clap(short, default_value = "3")]
@@ -270,6 +294,9 @@ struct Args {
 
     #[clap(short, long)]
     fullscreen: bool,
+
+    #[clap(long, default_value = "words")]
+    tokenize: Tokenize,
 
     #[arg(
         long,
@@ -478,7 +505,7 @@ fn main() -> io::Result<()> {
     let mut files = walk(&args.paths, &args.video_exts);
     assert!(!files.is_empty());
 
-    let tokenizer = Tokenizer::new(args.k, &files);
+    let tokenizer = Tokenizer::new(args.k, args.tokenize, &files);
     let mut classifier = NaiveBayesClassifier::new(&tokenizer);
 
     let mut delete = State::from(&args.delete)?;
