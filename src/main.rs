@@ -1,4 +1,5 @@
 use clap::Parser;
+use humansize::{format_size, BINARY};
 use log::*;
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -7,6 +8,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use textplots::{Chart, Plot, Shape};
 use walkdir::WalkDir;
 
 #[derive(Debug)]
@@ -38,16 +40,24 @@ struct Ngram(u32);
 struct Tokenizer {
     tokenize: Tokenize,
 
+    // Token state.
     token_count: u32,
-    tokens: HashMap<String, Token>,
+    token_string: HashMap<Token, String>,
+    string_token: HashMap<String, Token>,
 
+    // Ngram state.
     k: usize,
     ngram_count: u32,
-    ngrams: HashMap<Vec<Token>, Ngram>,
+    ngram_tokens: HashMap<Ngram, Vec<Token>>,
+    tokens_ngram: HashMap<Vec<Token>, Ngram>,
+}
+
+fn round(v: f64) -> f64 {
+    (v * 1_000.0).round() / 1_000.0
 }
 
 impl Tokenizer {
-    fn new(k: usize, tokenize: Tokenize, files: &HashSet<PathBuf>) -> Self {
+    fn new(k: usize, tokenize: Tokenize, files: &HashMap<PathBuf, u64>) -> Self {
         assert!(k > 0);
 
         let file_count = files.len();
@@ -57,16 +67,18 @@ impl Tokenizer {
             tokenize,
 
             token_count: 0,
-            tokens: HashMap::new(),
+            string_token: HashMap::new(),
+            token_string: HashMap::new(),
 
             k,
             ngram_count: 0,
-            ngrams: HashMap::new(),
+            ngram_tokens: HashMap::new(),
+            tokens_ngram: HashMap::new(),
         };
 
         // Unique token count per file.
         let mut token_counts: HashMap<String, usize> = HashMap::new();
-        for path in files {
+        for path in files.keys() {
             let mut tokens = tokenizer.tokenize_new(path);
             tokens.sort();
             tokens.dedup();
@@ -80,7 +92,7 @@ impl Tokenizer {
         let mut common_tokens: BTreeSet<String> = BTreeSet::new();
         for (token, count) in token_counts {
             if count > 1 {
-                tokenizer.make_token(token);
+                tokenizer.make_token(&token);
             } else if count == 1 {
                 unique_tokens.insert(token);
             } else if count == file_count {
@@ -91,7 +103,7 @@ impl Tokenizer {
         debug!("Drop common tokens: {:?}", common_tokens);
 
         let mut ngram_counts: HashMap<Vec<Token>, usize> = HashMap::new();
-        for path in files {
+        for path in files.keys() {
             let ngrams: BTreeSet<Vec<Token>> = tokenizer.ngrams_new(path).into_iter().collect();
             for ngram in ngrams {
                 let e = ngram_counts.entry(ngram).or_default();
@@ -103,7 +115,7 @@ impl Tokenizer {
         let mut common_ngrams: BTreeSet<Vec<Token>> = BTreeSet::new();
         for (ngram, count) in ngram_counts {
             if count > 1 {
-                tokenizer.make_ngram(ngram);
+                tokenizer.make_ngram(&ngram);
             } else if count == 1 {
                 unique_ngrams.insert(ngram);
             } else if count == file_count {
@@ -120,18 +132,32 @@ impl Tokenizer {
         tokenizer
     }
 
-    fn make_token(&mut self, token: String) -> Token {
-        *self.tokens.entry(token).or_insert_with(|| {
-            self.token_count += 1;
-            Token(self.token_count)
-        })
+    fn make_token(&mut self, s: &str) -> Token {
+        if let Some(token) = self.string_token.get(s) {
+            return *token;
+        }
+
+        self.token_count += 1;
+        let token = Token(self.token_count);
+
+        self.string_token.insert(s.to_string(), token);
+        self.token_string.insert(token, s.to_string());
+
+        token
     }
 
-    fn make_ngram(&mut self, ngram: Vec<Token>) -> Ngram {
-        *self.ngrams.entry(ngram).or_insert_with(|| {
-            self.ngram_count += 1;
-            Ngram(self.ngram_count)
-        })
+    fn make_ngram(&mut self, tokens: &[Token]) -> Ngram {
+        if let Some(ngram) = self.tokens_ngram.get(tokens) {
+            return *ngram;
+        }
+
+        self.ngram_count += 1;
+        let ngram = Ngram(self.ngram_count);
+
+        self.tokens_ngram.insert(tokens.to_vec(), ngram);
+        self.ngram_tokens.insert(ngram, tokens.to_vec());
+
+        ngram
     }
 
     fn tokenize_new(&self, path: &Path) -> Vec<String> {
@@ -165,7 +191,7 @@ impl Tokenizer {
     fn tokenize_cached(&self, path: &Path) -> Vec<Token> {
         let mut ret = Vec::new();
         for token in self.tokenize_new(path) {
-            ret.push(self.tokens.get(&token).cloned().unwrap_or_default());
+            ret.push(self.string_token.get(&token).cloned().unwrap_or_default());
         }
         ret
     }
@@ -173,7 +199,12 @@ impl Tokenizer {
     fn ngrams_new(&self, path: &Path) -> Vec<Vec<Token>> {
         let tokens = self.tokenize_cached(path);
         let mut ret = Vec::new();
-        for i in 0..self.k {
+
+        let j = match self.tokenize {
+            Tokenize::Words => 0,
+            Tokenize::Chars => 1,
+        };
+        for i in j..self.k {
             for w in tokens.windows(i + 1) {
                 let mut w: Vec<Token> = w.to_vec();
                 w.shrink_to_fit();
@@ -186,7 +217,7 @@ impl Tokenizer {
     fn ngrams_cached(&self, path: &Path) -> Vec<Ngram> {
         let mut ret = Vec::new();
         for ngram in self.ngrams_new(path) {
-            ret.push(self.ngrams.get(&ngram).cloned().unwrap_or_default());
+            ret.push(self.tokens_ngram.get(&ngram).cloned().unwrap_or_default());
         }
         ret
     }
@@ -259,13 +290,47 @@ impl NaiveBayesClassifier {
         }
     }
 
-    fn predict_delete(&mut self, ngrams: &[Ngram]) -> f64 {
+    fn predict_delete(&self, ngrams: &[Ngram]) -> f64 {
         let mut log_p = 0.0;
         for ngram in ngrams {
             log_p += self.delete.log_p(ngram);
             log_p -= self.keep.log_p(ngram);
         }
         log_p
+    }
+
+    fn debug_delete(&self, tokenizer: &Tokenizer, ngrams: &[Ngram]) -> Vec<(f64, String)> {
+        let mut scores: Vec<(f64, String)> = Vec::new();
+
+        for ngram in ngrams {
+            let score = self.delete.log_p(ngram) - self.keep.log_p(ngram);
+
+            if let Some(tokens) = tokenizer.ngram_tokens.get(ngram) {
+                let mut v = Vec::new();
+                for token in tokens {
+                    if let Some(s) = tokenizer.token_string.get(token) {
+                        v.push(s.to_string());
+                    } else {
+                        v.push(String::from("*"));
+                    }
+                }
+
+                let k = match tokenizer.tokenize {
+                    Tokenize::Chars => v.join(""),
+                    Tokenize::Words => v.join(" "),
+                };
+
+                scores.push((score, k));
+            }
+        }
+
+        scores.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+
+        for (k, _) in scores.iter_mut() {
+            *k = round(*k);
+        }
+
+        scores
     }
 }
 
@@ -297,6 +362,9 @@ struct Args {
 
     #[clap(long, default_value = "words")]
     tokenize: Tokenize,
+
+    #[clap(long)]
+    file_size_log_base: Option<f64>,
 
     #[arg(
         long,
@@ -355,38 +423,74 @@ impl State {
     }
 }
 
-fn walk(roots: &Vec<PathBuf>, video_exts: &Vec<String>) -> HashSet<PathBuf> {
-    let mut exts: HashSet<OsString> = HashSet::new();
-    for e in video_exts {
-        let mut e = OsString::from(e);
-        e.make_ascii_lowercase();
-        exts.insert(e);
-    }
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Arc;
+use std::sync::Mutex;
 
-    let mut ret = HashSet::new();
-    for root in roots {
-        for e in WalkDir::new(root).sort_by_file_name() {
-            let e = e.unwrap();
-            if !e.file_type().is_file() {
-                continue;
-            }
+struct Walk {
+    exts: HashSet<OsString>,
+    tx: Arc<Sender<Vec<(PathBuf, u64)>>>,
+    rx: Mutex<Receiver<Vec<(PathBuf, u64)>>>,
+}
 
-            let path = e.path();
-            match path.extension() {
-                Some(ext) => {
-                    if !exts.contains(ext) {
-                        continue;
-                    }
-                }
-                None => continue,
-            }
-
-            let canon = std::fs::canonicalize(path).unwrap();
-            ret.insert(canon);
+impl Walk {
+    fn new(video_exts: &Vec<String>) -> Self {
+        let mut exts: HashSet<OsString> = HashSet::new();
+        for e in video_exts {
+            let mut e = OsString::from(e);
+            e.make_ascii_lowercase();
+            exts.insert(e);
         }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = Arc::new(tx);
+        let rx = Mutex::new(rx);
+        Self { exts, tx, rx }
     }
 
-    ret
+    fn root(&self, root: &Path) {
+        info!("Walk {:?}", root);
+
+        rayon::scope(|s| {
+            let mut files = Vec::new();
+            for e in WalkDir::new(root).max_depth(1) {
+                let e = e.unwrap();
+                let path = e.path();
+                let ft = e.file_type();
+
+                if ft.is_dir() && e.depth() == 1 {
+                    let path = path.to_path_buf();
+                    s.spawn(move |_| {
+                        self.root(&path);
+                    });
+                } else if ft.is_file() {
+                    match path.extension() {
+                        Some(ext) => {
+                            if !self.exts.contains(ext) {
+                                continue;
+                            }
+                        }
+                        None => continue,
+                    }
+                    let canon = std::fs::canonicalize(path).unwrap();
+                    let size = e.metadata().unwrap().len();
+                    files.push((canon, size));
+                }
+            }
+            self.tx.send(files).unwrap();
+        });
+    }
+
+    fn collect(self) -> HashMap<PathBuf, u64> {
+        drop(self.tx);
+        let mut ret = HashMap::new();
+        let rx = self.rx.lock().unwrap();
+        while let Ok(vec) = rx.recv() {
+            for (k, v) in vec {
+                ret.insert(k, v);
+            }
+        }
+        ret
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -400,11 +504,9 @@ pub struct Status {
 
 impl Status {
     fn file_name(&self) -> Option<String> {
-        if let Some(i) = &self.information {
-            Some(i.category.meta.filename.clone())
-        } else {
-            None
-        }
+        self.information
+            .as_ref()
+            .map(|i| i.category.meta.filename.clone())
     }
 }
 
@@ -431,7 +533,7 @@ impl VLCProcessHandle {
     pub fn new(args: &Args, path: &Path) -> Self {
         let mut command = Command::new("vlc");
         command
-            .args(&[
+            .args([
                 "-I",
                 "http",
                 "--no-random",
@@ -474,7 +576,9 @@ impl VLCProcessHandle {
         for _ in 0..100 {
             std::thread::sleep(std::time::Duration::from_millis(100));
             if let Ok(status) = self.status() {
-                return Ok(status);
+                if status.file_name().is_some() {
+                    return Ok(status);
+                }
             }
         }
         Err(Error::Timeout)
@@ -492,6 +596,67 @@ impl Drop for VLCProcessHandle {
     }
 }
 
+#[derive(Debug, Default)]
+struct FileState {
+    path: PathBuf,
+    // Classifier state.
+    ngrams: Vec<Ngram>,
+    classifier_score: f64,
+    // File size state.
+    file_size: u64,
+    file_size_score: f64,
+
+    score: f64,
+}
+
+impl FileState {
+    fn new(
+        path: PathBuf,
+        ngrams: Vec<Ngram>,
+        file_size: u64,
+        file_size_log_base: Option<f64>,
+    ) -> Self {
+        let file_size_score = if let Some(base) = file_size_log_base {
+            ((file_size + 1) as f64).log(base)
+        } else {
+            0.0
+        };
+        Self {
+            path,
+            ngrams,
+            file_size,
+            file_size_score,
+            classifier_score: 0.0,
+            score: 0.0,
+        }
+    }
+
+    fn update(&mut self, classifier: &NaiveBayesClassifier) {
+        self.classifier_score = classifier.predict_delete(&self.ngrams);
+        self.score = self.file_size_score + self.classifier_score;
+    }
+
+    fn debug(&self, tokenizer: &Tokenizer, classifier: &NaiveBayesClassifier) {
+        #[derive(Debug)]
+        #[allow(dead_code)]
+        struct Current<'a> {
+            path: &'a Path,
+            size: String,
+            classifier_score: f64,
+            file_size_score: f64,
+            ngrams: Vec<(f64, String)>,
+        }
+        let debug = Current {
+            path: &self.path,
+            size: format_size(self.file_size, BINARY),
+            classifier_score: round(self.classifier_score),
+            file_size_score: round(self.file_size_score),
+            ngrams: classifier.debug_delete(tokenizer, &self.ngrams),
+        };
+        println!("{:?}", debug);
+    }
+}
+
 fn main() -> io::Result<()> {
     let args = Args::parse();
 
@@ -502,7 +667,12 @@ fn main() -> io::Result<()> {
 
     info!("{:#?}", args);
 
-    let mut files = walk(&args.paths, &args.video_exts);
+    let walk = Walk::new(&args.video_exts);
+    for path in &args.paths {
+        walk.root(path);
+    }
+
+    let mut files = walk.collect();
     assert!(!files.is_empty());
 
     let tokenizer = Tokenizer::new(args.k, args.tokenize, &files);
@@ -522,36 +692,74 @@ fn main() -> io::Result<()> {
         files.remove(&path);
     }
 
-    let mut files_vec: Vec<(PathBuf, Vec<Ngram>, f64)> = Vec::new();
-    for path in files.into_iter() {
+    let mut files_vec: Vec<FileState> = Vec::new();
+    for (path, size) in files.into_iter() {
         let ngrams = tokenizer.ngrams_cached(&path);
-        files_vec.push((path, ngrams, 1.0));
+        files_vec.push(FileState::new(path, ngrams, size, args.file_size_log_base));
     }
 
     while !files_vec.is_empty() {
-        for (_, ngrams, ref mut score) in files_vec.iter_mut() {
-            *score = classifier.predict_delete(ngrams);
+        for file in files_vec.iter_mut() {
+            file.update(&classifier);
         }
 
-        files_vec.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+        files_vec.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
 
-        //println!();
-        //for (i, (path, _, score)) in files_vec.iter().rev().enumerate().take(10) {
-        //    println!(
-        //        "{} {:<2} {:>6.2} {:?} ",
-        //        if i == 0 { ">>" } else { "  " },
-        //        i + 1,
-        //        score,
-        //        path
-        //    );
-        //}
+        println!();
+        {
+            let mut xmin = 0.0;
+            let mut xmax = 0.0;
+            let mut ymin = 0.0;
+            let mut ymax = 0.0;
+            let mut points = Vec::new();
+            for (i, file) in files_vec.iter().enumerate() {
+                let (x, y) = (i as f32, file.file_size_score as f32);
+                xmin = f32::min(xmin, x);
+                xmax = f32::max(xmax, x);
+                ymin = f32::min(ymin, y);
+                ymax = f32::max(ymax, y);
+                points.push((x, y));
+            }
+            println!("File size scores");
+            Chart::new_with_y_range(300, 80, xmin, xmax, ymin, ymax)
+                .lineplot(&Shape::Points(&points))
+                .nice();
+        }
 
-        let (path, ngrams, _) = files_vec.pop().unwrap();
-        let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-        let path_str = path.to_string_lossy().to_string();
-        info!("{:?}", path);
+        {
+            let mut xmin = 0.0;
+            let mut xmax = 0.0;
+            let mut ymin = 0.0;
+            let mut ymax = 0.0;
+            let mut points = Vec::new();
+            println!("Classifier scores");
+            for (i, file) in files_vec.iter().enumerate() {
+                let (x, y) = (i as f32, file.classifier_score as f32);
+                xmin = f32::min(xmin, x);
+                xmax = f32::max(xmax, x);
+                ymin = f32::min(ymin, y);
+                ymax = f32::max(ymax, y);
+                points.push((x, y));
+            }
+            Chart::new_with_y_range(300, 80, xmin, xmax, ymin, ymax)
+                .lineplot(&Shape::Points(&points))
+                .nice();
+        }
 
-        let vlc = VLCProcessHandle::new(&args, &path);
+        let file_state = files_vec.pop().unwrap();
+
+        file_state.debug(&tokenizer, &classifier);
+
+        let file_name = file_state
+            .path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+
+        let path_str = file_state.path.to_string_lossy().to_string();
+
+        let vlc = VLCProcessHandle::new(&args, &file_state.path);
         match vlc.wait_for_status() {
             Ok(status) => {
                 let found_file_name = status.file_name();
@@ -586,14 +794,14 @@ fn main() -> io::Result<()> {
             match status.state.as_str() {
                 "stopped" => {
                     delete.update(&path_str)?;
-                    classifier.train_delete(&ngrams);
-                    info!("{:?} (DELETE)", path);
+                    classifier.train_delete(&file_state.ngrams);
+                    info!("{:?} (DELETE)", path_str);
                     break;
                 }
                 "paused" => {
                     keep.update(&path_str)?;
-                    classifier.train_keep(&ngrams);
-                    info!("{:?} (KEEP)", path);
+                    classifier.train_keep(&file_state.ngrams);
+                    info!("{:?} (KEEP)", path_str);
                     break;
                 }
                 _ => {}
