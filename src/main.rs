@@ -576,7 +576,7 @@ impl VLCProcessHandle {
         for _ in 0..100 {
             std::thread::sleep(std::time::Duration::from_millis(100));
             if let Ok(status) = self.status() {
-                if status.file_name().is_some() {
+                if status.file_name().is_some() && status.length > 0.0 && status.position > 0.0 {
                     return Ok(status);
                 }
             }
