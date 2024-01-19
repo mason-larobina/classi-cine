@@ -1,74 +1,120 @@
 use log::*;
-use std::collections::{HashMap, HashSet};
+use rayon::ThreadPool;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use walkdir::WalkDir;
 
-pub struct Walk {
-    exts: HashSet<OsString>,
-    tx: Arc<Sender<Vec<(PathBuf, u64)>>>,
-    rx: Mutex<Receiver<Vec<(PathBuf, u64)>>>,
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub enum Entry {
+    File {
+        file: PathBuf,
+        size: u64,
+        inode: u64,
+    },
+    Dir {
+        dir: PathBuf,
+    },
 }
 
-impl Walk {
-    pub fn new(video_exts: &Vec<String>) -> Self {
-        let mut exts: HashSet<OsString> = HashSet::new();
-        for e in video_exts {
-            let mut e = OsString::from(e);
-            e.make_ascii_lowercase();
-            exts.insert(e);
+fn inner_walk_dir(
+    root: Arc<PathBuf>,
+    dir: PathBuf,
+    exts: Arc<HashSet<OsString>>,
+    tx: Arc<Sender<Entry>>,
+) {
+    debug!("Walk dir: {:?}", dir);
+
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            error!("Error reading directory: {:?}", e);
+            return;
         }
-        let (tx, rx) = std::sync::mpsc::channel();
-        let tx = Arc::new(tx);
-        let rx = Mutex::new(rx);
-        Self { exts, tx, rx }
-    }
+    };
 
-    pub fn root(&self, root: &Path) {
-        info!("Walk {:?}", root);
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                error!("Error reading entry: {:?}", e);
+                continue;
+            }
+        };
 
-        rayon::scope(|s| {
-            let mut files = Vec::new();
-            for e in WalkDir::new(root).max_depth(1) {
-                let e = e.unwrap();
-                let path = e.path();
-                let ft = e.file_type();
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                error!("Error reading metadata: {:?}", e);
+                continue;
+            }
+        };
 
-                if ft.is_dir() && e.depth() == 1 {
-                    let path = path.to_path_buf();
-                    s.spawn(move |_| {
-                        self.root(&path);
-                    });
-                } else if ft.is_file() {
-                    match path.extension() {
-                        Some(ext) => {
-                            if !self.exts.contains(ext) {
-                                continue;
-                            }
-                        }
-                        None => continue,
+        let path = entry.path();
+        let ft = metadata.file_type();
+        if ft.is_dir() {
+            let rel_dir = path.strip_prefix(&*root).unwrap().to_path_buf();
+            tx.send(Entry::Dir { dir: rel_dir }).unwrap();
+
+            let root = root.clone();
+            let child_dir = path.to_path_buf();
+            let exts = exts.clone();
+            let tx = tx.clone();
+            rayon::spawn(move || {
+                inner_walk_dir(root, child_dir, exts, tx);
+            });
+
+            continue;
+        }
+
+        if ft.is_file() {
+            match path.extension() {
+                Some(ext) => {
+                    let ext = ext.to_ascii_lowercase();
+                    if !exts.contains(&ext) {
+                        continue;
                     }
-                    let file = path.to_path_buf();
-                    let size = e.metadata().unwrap().len();
-                    files.push((file, size));
                 }
+                None => continue,
             }
-            self.tx.send(files).unwrap();
-        });
+
+            let rel_file = path.strip_prefix(&*root).unwrap().to_path_buf();
+            let size = metadata.len();
+            let inode = metadata.ino();
+            tx.send(Entry::File {
+                file: rel_file,
+                size,
+                inode,
+            })
+            .unwrap();
+        }
+    }
+}
+
+pub fn walk_root(video_exts: &Vec<String>, root: Arc<PathBuf>) -> Vec<Entry> {
+    let mut exts: HashSet<OsString> = HashSet::new();
+    for e in video_exts {
+        let mut e = OsString::from(e);
+        e.make_ascii_lowercase();
+        exts.insert(e);
     }
 
-    pub fn collect(self) -> HashMap<PathBuf, u64> {
-        drop(self.tx);
-        let mut ret = HashMap::new();
-        let rx = self.rx.lock().unwrap();
-        while let Ok(vec) = rx.recv() {
-            for (k, v) in vec {
-                ret.insert(k, v);
-            }
-        }
-        ret
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx = Arc::new(tx);
+    let exts = Arc::new(exts);
+
+    inner_walk_dir(root.clone(), (*root).clone(), exts.clone(), tx.clone());
+
+    drop(tx);
+    let mut ret = Vec::new();
+    while let Ok(e) = rx.recv() {
+        ret.push(e);
     }
+
+    ret.sort();
+    ret
 }

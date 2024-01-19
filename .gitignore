@@ -2,3 +2,5 @@
 Cargo.lock
 debug/
 target/
+perf.*
+flamegraph.svg
