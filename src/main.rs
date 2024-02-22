@@ -67,6 +67,9 @@ struct Args {
     #[clap(long)]
     file_size_log_base: Option<f64>,
 
+    #[clap(long, default_value = "9010")]
+    vlc_port: u16,
+
     #[arg(
         long,
         value_delimiter = ',',

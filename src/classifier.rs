@@ -108,6 +108,6 @@ impl NaiveBayesClassifier {
             *k = crate::round(*k);
         }
 
-        scores
+        scores.into_iter().rev().take(32).collect()
     }
 }

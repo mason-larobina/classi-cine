@@ -73,8 +73,8 @@ impl Tokenizer {
                 common_tokens.insert(token);
             }
         }
-        debug!("Drop unique tokens: {:?}", unique_tokens);
-        debug!("Drop common tokens: {:?}", common_tokens);
+        //debug!("Drop unique tokens: {:?}", unique_tokens);
+        //debug!("Drop common tokens: {:?}", common_tokens);
 
         let mut ngram_counts: HashMap<Vec<Token>, usize> = HashMap::new();
         for path in files.keys() {
@@ -96,8 +96,8 @@ impl Tokenizer {
                 common_ngrams.insert(ngram);
             }
         }
-        debug!("Drop unique ngrams: {:?}", unique_ngrams);
-        debug!("Drop common ngrams: {:?}", common_ngrams);
+        //debug!("Drop unique ngrams: {:?}", unique_ngrams);
+        //debug!("Drop common ngrams: {:?}", common_ngrams);
 
         info!("File count: {}", file_count);
         info!("Token count: {}", tokenizer.token_count);

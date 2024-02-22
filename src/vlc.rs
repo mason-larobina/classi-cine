@@ -42,6 +42,7 @@ pub struct Meta {
 
 pub struct VLCProcessHandle {
     handle: Option<Child>,
+    status_url: String,
 }
 
 impl VLCProcessHandle {
@@ -57,11 +58,11 @@ impl VLCProcessHandle {
                 "--no-play-and-exit",
                 "--http-host",
                 "localhost",
-                "--http-port",
-                "9090",
                 "--http-password",
                 "password",
+                "--http-port",
             ])
+            .arg(format!("{}", args.vlc_port))
             .arg(path)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -76,14 +77,18 @@ impl VLCProcessHandle {
 
         VLCProcessHandle {
             handle: Some(child),
+            status_url: format!(
+                "http://:password@localhost:{}/requests/status.json",
+                args.vlc_port
+            ),
         }
     }
 
     pub fn status(&self) -> Result<Status, Error> {
-        let url = "http://:password@localhost:9090/requests/status.json";
-        let response = reqwest::blocking::get(url)?;
+        //let url = "http://:password@localhost:9090/requests/status.json";
+        let response = reqwest::blocking::get(&self.status_url)?;
         let text = response.text()?;
-        //debug!("Response: {}", text);
+        debug!("Response: {}", text);
         Ok(serde_json::from_str(&text)?)
     }
 
