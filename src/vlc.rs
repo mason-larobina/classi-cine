@@ -85,7 +85,6 @@ impl VLCProcessHandle {
     }
 
     pub fn status(&self) -> Result<Status, Error> {
-        //let url = "http://:password@localhost:9090/requests/status.json";
         let response = reqwest::blocking::get(&self.status_url)?;
         let text = response.text()?;
         debug!("Response: {}", text);

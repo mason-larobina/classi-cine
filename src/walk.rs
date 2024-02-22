@@ -51,9 +51,9 @@ impl Walk {
                         }
                         None => continue,
                     }
-                    let canon = std::fs::canonicalize(path).unwrap();
+                    let file = path.to_path_buf();
                     let size = e.metadata().unwrap().len();
-                    files.push((canon, size));
+                    files.push((file, size));
                 }
             }
             self.tx.send(files).unwrap();
