@@ -24,15 +24,15 @@ pub struct Tokenizer {
     string_token: HashMap<String, Token>,
 
     // Ngram state.
-    k: usize,
+    windows: usize,
     pub ngram_count: u32,
     pub ngram_tokens: HashMap<Ngram, Vec<Token>>,
     tokens_ngram: HashMap<Vec<Token>, Ngram>,
 }
 
 impl Tokenizer {
-    pub fn new(k: usize, tokenize: Tokenize, files: &HashMap<PathBuf, u64>) -> Self {
-        assert!(k > 0);
+    pub fn new(tokenize: Tokenize, windows: usize, files: &HashMap<PathBuf, u64>) -> Self {
+        assert!(windows > 0);
 
         let file_count = files.len();
         assert!(file_count > 0);
@@ -44,7 +44,7 @@ impl Tokenizer {
             string_token: HashMap::new(),
             token_string: HashMap::new(),
 
-            k,
+            windows,
             ngram_count: 0,
             ngram_tokens: HashMap::new(),
             tokens_ngram: HashMap::new(),
@@ -173,12 +173,7 @@ impl Tokenizer {
     fn ngrams_new(&self, path: &Path) -> Vec<Vec<Token>> {
         let tokens = self.tokenize_cached(path);
         let mut ret = Vec::new();
-
-        let j = match self.tokenize {
-            Tokenize::Words => 0,
-            Tokenize::Chars => 1,
-        };
-        for i in j..self.k {
+        for i in 0..self.windows {
             for w in tokens.windows(i + 1) {
                 let mut w: Vec<Token> = w.to_vec();
                 w.shrink_to_fit();

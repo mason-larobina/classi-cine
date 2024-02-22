@@ -43,27 +43,35 @@ fn round(v: f64) -> f64 {
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
-    #[clap(short, default_value = "3")]
-    k: usize,
-
     #[clap(required = true)]
     paths: Vec<PathBuf>,
 
+    /// The tokenizer to use.
+    #[clap(long, default_value = "chars")]
+    tokenize: Tokenize,
+
+    /// Create ngrams (windows of tokens) from 1 to N.
+    #[clap(long, default_value = "20")]
+    windows: usize,
+
+    /// The text file containing the files to delete.
     #[clap(long, default_value = "delete.txt")]
     delete: PathBuf,
 
+    /// The text file containing the files to keep.
     #[clap(long, default_value = "keep.txt")]
     keep: PathBuf,
 
     #[clap(long, default_value = "info")]
     log_level: String,
 
+    /// Fullscreen VLC playback.
     #[clap(short, long)]
     fullscreen: bool,
 
-    #[clap(long, default_value = "words")]
-    tokenize: Tokenize,
-
+    /// The log base for the file size which is mixed into the classifier score to preference
+    /// larger files over smaller files. Recommended values are close to 1.0, for example 1.1,
+    /// 1.01, 1.001, and so on.
     #[clap(long)]
     file_size_log_base: Option<f64>,
 
@@ -206,7 +214,7 @@ fn main() -> io::Result<()> {
     let mut files = walk.collect();
     assert!(!files.is_empty());
 
-    let tokenizer = Tokenizer::new(args.k, args.tokenize, &files);
+    let tokenizer = Tokenizer::new(args.tokenize, args.windows, &files);
     let mut classifier = NaiveBayesClassifier::new(&tokenizer);
 
     let mut delete = State::from(&args.delete)?;
