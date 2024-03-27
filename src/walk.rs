@@ -9,32 +9,37 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use walkdir::WalkDir;
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub enum Entry {
-    File {
-        file: PathBuf,
-        size: u64,
-        inode: u64,
-    },
-    Dir {
-        dir: PathBuf,
-    },
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct File {
+    pub file: PathBuf,
+    pub size: u64,
+    pub inode: u64,
+}
+
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Dir {
+    pub dir: PathBuf,
+    pub files: Vec<File>,
 }
 
 fn inner_walk_dir(
     root: Arc<PathBuf>,
     dir: PathBuf,
     exts: Arc<HashSet<OsString>>,
-    tx: Arc<Sender<Entry>>,
+    tx: Arc<Sender<Dir>>,
 ) {
-    debug!("Walk dir: {:?}", dir);
-
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(e) => {
             error!("Error reading directory: {:?}", e);
             return;
         }
+    };
+
+    let rel_dir = dir.strip_prefix(&*root).unwrap().to_path_buf();
+    let mut ret_dir = Dir {
+        dir: rel_dir,
+        files: Vec::new(),
     };
 
     for entry in entries {
@@ -57,9 +62,6 @@ fn inner_walk_dir(
         let path = entry.path();
         let ft = metadata.file_type();
         if ft.is_dir() {
-            let rel_dir = path.strip_prefix(&*root).unwrap().to_path_buf();
-            tx.send(Entry::Dir { dir: rel_dir }).unwrap();
-
             let root = root.clone();
             let child_dir = path.to_path_buf();
             let exts = exts.clone();
@@ -85,17 +87,20 @@ fn inner_walk_dir(
             let rel_file = path.strip_prefix(&*root).unwrap().to_path_buf();
             let size = metadata.len();
             let inode = metadata.ino();
-            tx.send(Entry::File {
+            ret_dir.files.push(File {
                 file: rel_file,
                 size,
                 inode,
-            })
-            .unwrap();
+            });
         }
     }
+
+    ret_dir.files.sort();
+
+    tx.send(ret_dir).unwrap();
 }
 
-pub fn walk_root(video_exts: &Vec<String>, root: Arc<PathBuf>) -> Vec<Entry> {
+pub fn walk_root(video_exts: &Vec<String>, root: &Path) -> Vec<Dir> {
     let mut exts: HashSet<OsString> = HashSet::new();
     for e in video_exts {
         let mut e = OsString::from(e);
@@ -103,16 +108,18 @@ pub fn walk_root(video_exts: &Vec<String>, root: Arc<PathBuf>) -> Vec<Entry> {
         exts.insert(e);
     }
 
-    let (tx, rx) = std::sync::mpsc::channel();
-    let tx = Arc::new(tx);
-    let exts = Arc::new(exts);
+    let rx = {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = Arc::new(tx);
+        let exts = Arc::new(exts);
+        let root = Arc::new(root.to_path_buf());
+        inner_walk_dir(root.clone(), (*root).clone(), exts.clone(), tx.clone());
+        rx
+    };
 
-    inner_walk_dir(root.clone(), (*root).clone(), exts.clone(), tx.clone());
-
-    drop(tx);
     let mut ret = Vec::new();
-    while let Ok(e) = rx.recv() {
-        ret.push(e);
+    while let Ok(dir) = rx.recv() {
+        ret.push(dir);
     }
 
     ret.sort();

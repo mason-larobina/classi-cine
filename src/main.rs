@@ -8,11 +8,13 @@ mod tokens;
 mod walk;
 
 use chrono::{DateTime, Utc};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use humansize::{format_size, BINARY};
 use log::*;
 use rayon::prelude::*;
 use rayon::ThreadPool;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
@@ -53,10 +55,18 @@ enum TokenizeMode {
     Words,
 }
 
+#[derive(Subcommand, Debug, Clone)]
+enum Command {
+    MoveInto { dir: PathBuf },
+}
+
 #[derive(Parser, Debug, Clone)]
 struct Args {
     #[clap(required = true)]
     root: PathBuf,
+
+    #[command(subcommand)]
+    command: Command,
 
     /// The tokenizer to use.
     #[clap(long, default_value = "subwords")]
@@ -103,6 +113,7 @@ fn test_get_chunk_size() {
     assert_eq!(get_chunk_size(10000), 100);
     assert_eq!(get_chunk_size(100000), 317);
     assert_eq!(get_chunk_size(1000000), 1000);
+    
 }
 
 //#[derive(Debug)]
@@ -394,37 +405,12 @@ fn test_get_chunk_size() {
 //    }
 //}
 
-struct Record {
+#[derive(Serialize, Deserialize)]
+struct Classi {
     file: PathBuf,
     size: u64,
     inode: u64,
-    datetime: DateTime<Utc>,
-}
-
-struct TokenState {
-    norm: String,
-    tokens: tokens::Tokens,
-    ngrams: ngrams::Ngrams,
-}
-
-struct DirState {
-    dir: PathBuf,
-    tokens: TokenState,
-}
-
-struct FileState {
-    file: PathBuf,
-    size: u64,
-    inode: u64,
-    tokens: TokenState,
-}
-
-#[derive(Default)]
-struct State {
-    root: PathBuf,
-    dirs: Vec<DirState>,
-    files: Vec<FileState>,
-    tokens_vocab: tokens::Vocab,
+    date: u64,
 }
 
 fn start_web_server() {
@@ -444,6 +430,39 @@ fn start_web_server() {
 
 use std::sync::{Mutex, MutexGuard};
 
+#[derive(Debug, Default)]
+struct TokenState {
+    norm: String,
+    tokens: Option<tokens::Tokens>,
+    ngrams: Option<ngrams::Ngrams>,
+}
+
+#[derive(Debug)]
+struct FileState {
+    file: PathBuf,
+    size: u64,
+    inode: u64,
+    tokens: TokenState,
+}
+
+#[derive(Debug)]
+struct DirState {
+    dir: PathBuf,
+    tokens: TokenState,
+    files: Vec<FileState>,
+    source: bool,
+    dest: bool,
+    // TODO: classifier
+    // TODO: history
+}
+
+#[derive(Default)]
+struct State {
+    root: PathBuf,
+    dirs: BTreeMap<PathBuf, DirState>,
+    tokens_vocab: tokens::Vocab,
+}
+
 fn main() -> io::Result<()> {
     let args = Args::parse();
 
@@ -459,14 +478,60 @@ fn main() -> io::Result<()> {
     });
 
     let root = std::fs::canonicalize(&args.root).unwrap();
-    let root = Arc::new(root);
+    info!("root {:?}", root);
 
-    let entries = walk::walk_root(&args.video_exts, root.clone());
-    for e in entries {
-        println!("{:?}", e);
+    let mut state = State {
+        root,
+        dirs: BTreeMap::new(),
+        tokens_vocab: tokens::Vocab::new(),
+    };
+
+    let dirs = walk::walk_root(&args.video_exts, &state.root);
+
+    for dir in dirs {
+        info!("Dir {:?}", dir.dir);
+        let norm = normalize::normalize(&dir.dir);
+        let mut dir_state = DirState {
+            dir: dir.dir.clone(),
+            files: Vec::new(),
+            tokens: TokenState {
+                norm,
+                ..TokenState::default()
+            },
+            source: false,
+            dest: false,
+        };
+        for file in dir.files {
+            let norm = normalize::normalize(&file.file);
+            dir_state.files.push(FileState {
+                file: file.file,
+                size: file.size,
+                inode: file.inode,
+                tokens: TokenState {
+                    norm,
+                    ..TokenState::default()
+                },
+            });
+        }
+        state.dirs.insert(dir.dir, dir_state);
     }
 
-    //let state = Arc::new(Mutex::new(State::default()));
+    match args.command {
+        Command::MoveInto { dir } => {
+            if !dir.exists() {
+                std::fs::create_dir_all(&dir).unwrap();
+            }
+
+            let dir = std::fs::canonicalize(dir).unwrap();
+            assert!(dir.is_dir());
+
+            let dir = dir
+                .strip_prefix(&state.root)
+                .expect("move into dir outside of root dir");
+
+            info!("move into {:?}", dir);
+        }
+    }
 
     //{
     //    let state_mut = state.lock().unwrap();
@@ -706,7 +771,9 @@ fn main() -> io::Result<()> {
     //    }
     //}
 
-    loop {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
+    //loop {
+    //    std::thread::sleep(std::time::Duration::from_secs(1));
+    //}
+    //
+    Ok(())
 }

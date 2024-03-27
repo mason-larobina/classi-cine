@@ -5,6 +5,7 @@ use std::hash::{Hash, Hasher};
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Ngram(u64);
 
+#[derive(Debug)]
 pub struct Ngrams(Vec<Ngram>);
 
 impl Ngram {
