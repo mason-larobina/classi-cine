@@ -1,222 +1,129 @@
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
 
-#[derive(Hash, Eq, PartialEq, Debug, Copy, Clone, Ord, PartialOrd)]
-pub struct Token {
-    id: u32,
-    len: u32,
-}
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash)]
+pub struct Token(pub(crate) u32);
 
-#[test]
-fn token_sizeof_test() {
-    assert_eq!(std::mem::size_of::<Token>(), 8);
-}
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Ord, PartialOrd, Hash)]
+pub struct Pair(pub Token, pub Token);
 
-impl Token {
-    fn new(id: u32, len: u32) -> Self {
-        Self { id, len }
+impl Pair {
+    fn mask(&self) -> u128 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        let hash: u64 = hasher.finish();
+        return 1 << (hash % 128);
     }
 
-    fn new_special(id: u32) -> Self {
-        Self::new(id, 0)
-    }
-
-    pub fn is_special(&self) -> bool {
-        self.len == 0
-    }
-
-    pub fn len(&self) -> u32 {
-        self.len
+    pub(crate) fn to_string(&self, map: &TokenMap) -> String {
+        let mut s = String::new();
+        s.push_str(map.get_str(self.0));
+        s.push_str(map.get_str(self.1));
+        s
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct Tokens(Vec<Token>);
+#[derive(Debug, PartialEq, Eq, Default)]
+pub struct Tokens {
+    pair_mask: u128,
+    tokens: Vec<Token>,
+}
 
 impl Tokens {
-    pub fn new() -> Self {
-        Self(Vec::new())
+    fn calc_pair_mask(&mut self) {
+        let mut pair_mask = 0;
+        for pair in self.pairs() {
+            pair_mask |= pair.mask();
+        }
+        self.pair_mask = pair_mask;
     }
 
-    pub fn push(&mut self, token: Token) {
-        self.0.push(token);
+    pub fn pair_mask_bits(&self) -> u32 {
+        self.pair_mask.count_ones()
     }
 
-    fn clear(&mut self) {
-        self.0.clear();
+    pub fn from_str(s: &str, token_map: &mut TokenMap) -> Tokens {
+        let mut tokens = Tokens::default();
+        let mut tmp_string = String::new();
+        for c in s.chars() {
+            tmp_string.clear();
+            tmp_string.push(c);
+            let token = token_map.get_or_create_token(&tmp_string);
+            tokens.tokens.push(token);
+        }
+        tokens.calc_pair_mask();
+        tokens
     }
 
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn pairs<'a>(&'a self) -> impl Iterator<Item = (Token, Token)> + 'a {
-        self.0.windows(2).map(|pair| (pair[0], pair[1]))
-    }
-
-    pub fn as_slice<'a>(&'a self) -> &'a [Token] {
-        self.0.as_slice()
-    }
-
-    pub fn replace_new(&self, a: Token, b: Token, c: Token, new: &mut Tokens) {
-        new.clear();
+    pub fn from_replace(&mut self, from: &Tokens, Pair(a, b): Pair, c: Token) -> bool {
+        self.tokens.clear();
         let mut i = 0;
-        let len = self.0.len();
+        let len = from.len();
         while i < len {
-            let t = unsafe { *self.0.get_unchecked(i) };
-            if a == t && (i + 1) < len && b == unsafe { *self.0.get_unchecked(i + 1) } {
-                new.0.push(c);
+            let t = unsafe { *from.tokens.get_unchecked(i) };
+            if a == t && (i + 1) < len && b == unsafe { *from.tokens.get_unchecked(i + 1) } {
+                self.tokens.push(c);
                 i += 2;
             } else {
-                new.0.push(t);
+                self.tokens.push(t);
                 i += 1;
             }
         }
+        self.calc_pair_mask();
+        self.tokens.len() != from.tokens.len()
     }
 
-    pub fn swap(&mut self, other: &mut Tokens) {
-        std::mem::swap(&mut self.0, &mut other.0);
+    pub fn contains(&self, pair: &Pair) -> bool {
+        (self.pair_mask & pair.mask()) != 0
     }
-}
 
-#[test]
-fn tokens_test() {
-    let mut vocab = Vocab::new();
-    vocab.insert_special(" ");
+    pub fn len(&self) -> usize {
+        self.tokens.len()
+    }
 
-    let mut tokens = Tokens::new();
-    let mut new_tokens = Tokens::new();
+    pub fn pairs<'a>(&'a self) -> impl Iterator<Item = Pair> + 'a {
+        self.tokens.windows(2).map(|w| Pair(w[0], w[1]))
+    }
 
-    {
+    pub fn as_slice<'a>(&'a self) -> &'a [Token] {
+        self.tokens.as_slice()
+    }
+
+    pub fn to_string(&self, map: &TokenMap) -> String {
         let mut s = String::new();
-        for c in "hello world".chars() {
-            s.clear();
-            s.push(c);
-            let token = vocab.insert(&s);
-            tokens.push(token);
+        for t in &self.tokens {
+            s.push_str(map.get_str(*t));
         }
-        assert_eq!(
-            tokens,
-            Tokens(vec![
-                Token { id: 1, len: 1 },
-                Token { id: 2, len: 1 },
-                Token { id: 3, len: 1 },
-                Token { id: 3, len: 1 },
-                Token { id: 4, len: 1 },
-                Token { id: 0, len: 0 },
-                Token { id: 5, len: 1 },
-                Token { id: 4, len: 1 },
-                Token { id: 6, len: 1 },
-                Token { id: 3, len: 1 },
-                Token { id: 7, len: 1 },
-            ])
-        );
-    }
-
-    {
-        let a = vocab.get_token("h");
-        let b = vocab.get_token("e");
-        let c = vocab.insert("he");
-        tokens.replace_new(a, b, c, &mut new_tokens);
-        assert_eq!(
-            new_tokens,
-            Tokens(vec![
-                Token { id: 8, len: 2 },
-                Token { id: 3, len: 1 },
-                Token { id: 3, len: 1 },
-                Token { id: 4, len: 1 },
-                Token { id: 0, len: 0 },
-                Token { id: 5, len: 1 },
-                Token { id: 4, len: 1 },
-                Token { id: 6, len: 1 },
-                Token { id: 3, len: 1 },
-                Token { id: 7, len: 1 },
-            ])
-        );
-        tokens.swap(&mut new_tokens);
-    }
-
-    {
-        let a = vocab.get_token("l");
-        let b = vocab.get_token("d");
-        let c = vocab.insert("ld");
-        tokens.replace_new(a, b, c, &mut new_tokens);
-        assert_eq!(
-            new_tokens,
-            Tokens(vec![
-                Token { id: 8, len: 2 },
-                Token { id: 3, len: 1 },
-                Token { id: 3, len: 1 },
-                Token { id: 4, len: 1 },
-                Token { id: 0, len: 0 },
-                Token { id: 5, len: 1 },
-                Token { id: 4, len: 1 },
-                Token { id: 6, len: 1 },
-                Token { id: 9, len: 2 },
-            ])
-        );
-        tokens.swap(&mut new_tokens);
-    }
-
-    {
-        let a = vocab.get_token("he");
-        let b = vocab.get_token("l");
-        let c = vocab.insert("hel");
-        tokens.replace_new(a, b, c, &mut new_tokens);
-        assert_eq!(
-            new_tokens,
-            Tokens(vec![
-                Token { id: 10, len: 3 },
-                Token { id: 3, len: 1 },
-                Token { id: 4, len: 1 },
-                Token { id: 0, len: 0 },
-                Token { id: 5, len: 1 },
-                Token { id: 4, len: 1 },
-                Token { id: 6, len: 1 },
-                Token { id: 9, len: 2 },
-            ])
-        );
-        std::mem::swap(&mut tokens, &mut new_tokens);
-    }
+        s
+    }	
 }
 
-#[derive(Default)]
-pub struct Vocab {
+#[derive(Default, Debug, Clone)]
+pub struct TokenMap {
     str_token: HashMap<String, Token>,
     token_str: HashMap<Token, String>,
 }
 
-impl Vocab {
-    pub fn new() -> Vocab {
-        Vocab {
-            str_token: HashMap::new(),
-            token_str: HashMap::new(),
-        }
-    }
-
-    fn insert_return(&mut self, s: &str, token: Token) -> Token {
-        self.str_token.insert(s.to_string(), token);
-        self.token_str.insert(token, s.to_string());
-        assert_eq!(self.str_token.len(), self.token_str.len());
+impl TokenMap {
+    pub fn create_token(&mut self, s: &str) -> Token {
+        let token = Token(self.str_token.len().try_into().unwrap());
+        assert!(self.str_token.insert(s.to_string(), token.clone()).is_none());
+        assert!(self.token_str.insert(token.clone(), s.to_string()).is_none());
         token
     }
 
-    pub fn insert_special(&mut self, s: &str) -> Token {
+    pub fn get_or_create_token(&mut self, s: &str) -> Token {
         if let Some(token) = self.str_token.get(s) {
             return *token;
+        } else {
+            self.create_token(s)
         }
-        let token = Token::new_special(self.str_token.len().try_into().unwrap());
-        self.insert_return(s, token)
     }
 
-    pub fn insert(&mut self, s: &str) -> Token {
-        if let Some(token) = self.str_token.get(s) {
-            return *token;
-        }
-        let token = Token::new(
-            self.str_token.len().try_into().unwrap(),
-            s.chars().count().try_into().unwrap(),
-        );
-        self.insert_return(s, token)
+    pub fn merge_create_token(&mut self, Pair(a, b): Pair) -> Token {
+        let s = format!("{}{}", self.get_str(a), self.get_str(b));
+        self.create_token(&s)
     }
 
     pub fn get_token(&self, s: &str) -> Token {
@@ -225,5 +132,133 @@ impl Vocab {
 
     pub fn get_str<'a>(&'a self, token: Token) -> &'a str {
         self.token_str.get(&token).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_token_creation() {
+        let mut map = TokenMap::default();
+        let t1 = map.create_token("a");
+        let t2 = map.create_token("b");
+        
+        assert_eq!(map.get_str(t1), "a");
+        assert_eq!(map.get_str(t2), "b");
+        assert_eq!(map.get_token("a"), t1);
+        assert_eq!(map.get_token("b"), t2);
+    }
+
+    #[test]
+    fn test_get_or_create_token() {
+        let mut map = TokenMap::default();
+        let t1 = map.get_or_create_token("a");
+        let t2 = map.get_or_create_token("a");
+        assert_eq!(t1, t2);
+        
+        let t3 = map.get_or_create_token("b");
+        assert_ne!(t1, t3);
+    }
+
+    #[test]
+    fn test_tokens_from_str() {
+        let mut map = TokenMap::default();
+        let tokens = Tokens::from_str("hello", &mut map);
+        
+        assert_eq!(tokens.len(), 5);
+        assert_eq!(map.get_str(tokens.as_slice()[0]), "h");
+        assert_eq!(map.get_str(tokens.as_slice()[4]), "o");
+        assert_eq!(tokens.to_string(&map), String::from("hello"));
+    }
+
+    #[test]
+    fn test_pair_masking() {
+        let mut map = TokenMap::default();
+        let tokens = Tokens::from_str("ab", &mut map);
+        let pair = Pair(map.get_token("a"), map.get_token("b"));
+        
+        assert!(tokens.contains(&pair));
+        
+        let non_existing_pair = Pair(map.get_token("a"), map.get_token("a"));
+        assert!(!tokens.contains(&non_existing_pair));
+    }
+
+    #[test]
+    fn test_from_replace() {
+        let mut map = TokenMap::default();
+        let original = Tokens::from_str("hello", &mut map);
+        
+        let h = map.get_token("h");
+        let e = map.get_token("e");
+        let x = map.create_token("x");
+        
+        let mut new = Tokens::default();
+        new.from_replace(&original, Pair(h, e), x);
+
+        assert_eq!(new.to_string(&map), String::from("xllo"));
+    }
+
+    #[test]
+    fn test_merge_create_token() {
+        let mut map = TokenMap::default();
+        let t1 = map.create_token("a");
+        let t2 = map.create_token("b");
+        let merged = map.merge_create_token(t1, t2);
+        
+        assert_eq!(map.get_str(merged), "ab");
+    }
+
+    #[test]
+    fn test_pairs_iterator() {
+        let mut map = TokenMap::default();
+        let tokens = Tokens::from_str("abc", &mut map);
+        let pairs: Vec<String> = tokens.pairs().map(|p| p.to_string(&map)).collect();
+        assert_eq!(pairs, vec![String::from("ab"), String::from("bc")]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_token_access() {
+        let map = TokenMap::default();
+        let invalid_token = Token(999);
+        map.get_str(invalid_token);
+    }
+
+    #[test]
+    fn test_empty_string() {
+        let mut map = TokenMap::default();
+        let tokens = Tokens::from_str("", &mut map);
+        assert_eq!(tokens.len(), 0);
+        assert_eq!(tokens.pairs().count(), 0);
+    }
+
+    #[test]
+    fn test_single_char() {
+        let mut map = TokenMap::default();
+        let tokens = Tokens::from_str("a", &mut map);
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens.pairs().count(), 0);
+    }
+
+    #[test]
+    fn test_pair_mask_collision_resistance() {
+        let mut map = TokenMap::default();
+        let mut seen_masks = HashSet::new();
+        
+        // Test a variety of pairs to ensure mask collisions are rare
+        for c1 in 'a'..='z' {
+            for c2 in 'a'..='z' {
+                let t1 = map.get_or_create_token(&c1.to_string());
+                let t2 = map.get_or_create_token(&c2.to_string());
+                let pair = Pair(t1, t2);
+                let mask = pair.mask();
+                seen_masks.insert(mask);
+            }
+        }
+        
+        // We should have a reasonable distribution of masks
+        assert!(seen_masks.len() > 20); // At least 20 unique masks out of 676 pairs
     }
 }

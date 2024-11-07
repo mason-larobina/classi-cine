@@ -2,194 +2,118 @@ use crate::tokens::*;
 use log::*;
 use rayon::prelude::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::hash_map::Entry;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct PairCounts {
-    counts: HashMap<(Token, Token), i64>,
+    counts: HashMap<Pair, i64>,
 }
 
 impl PairCounts {
-    fn new() -> Self {
-        Self {
-            counts: HashMap::new(),
+    fn update(&mut self, tokens: &Tokens, delta: i64) {
+        if delta == 0 {
+            return;
+        }
+        for pair in tokens.pairs() {
+            match self.counts.entry(pair) {
+                Entry::Occupied(mut entry) => {
+                    let count = entry.get().saturating_add(delta);
+                    if count == 0 {
+                        entry.remove();
+                    } else {
+                        entry.insert(count);
+                    }
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(delta);
+                }
+            }
         }
     }
 
-    fn update(&mut self, tokens: &Tokens, delta: i64, max_token_len: u32) {
-        for (a, b) in tokens.pairs() {
-            if a.is_special() || b.is_special() || a.len() + b.len() > max_token_len {
-                continue;
-            }
-            let e = self.counts.entry((a, b)).or_default();
+    fn update_from(&mut self, other: PairCounts) {
+        for (pair, delta) in other.counts {
+            let e = self.counts.entry(pair).or_default();
             *e += delta;
         }
     }
 
-    fn max(&self) -> Option<(i64, Token, Token)> {
+    fn max(&self) -> Option<(i64, Pair)> {
         let mut top = None;
-        for ((a, b), count) in self.counts.iter() {
-            let new = Some((*count, *a, *b));
+        for (pair, count) in self.counts.iter() {
+            let new = Some((*count, *pair));
             if top.is_none() || top < new {
                 top = new;
             }
         }
         top
     }
-
-    fn update_from(&mut self, other: PairCounts) {
-        for ((a, b), delta) in other.counts {
-            let e = self.counts.entry((a, b)).or_default();
-            *e += delta;
-        }
-    }
 }
 
-pub fn subwords(files: &[String], chunk_size: usize, max_token_len: u32) -> (Vocab, Vec<Tokens>) {
-    assert!(!files.is_empty());
-    info!("File count: {}", files.len());
+#[derive(Debug)]
+pub struct PairTokenizer {
+    token_map: TokenMap,
+    unknown: Token,
+    path_sep: Token,
+    merges: Vec<(Token, Token, Token)>,
+}
 
-    // Init vocab and add special tokens.
-    let mut vocab = Vocab::new();
-    vocab.insert_special(" ");
-    vocab.insert_special(std::path::MAIN_SEPARATOR_STR);
+impl PairTokenizer {
+    pub fn new(strings: Vec<String>) -> PairTokenizer {
+        let mut token_map = TokenMap::default();
+        let unknown = token_map.create_token("<UNKNOWN>");
+        let path_sep = token_map.create_token(std::path::MAIN_SEPARATOR_STR);
 
-    let mut tokens_vec: Vec<Tokens> = Vec::with_capacity(files.len());
-    let mut pair_counts = PairCounts::new();
+        assert!(strings.len() > 0);
+        let limit: f64 = strings.len() as f64;
+        let limit: i64 = limit.log2() as i64;
+        info!("limit {:?}", limit);
 
-    for file in files {
-        // Build vocab and inital tokens vec.
-        let mut tokens = Tokens::new();
-        let mut s = String::new();
-        for c in file.chars() {
-            s.clear();
-            s.push(c);
-            let token = vocab.insert(&s);
-            tokens.push(token);
+        let mut strings: Vec<Tokens> = strings.into_iter().map(|s| Tokens::from_str(&s, &mut token_map)).collect();
+
+        let mut merges = Vec::new();
+        let mut counts = PairCounts::default();
+        let mut tmp = Tokens::default();
+
+        for s in strings.iter() {
+            counts.update(s, 1);
         }
 
-        pair_counts.update(&tokens, 1, max_token_len);
+        loop {
+            // Find max pair or finish.
+            let pair = if let Some((count, pair)) = counts.max() {
+                if count < limit {
+                    break;
+                }
+                info!("{:?} {:?}", count, pair.to_string(&token_map));
+                pair
+            } else {
+                break;
+            };
 
-        tokens_vec.push(tokens);
-    }
+            // Merge pair into new token.
+            let new = token_map.merge_create_token(pair);
+            merges.push((pair.0, pair.1, new));
 
-    while let Some((count, a, b)) = pair_counts.max() {
-        if count < 2 {
-            break;
-        }
-
-        let a_str = vocab.get_str(a);
-        let b_str = vocab.get_str(b);
-        let c_str = format!("{}{}", a_str, b_str);
-        debug!("Merge {:?} {:?} -> {:?} ({}/2)", a_str, b_str, c_str, count);
-        let c = vocab.insert(&c_str);
-
-        let pair_counts_updates: Vec<_> = tokens_vec
-            .par_chunks_mut(chunk_size)
-            .map(move |chunk| {
-                let mut new_tokens: Tokens = Tokens::new();
-                let mut pair_counts_update = PairCounts::new();
-                for tokens in chunk.iter_mut() {
-                    tokens.replace_new(a, b, c, &mut new_tokens);
-                    if tokens.len() == new_tokens.len() {
-                        continue;
+            // Apply merges and update counts.
+            for s in strings.iter_mut() {
+                if s.contains(&pair) {
+                    if tmp.from_replace(s, pair, new) {
+                        counts.update(s, -1);
+                        counts.update(&tmp, 1);
+                        std::mem::swap(&mut tmp, s);
                     }
-                    pair_counts_update.update(&tokens, -1, max_token_len);
-                    pair_counts_update.update(&new_tokens, 1, max_token_len);
-                    tokens.swap(&mut new_tokens);
-                }
-                pair_counts_update
-            })
-            .collect();
-
-        for update in pair_counts_updates {
-            pair_counts.update_from(update);
-        }
-    }
-
-    (vocab, tokens_vec)
-}
-
-#[test]
-fn subwords_test() {
-    let files = vec![String::from("/apple/b c/d")];
-    let (vocab, tokens_vec) = chars(&files);
-    assert_eq!(files.len(), tokens_vec.len());
-    let tokens = &tokens_vec[0];
-    let mut tokens_str = Vec::new();
-    for token in tokens.as_slice() {
-        tokens_str.push(vocab.get_str(*token));
-    }
-    assert_eq!(
-        tokens_str,
-        vec!["/", "a", "p", "p", "l", "e", "/", "b", " ", "c", "/", "d"]
-    );
-}
-
-pub fn chars(files: &[String]) -> (Vocab, Vec<Tokens>) {
-    let mut vocab = Vocab::new();
-    let mut tokens_vec: Vec<Tokens> = Vec::with_capacity(files.len());
-    for file in files {
-        let mut tokens = Tokens::new();
-        let mut s = String::new();
-        for c in file.chars() {
-            s.clear();
-            s.push(c);
-            let token = vocab.insert_special(&s);
-            tokens.push(token);
-        }
-        tokens_vec.push(tokens);
-    }
-    (vocab, tokens_vec)
-}
-
-#[test]
-fn chars_test() {
-    let files = vec![String::from("/apple/b c/d")];
-    let (vocab, tokens_vec) = chars(&files);
-    assert_eq!(files.len(), tokens_vec.len());
-    let tokens = &tokens_vec[0];
-    let mut tokens_str = Vec::new();
-    for token in tokens.as_slice() {
-        tokens_str.push(vocab.get_str(*token));
-    }
-    assert_eq!(
-        tokens_str,
-        vec!["/", "a", "p", "p", "l", "e", "/", "b", " ", "c", "/", "d"]
-    );
-}
-
-pub fn words(files: &[String]) -> (Vocab, Vec<Tokens>) {
-    let mut vocab = Vocab::new();
-    let slash = vocab.insert_special(std::path::MAIN_SEPARATOR_STR);
-    let mut tokens_vec: Vec<Tokens> = Vec::with_capacity(files.len());
-    for file in files {
-        let mut tokens = Tokens::new();
-        for (i, comp) in file.split(std::path::MAIN_SEPARATOR).enumerate() {
-            if i > 0 {
-                tokens.push(slash);
-            }
-            for word in comp.split(" ") {
-                if !word.is_empty() {
-                    tokens.push(vocab.insert_special(word));
                 }
             }
         }
-        tokens_vec.push(tokens);
-    }
-    (vocab, tokens_vec)
-}
 
-#[test]
-fn words_test() {
-    let files = vec![String::from("/apple/b c/d")];
-    let (vocab, tokens_vec) = words(&files);
-    assert_eq!(files.len(), tokens_vec.len());
-    let tokens = &tokens_vec[0];
-    let mut tokens_str = Vec::new();
-    for token in tokens.as_slice() {
-        tokens_str.push(vocab.get_str(*token));
+        PairTokenizer {
+            token_map,
+            unknown,
+            path_sep,
+            merges,
+        }
     }
-    assert_eq!(tokens_str, vec!["/", "apple", "/", "b", "c", "/", "d"]);
 }

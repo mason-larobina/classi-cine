@@ -7,6 +7,7 @@ mod tokenize;
 mod tokens;
 mod walk;
 
+use walk::Walk;
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use humansize::{format_size, BINARY};
@@ -18,12 +19,14 @@ use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
+use std::path::Component;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use textplots::{Chart, Plot, Shape};
 use thread_priority::*;
+use tokens::{TokenMap, Tokens, Token, Pair};
 
 #[derive(Debug)]
 enum Error {
@@ -44,37 +47,14 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-fn round(v: f64) -> f64 {
-    (v * 1_000.0).round() / 1_000.0
-}
-
-#[derive(Debug, Clone, clap::ValueEnum)]
-enum TokenizeMode {
-    Chars,
-    Subwords,
-    Words,
-}
-
-#[derive(Subcommand, Debug, Clone)]
-enum Command {
-    MoveInto { dir: PathBuf },
-}
-
 #[derive(Parser, Debug, Clone)]
 struct Args {
     #[clap(required = true)]
-    root: PathBuf,
-
-    #[command(subcommand)]
-    command: Command,
-
-    /// The tokenizer to use.
-    #[clap(long, default_value = "subwords")]
-    mode: TokenizeMode,
+    dirs: Vec<PathBuf>,
 
     /// Create ngrams (windows of tokens) from 1 to N.
-    #[clap(long, default_value = "20")]
-    windows: usize,
+    //#[clap(long, default_value = "20")]
+    //windows: usize,
 
     #[clap(long, default_value = "info")]
     log_level: String,
@@ -83,8 +63,8 @@ struct Args {
     #[clap(short, long)]
     fullscreen: bool,
 
-    #[clap(long, default_value = "4")]
-    max_subword_len: u32,
+    //#[clap(long, default_value = "4")]
+    //max_subword_len: u32,
 
     #[clap(long, default_value_t = 9111)]
     port: u16,
@@ -98,22 +78,6 @@ struct Args {
         default_value = "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
     )]
     video_exts: Vec<String>,
-}
-
-pub fn get_chunk_size(count: usize) -> usize {
-    (count as f64).sqrt().ceil() as usize
-}
-
-#[test]
-fn test_get_chunk_size() {
-    assert_eq!(get_chunk_size(1), 1);
-    assert_eq!(get_chunk_size(10), 4);
-    assert_eq!(get_chunk_size(100), 10);
-    assert_eq!(get_chunk_size(1000), 32);
-    assert_eq!(get_chunk_size(10000), 100);
-    assert_eq!(get_chunk_size(100000), 317);
-    assert_eq!(get_chunk_size(1000000), 1000);
-    
 }
 
 //#[derive(Debug)]
@@ -405,62 +369,58 @@ fn test_get_chunk_size() {
 //    }
 //}
 
-#[derive(Serialize, Deserialize)]
-struct Classi {
-    file: PathBuf,
-    size: u64,
-    inode: u64,
-    date: u64,
-}
-
-fn start_web_server() {
-    std::thread::spawn(move || {
-        println!("Listening on http://localhost:9111/");
-        use rouille::*;
-        rouille::start_server("localhost:9111", move |request| {
-            router!(request,
-                (GET) (/) => {
-                    Response::text("hello world")
-                },
-                _ => Response::empty_404()
-            )
-        });
-    });
-}
+//fn start_web_server() {
+//    std::thread::spawn(move || {
+//        println!("Listening on http://localhost:9111/");
+//        use rouille::*;
+//        rouille::start_server("localhost:9111", move |request| {
+//            router!(request,
+//                (GET) (/) => {
+//                    Response::text("hello world")
+//                },
+//                _ => Response::empty_404()
+//            )
+//        });
+//    });
+//}
 
 use std::sync::{Mutex, MutexGuard};
 
-#[derive(Debug, Default)]
-struct TokenState {
+//#[derive(Debug, Default)]
+//struct TokenState {
+//    norm: String,
+//    tokens: Option<tokens::Tokens>,
+//    ngrams: Option<ngrams::Ngrams>,
+//}
+//
+//#[derive(Debug)]
+//struct FileState {
+//    file: PathBuf,
+//    size: u64,
+//    inode: u64,
+//    tokens: TokenState,
+//}
+//
+//#[derive(Debug)]
+//struct DirState {
+//    dir: PathBuf,
+//    tokens: TokenState,
+//    files: Vec<FileState>,
+//    source: bool,
+//    dest: bool,
+//    // TODO: classifier
+//    // TODO: history
+//}
+
+struct Entry {
+    file: walk::File,
     norm: String,
-    tokens: Option<tokens::Tokens>,
-    ngrams: Option<ngrams::Ngrams>,
-}
-
-#[derive(Debug)]
-struct FileState {
-    file: PathBuf,
-    size: u64,
-    inode: u64,
-    tokens: TokenState,
-}
-
-#[derive(Debug)]
-struct DirState {
-    dir: PathBuf,
-    tokens: TokenState,
-    files: Vec<FileState>,
-    source: bool,
-    dest: bool,
-    // TODO: classifier
-    // TODO: history
 }
 
 #[derive(Default)]
-struct State {
-    root: PathBuf,
-    dirs: BTreeMap<PathBuf, DirState>,
-    tokens_vocab: tokens::Vocab,
+struct Classi {
+    tokens: TokenMap,
+    files: Vec<walk::File>,
 }
 
 fn main() -> io::Result<()> {
@@ -477,61 +437,83 @@ fn main() -> io::Result<()> {
         set_current_thread_priority(ThreadPriority::Min).unwrap();
     });
 
-    let root = std::fs::canonicalize(&args.root).unwrap();
-    info!("root {:?}", root);
+    let mut classi = Classi::default();
 
-    let mut state = State {
-        root,
-        dirs: BTreeMap::new(),
-        tokens_vocab: tokens::Vocab::new(),
-    };
-
-    let dirs = walk::walk_root(&args.video_exts, &state.root);
-
-    for dir in dirs {
-        info!("Dir {:?}", dir.dir);
-        let norm = normalize::normalize(&dir.dir);
-        let mut dir_state = DirState {
-            dir: dir.dir.clone(),
-            files: Vec::new(),
-            tokens: TokenState {
-                norm,
-                ..TokenState::default()
-            },
-            source: false,
-            dest: false,
-        };
-        for file in dir.files {
-            let norm = normalize::normalize(&file.file);
-            dir_state.files.push(FileState {
-                file: file.file,
-                size: file.size,
-                inode: file.inode,
-                tokens: TokenState {
-                    norm,
-                    ..TokenState::default()
-                },
-            });
-        }
-        state.dirs.insert(dir.dir, dir_state);
+    let walk = Walk::new(args.video_exts.iter().map(String::as_ref));
+    for dir in &args.dirs {
+        walk.walk_dir(dir);
     }
 
-    match args.command {
-        Command::MoveInto { dir } => {
-            if !dir.exists() {
-                std::fs::create_dir_all(&dir).unwrap();
-            }
+    let mut strings: HashSet<String> = HashSet::new();
 
-            let dir = std::fs::canonicalize(dir).unwrap();
-            assert!(dir.is_dir());
+    let rx = walk.into_rx();
+    while let Ok(file) = rx.recv() {
+        info!("{:?}", file);
 
-            let dir = dir
-                .strip_prefix(&state.root)
-                .expect("move into dir outside of root dir");
+        let file_path: PathBuf = file.dir.join(&file.file_name);
+        let norm = normalize::normalize(&file_path);
+        strings.insert(norm);
 
-            info!("move into {:?}", dir);
-        }
+        //for c in file_path.components() {
+        //    if let Component::Normal(s) = c {
+        //        strings.insert(s.to_string_lossy().into());
+        //    }
+        //}
+
+        classi.files.push(file);
     }
+
+    info!("{:?}", strings);
+
+    let tokenizer = tokenize::PairTokenizer::new(strings.into_iter().collect());
+    info!("{:?}", tokenizer);
+
+    //info!("{:?}", token_map);
+
+    //for dir in dirs {
+    //    info!("Dir {:?}", dir.dir);
+    //    let norm = normalize::normalize(&dir.dir);
+    //    let mut dir_state = DirState {
+    //        dir: dir.dir.clone(),
+    //        files: Vec::new(),
+    //        tokens: TokenState {
+    //            norm,
+    //            ..TokenState::default()
+    //        },
+    //        source: false,
+    //        dest: false,
+    //    };
+    //    for file in dir.files {
+    //        let norm = normalize::normalize(&file.file);
+    //        dir_state.files.push(FileState {
+    //            file: file.file,
+    //            size: file.size,
+    //            inode: file.inode,
+    //            tokens: TokenState {
+    //                norm,
+    //                ..TokenState::default()
+    //            },
+    //        });
+    //    }
+    //    state.dirs.insert(dir.dir, dir_state);
+    //}
+
+    //match args.command {
+    //    Command::MoveInto { dir } => {
+    //        if !dir.exists() {
+    //            std::fs::create_dir_all(&dir).unwrap();
+    //        }
+
+    //        let dir = std::fs::canonicalize(dir).unwrap();
+    //        assert!(dir.is_dir());
+
+    //        let dir = dir
+    //            .strip_prefix(&state.root)
+    //            .expect("move into dir outside of root dir");
+
+    //        info!("move into {:?}", dir);
+    //    }
+    //}
 
     //{
     //    let state_mut = state.lock().unwrap();
@@ -560,7 +542,6 @@ fn main() -> io::Result<()> {
     //context.tokens_map = Some(tokens_map);
     //context.tokens = Some(tokens);
 
-    //start_web_server();
 
     //if let Some(debug) = &args.debug {
     //    let mut f = std::fs::File::create(debug).unwrap();
