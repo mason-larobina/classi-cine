@@ -26,7 +26,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use textplots::{Chart, Plot, Shape};
 use thread_priority::*;
-use tokens::{TokenMap, Tokens, Token, Pair};
+use crate::tokens::{TokenMap, Tokens, Token, Pair};
+use crate::tokenize::PairTokenizer;
 
 #[derive(Debug)]
 enum Error {
@@ -412,16 +413,18 @@ use std::sync::{Mutex, MutexGuard};
 //    // TODO: history
 //}
 
+#[derive(Debug)]
 struct Entry {
     file: walk::File,
     norm: String,
+    tokens: Option<Tokens>,
 }
 
-#[derive(Default)]
-struct Classi {
-    tokens: TokenMap,
-    files: Vec<walk::File>,
-}
+//#[derive(Default)]
+//struct Classi {
+//    tokenizer: PairTokenizer,
+//    files: Vec<Entry>,
+//}
 
 fn main() -> io::Result<()> {
     let args = Args::parse();
@@ -437,14 +440,16 @@ fn main() -> io::Result<()> {
         set_current_thread_priority(ThreadPriority::Min).unwrap();
     });
 
-    let mut classi = Classi::default();
+    //let mut classi = Classi::default();
 
     let walk = Walk::new(args.video_exts.iter().map(String::as_ref));
     for dir in &args.dirs {
         walk.walk_dir(dir);
     }
 
-    let mut strings: HashSet<String> = HashSet::new();
+    let mut strings = Vec::new();
+
+    let mut entries = Vec::new();
 
     let rx = walk.into_rx();
     while let Ok(file) = rx.recv() {
@@ -452,21 +457,24 @@ fn main() -> io::Result<()> {
 
         let file_path: PathBuf = file.dir.join(&file.file_name);
         let norm = normalize::normalize(&file_path);
-        strings.insert(norm);
+        strings.push(norm.clone());
 
-        //for c in file_path.components() {
-        //    if let Component::Normal(s) = c {
-        //        strings.insert(s.to_string_lossy().into());
-        //    }
-        //}
+        let entry = Entry {
+            file,
+            norm,
+            tokens: None,
+        };
 
-        classi.files.push(file);
+        entries.push(entry);
     }
-
-    info!("{:?}", strings);
 
     let tokenizer = tokenize::PairTokenizer::new(strings.into_iter().collect());
     info!("{:?}", tokenizer);
+
+    for e in entries {
+        let tokens: Tokens = tokenizer.tokenize(&e.norm);
+        info!("{:?} {:?}", e, tokens.debug_strs(&tokenizer.token_map));
+    }
 
     //info!("{:?}", token_map);
 

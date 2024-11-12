@@ -4,20 +4,41 @@ use rayon::prelude::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::collections::hash_map::Entry;
 use std::io::Write;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct PairCounts {
-    counts: HashMap<Pair, i64>,
+    counts: Vec<HashMap<Pair, i64>>,
 }
 
 impl PairCounts {
-    fn update(&mut self, tokens: &Tokens, delta: i64) {
+    fn new() -> Self {
+        let mut counts = Vec::with_capacity(64);
+        for _ in 0..64 {
+            counts.push(HashMap::new());
+        }
+        Self { counts }
+    }
+
+    fn get_map<'a, T: Hash + Copy>(&'a mut self, item: T) -> &'a mut HashMap<Pair, i64> {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        item.hash(&mut hasher);
+        let len = self.counts.len() as u64;
+        let index = hasher.finish() % len;
+        &mut self.counts[index as usize]
+    }
+
+    fn update(&mut self, tokens: &Tokens, delta: i64, skip: &[Token]) {
         if delta == 0 {
             return;
         }
         for pair in tokens.pairs() {
-            match self.counts.entry(pair) {
+            if skip.contains(&pair.0) || skip.contains(&pair.1) {
+                continue;
+            }
+
+            match self.get_map(pair).entry(pair) {
                 Entry::Occupied(mut entry) => {
                     let count = entry.get().saturating_add(delta);
                     if count == 0 {
@@ -33,58 +54,49 @@ impl PairCounts {
         }
     }
 
-    fn update_from(&mut self, other: PairCounts) {
-        for (pair, delta) in other.counts {
-            let e = self.counts.entry(pair).or_default();
-            *e += delta;
-        }
+    fn map_max_count(counts: &HashMap<Pair, i64>) -> Option<(i64, Pair)> {
+        counts.iter().map(|(pair, count)| (*count, *pair)).max()
     }
 
     fn max(&self) -> Option<(i64, Pair)> {
-        let mut top = None;
-        for (pair, count) in self.counts.iter() {
-            let new = Some((*count, *pair));
-            if top.is_none() || top < new {
-                top = new;
-            }
-        }
-        top
+        self.counts.par_iter()
+            .filter_map(Self::map_max_count)
+            .max()
     }
 }
 
 #[derive(Debug)]
 pub struct PairTokenizer {
-    token_map: TokenMap,
-    unknown: Token,
-    path_sep: Token,
-    merges: Vec<(Token, Token, Token)>,
+    pub(crate) token_map: TokenMap,
+    skip: Vec<Token>,
+    merges: Vec<(Pair, Token)>,
 }
 
 impl PairTokenizer {
     pub fn new(strings: Vec<String>) -> PairTokenizer {
-        let mut token_map = TokenMap::default();
-        let unknown = token_map.create_token("<UNKNOWN>");
-        let path_sep = token_map.create_token(std::path::MAIN_SEPARATOR_STR);
-
         assert!(strings.len() > 0);
-        let limit: f64 = strings.len() as f64;
-        let limit: i64 = limit.log2() as i64;
-        info!("limit {:?}", limit);
 
-        let mut strings: Vec<Tokens> = strings.into_iter().map(|s| Tokens::from_str(&s, &mut token_map)).collect();
+        let mut token_map = TokenMap::new();
+        let skip = vec![
+            token_map.create_token(std::path::MAIN_SEPARATOR_STR),
+            token_map.create_token(" "),
+        ];
+
+        let min_freq: i64 = (strings.len() as f64).log2() as i64;
+        let mut strings: Vec<Tokens> = strings.into_iter().map(|s| Tokens::from_str_and_create(&s, &mut token_map)).collect();
 
         let mut merges = Vec::new();
-        let mut counts = PairCounts::default();
+        let mut counts = PairCounts::new();
         let mut tmp = Tokens::default();
 
         for s in strings.iter() {
-            counts.update(s, 1);
+            counts.update(s, 1, &skip);
         }
 
         loop {
             // Find max pair or finish.
             let pair = if let Some((count, pair)) = counts.max() {
-                if count < limit {
+                if count < min_freq {
                     break;
                 }
                 info!("{:?} {:?}", count, pair.to_string(&token_map));
@@ -94,15 +106,15 @@ impl PairTokenizer {
             };
 
             // Merge pair into new token.
-            let new = token_map.merge_create_token(pair);
-            merges.push((pair.0, pair.1, new));
+            let merged = token_map.merge(pair);
+            merges.push((pair, merged));
 
             // Apply merges and update counts.
             for s in strings.iter_mut() {
-                if s.contains(&pair) {
-                    if tmp.from_replace(s, pair, new) {
-                        counts.update(s, -1);
-                        counts.update(&tmp, 1);
+                if s.maybe_contains(pair) {
+                    if tmp.from_replace(s, pair, merged, &skip) {
+                        counts.update(s, -1, &skip);
+                        counts.update(&tmp, 1, &skip);
                         std::mem::swap(&mut tmp, s);
                     }
                 }
@@ -111,9 +123,21 @@ impl PairTokenizer {
 
         PairTokenizer {
             token_map,
-            unknown,
-            path_sep,
+            skip,
             merges,
         }
     }
+
+    pub fn tokenize(&self, s: &str) -> Tokens {
+        let mut tokens = Tokens::from_str_or_unknown(&s, &self.token_map);
+        let mut tmp = Tokens::default();
+        for (pair, merged) in self.merges.iter().cloned() {
+            if tokens.maybe_contains(pair) {
+                if tmp.from_replace(&tokens, pair, merged, &self.skip) {
+                    std::mem::swap(&mut tmp, &mut tokens);
+                }
+            }
+        }
+        tokens
+   }
 }
