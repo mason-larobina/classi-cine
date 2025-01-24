@@ -1,5 +1,11 @@
 use std::path::{Path, MAIN_SEPARATOR};
 
+/// Normalizes a file path by performing the following transformations:
+/// 1. Converts to lowercase
+/// 2. Replaces non-alphanumeric characters (except path separators) with spaces
+/// 3. Collapses consecutive special characters into single spaces
+/// 4. Removes apostrophes and trailing spaces
+/// 5. Maintains single path separators while cleaning surrounding spaces
 pub fn normalize(file: &Path) -> String {
     let file = file.to_string_lossy().to_lowercase();
     let mut ret = String::new();

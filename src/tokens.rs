@@ -1,6 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use crate::bloom::{Bloom, IntoMask};
 
 #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Token(pub(crate) u32);
@@ -8,36 +9,18 @@ pub struct Token(pub(crate) u32);
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Pair(pub Token, pub Token);
 
-#[derive(Debug, Default)]
-struct Bloom(u128);
-
-impl Bloom {
-    fn hash<T: Hash + Copy>(e: T) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        e.hash(&mut hasher);
-        hasher.finish()
-    }
-    
-    fn mask<T: Hash + Copy>(e: T) -> u128 {
-        1u128 << (Self::hash(e) % 128)
-    }
-
-    pub fn set<T: Hash + Copy>(&mut self, e: T) {
-        self.0 |= Self::mask(e);
-    }
-    
-    pub fn maybe_contains<T: Hash + Copy>(&self, e: T) -> bool {
-        let mask = Self::mask(e);
-        self.0 & mask == mask
-    }
-}
-
 impl Pair {
     pub(crate) fn to_string(&self, map: &TokenMap) -> String {
         let mut s = String::new();
         s.push_str(map.get_str(self.0).unwrap());
         s.push_str(map.get_str(self.1).unwrap());
         s
+    }
+}
+
+impl IntoMask for Pair {
+    fn into_mask(&self) -> u128 {
+        Bloom::mask(self)
     }
 }
 
@@ -103,8 +86,8 @@ impl Tokens {
         self.tokens.len() != from.tokens.len()
     }
 
-    pub fn maybe_contains(&self, pair: Pair) -> bool {
-        self.bloom.maybe_contains(pair)
+    pub fn contains<M: IntoMask>(&self, e: &M) -> bool {
+        self.bloom.contains(e)
     }
 
     pub fn len(&self) -> usize {

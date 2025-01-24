@@ -6,6 +6,7 @@ mod normalize;
 mod tokenize;
 mod tokens;
 mod walk;
+mod bloom;
 
 use walk::Walk;
 use chrono::{DateTime, Utc};

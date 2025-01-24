@@ -6,6 +6,7 @@ use std::collections::hash_map::Entry;
 use std::io::Write;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use crate::bloom::Bloom;
 
 #[derive(Debug)]
 struct PairCounts {
@@ -109,9 +110,12 @@ impl PairTokenizer {
             let merged = token_map.merge(pair);
             merges.push((pair, merged));
 
+            let mut bloom = Bloom::default();
+            bloom.set(pair);
+
             // Apply merges and update counts.
             for s in strings.iter_mut() {
-                if s.maybe_contains(pair) {
+                if s.contains(&bloom) {
                     if tmp.from_replace(s, pair, merged, &skip) {
                         counts.update(s, -1, &skip);
                         counts.update(&tmp, 1, &skip);
@@ -132,7 +136,7 @@ impl PairTokenizer {
         let mut tokens = Tokens::from_str_or_unknown(&s, &self.token_map);
         let mut tmp = Tokens::default();
         for (pair, merged) in self.merges.iter().cloned() {
-            if tokens.maybe_contains(pair) {
+            if tokens.contains(&pair) {
                 if tmp.from_replace(&tokens, pair, merged, &self.skip) {
                     std::mem::swap(&mut tmp, &mut tokens);
                 }
