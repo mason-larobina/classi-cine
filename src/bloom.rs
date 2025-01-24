@@ -1,6 +1,5 @@
-use std::collections::{HashSet, HashMap};
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
+use ahash::AHasher;
 
 #[derive(Debug, Default)]
 pub struct Bloom(u128);
@@ -17,7 +16,8 @@ impl IntoMask for Bloom {
 
 impl Bloom {
     fn hash<T: Hash + Copy>(e: T) -> u64 {
-        let mut hasher = DefaultHasher::new();
+        // Twice the speed of DefaultHasher.
+        let mut hasher = AHasher::default();
         e.hash(&mut hasher);
         hasher.finish()
     }
