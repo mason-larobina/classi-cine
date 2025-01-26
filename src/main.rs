@@ -1,14 +1,15 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+mod bloom;
 mod ngrams;
 mod normalize;
 mod tokenize;
 mod tokens;
 mod walk;
-mod bloom;
 
-use walk::Walk;
+use crate::tokenize::PairTokenizer;
+use crate::tokens::{Pair, Token, TokenMap, Tokens};
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use humansize::{format_size, BINARY};
@@ -27,8 +28,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use textplots::{Chart, Plot, Shape};
 use thread_priority::*;
-use crate::tokens::{TokenMap, Tokens, Token, Pair};
-use crate::tokenize::PairTokenizer;
+use walk::Walk;
 
 #[derive(Debug)]
 enum Error {
@@ -67,7 +67,6 @@ struct Args {
 
     //#[clap(long, default_value = "4")]
     //max_subword_len: u32,
-
     #[clap(long, default_value_t = 9111)]
     port: u16,
 
@@ -473,8 +472,8 @@ fn main() -> io::Result<()> {
     info!("{:?}", tokenizer);
 
     for e in entries {
-        let tokens: Tokens = tokenizer.tokenize(&e.norm);
-        info!("{:?} {:?}", e, tokens.debug_strs(&tokenizer.token_map));
+        let _tokens: Tokens = tokenizer.tokenize(&e.norm);
+        //info!("{:?} {:?}", e, tokens.debug_strs(&tokenizer.token_map));
     }
 
     //info!("{:?}", token_map);
@@ -550,7 +549,6 @@ fn main() -> io::Result<()> {
 
     //context.tokens_map = Some(tokens_map);
     //context.tokens = Some(tokens);
-
 
     //if let Some(debug) = &args.debug {
     //    let mut f = std::fs::File::create(debug).unwrap();
