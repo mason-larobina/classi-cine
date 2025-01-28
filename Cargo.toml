@@ -10,6 +10,10 @@ license = "MIT"
 keywords = ["bayes", "classification", "tokenization", "inference", "vlc"]
 categories = ["command-line-utilities"]
 
+[profile.perf]
+inherits = "release"
+debug = true
+
 [dependencies]
 ahash = "0.8.11"
 chrono = "0.4"

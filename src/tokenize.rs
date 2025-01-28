@@ -24,35 +24,36 @@ impl PairCounts {
     }
 
     fn get_map<'a, T: Hash + Copy>(&'a mut self, item: T) -> &'a mut HashMap<Pair, i64> {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = ahash::AHasher::default();
         item.hash(&mut hasher);
         let len = self.counts.len() as u64;
         let index = hasher.finish() % len;
         &mut self.counts[index as usize]
     }
 
-    fn update(&mut self, tokens: &Tokens, delta: i64, skip: &[Token]) {
+    fn update_pair(map: &mut HashMap<Pair, i64>, pair: Pair, delta: i64) {
+        match map.entry(pair) {
+            Entry::Occupied(mut entry) => {
+                let count = entry.get().saturating_add(delta);
+                if count == 0 {
+                    entry.remove();
+                } else {
+                    entry.insert(count);
+                }
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(delta);
+            }
+        }
+    }
+
+    fn update(&mut self, token_map: &TokenMap, tokens: &Tokens, delta: i64) {
         if delta == 0 {
             return;
         }
-        for pair in tokens.pairs() {
-            if skip.contains(&pair.0) || skip.contains(&pair.1) {
-                continue;
-            }
-
-            match self.get_map(pair).entry(pair) {
-                Entry::Occupied(mut entry) => {
-                    let count = entry.get().saturating_add(delta);
-                    if count == 0 {
-                        entry.remove();
-                    } else {
-                        entry.insert(count);
-                    }
-                }
-                Entry::Vacant(entry) => {
-                    entry.insert(delta);
-                }
-            }
+        for pair in tokens.pairs(token_map) {
+            let map = self.get_map(pair);
+            Self::update_pair(map, pair, delta);
         }
     }
 
@@ -67,19 +68,7 @@ impl PairCounts {
     fn apply(&mut self, delta: HashMap<Pair, i64>) {
         for (pair, delta) in delta {
             let map = self.get_map(pair);
-            match map.entry(pair) {
-                Entry::Occupied(mut entry) => {
-                    let count = entry.get().saturating_add(delta);
-                    if count == 0 {
-                        entry.remove();
-                    } else {
-                        entry.insert(count);
-                    }
-                }
-                Entry::Vacant(entry) => {
-                    entry.insert(delta);
-                }
-            }
+            Self::update_pair(map, pair, delta);
         }
     }
 }
@@ -87,7 +76,6 @@ impl PairCounts {
 #[derive(Debug)]
 pub struct PairTokenizer {
     pub(crate) token_map: TokenMap,
-    skip: Vec<Token>,
     merges: Vec<(Pair, Token)>,
 }
 
@@ -95,13 +83,8 @@ impl PairTokenizer {
     pub fn new(strings: Vec<String>) -> PairTokenizer {
         assert!(strings.len() > 0);
 
-        let mut token_map = TokenMap::new();
-
-        let skip = vec![
-            token_map.create_token(std::path::MAIN_SEPARATOR_STR),
-            token_map.create_token(" "),
-        ];
-        let skip_ref = &skip;
+        let special_chars = format!(" {}", std::path::MAIN_SEPARATOR);
+        let mut token_map = TokenMap::new(&special_chars);
 
         let min_freq: i64 = (strings.len() as f64).log2() as i64;
         let mut strings: Vec<Tokens> = strings
@@ -117,7 +100,7 @@ impl PairTokenizer {
         {
             let mut h = counts.lock().unwrap();
             for s in strings.iter() {
-                h.update(s, 1, &skip);
+                h.update(&token_map, s, 1);
             }
         }
 
@@ -140,6 +123,8 @@ impl PairTokenizer {
             let mut bloom = Bloom::default();
             bloom.set(pair);
 
+            let token_map_ref = &token_map;
+
             strings.par_chunks_mut(1000).for_each(move |chunk| {
                 let mut local_delta = HashMap::new();
                 let mut tmp = Tokens::default();
@@ -147,18 +132,12 @@ impl PairTokenizer {
                     if !s.contains(&bloom) {
                         continue;
                     }
-                    if tmp.from_replace(s, pair, merged, skip_ref) {
-                        for p in s
-                            .pairs()
-                            .filter(|p| !skip_ref.contains(&p.0) && !skip_ref.contains(&p.1))
-                        {
-                            *local_delta.entry(p).or_insert(0) -= 1;
+                    if tmp.from_replace(token_map_ref, s, pair, merged) {
+                        for p in s.pairs(token_map_ref) {
+                            PairCounts::update_pair(&mut local_delta, p, -1);
                         }
-                        for p in tmp
-                            .pairs()
-                            .filter(|p| !skip_ref.contains(&p.0) && !skip_ref.contains(&p.1))
-                        {
-                            *local_delta.entry(p).or_insert(0) += 1;
+                        for p in tmp.pairs(token_map_ref) {
+                            PairCounts::update_pair(&mut local_delta, p, 1);
                         }
                         std::mem::swap(s, &mut tmp);
                     }
@@ -167,11 +146,7 @@ impl PairTokenizer {
             });
         }
 
-        PairTokenizer {
-            token_map,
-            skip,
-            merges,
-        }
+        PairTokenizer { token_map, merges }
     }
 
     pub fn tokenize(&self, s: &str) -> Tokens {
@@ -179,7 +154,7 @@ impl PairTokenizer {
         let mut tmp = Tokens::default();
         for (pair, merged) in self.merges.iter().cloned() {
             if tokens.contains(&pair) {
-                if tmp.from_replace(&tokens, pair, merged, &self.skip) {
+                if tmp.from_replace(&self.token_map, &tokens, pair, merged) {
                     std::mem::swap(&mut tmp, &mut tokens);
                 }
             }
