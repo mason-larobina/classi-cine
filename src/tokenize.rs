@@ -114,6 +114,8 @@ impl PairTokenizer {
     ///
     /// # Panics
     /// Will panic if strings is empty
+    ///
+    /// TODO: Take a Iterator<Item=&str> rather than Vec<String>. AI!
     pub fn new(strings: Vec<String>) -> Result<PairTokenizer, &'static str> {
         if strings.is_empty() {
             return Err("Cannot create tokenizer with empty training data");
@@ -213,7 +215,7 @@ impl PairTokenizer {
         }
 
         // Return a `PairTokenizer` that includes the final token map and merges performed.
-        PairTokenizer { token_map, merges }
+        Ok(PairTokenizer { token_map, merges })
     }
 
     /// Tokenizes a given input string `s` by using the merges derived during `new`.
