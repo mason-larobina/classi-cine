@@ -488,8 +488,11 @@ fn main() -> io::Result<()> {
         }
     }
 
-    // TODO: map filter and collect the ngram_counts if count >= 1. AI!
-
+    // Filter ngrams that appear more than once and collect into a new map
+    let frequent_ngrams: ahash::AHashMap<Ngram, u8> = ngram_counts
+        .into_iter()
+        .filter(|(_, count)| *count >= 2)
+        .collect();
 
 
     //info!("{:?}", token_map);
