@@ -29,6 +29,7 @@ use std::time::{Duration, SystemTime};
 use textplots::{Chart, Plot, Shape};
 use thread_priority::*;
 use walk::Walk;
+use ngrams::{Ngram,Ngrams};
 
 #[derive(Debug)]
 enum Error {
@@ -418,6 +419,7 @@ struct Entry {
     file: walk::File,
     norm: String,
     tokens: Option<Tokens>,
+    ngrams: Option<Ngrams>,
 }
 
 //#[derive(Default)]
@@ -463,18 +465,32 @@ fn main() -> io::Result<()> {
             file,
             norm,
             tokens: None,
+            ngrams: None,
         };
 
         entries.push(entry);
     }
 
-    let tokenizer = tokenize::PairTokenizer::new(strings.into_iter().collect());
+    let tokenizer = tokenize::PairTokenizer::new(strings.into_iter().collect()).unwrap();
     info!("{:?}", tokenizer);
 
-    for e in entries {
-        let _tokens: Tokens = tokenizer.tokenize(&e.norm);
-        //info!("{:?} {:?}", e, tokens.debug_strs(&tokenizer.token_map));
+    let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
+
+    let mut ngrams = Ngrams::default();
+    for e in entries.iter_mut() {
+        e.tokens = Some(tokenizer.tokenize(&e.norm));
+
+        // First pass, most ngrams are unique so don't store them per entry yet, just their count.
+        ngrams.generate(e.tokens.as_ref().unwrap(), 5, None);
+        for ngram in ngrams.iter() {
+            let e = ngram_counts.entry(*ngram).or_default();
+            *e = e.saturating_add(1);
+        }
     }
+
+    // TODO: map filter and collect the ngram_counts if count >= 1. AI!
+
+
 
     //info!("{:?}", token_map);
 
