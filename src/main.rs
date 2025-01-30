@@ -388,32 +388,6 @@ struct Args {
 
 use std::sync::{Mutex, MutexGuard};
 
-//#[derive(Debug, Default)]
-//struct TokenState {
-//    norm: String,
-//    tokens: Option<tokens::Tokens>,
-//    ngrams: Option<ngrams::Ngrams>,
-//}
-//
-//#[derive(Debug)]
-//struct FileState {
-//    file: PathBuf,
-//    size: u64,
-//    inode: u64,
-//    tokens: TokenState,
-//}
-//
-//#[derive(Debug)]
-//struct DirState {
-//    dir: PathBuf,
-//    tokens: TokenState,
-//    files: Vec<FileState>,
-//    source: bool,
-//    dest: bool,
-//    // TODO: classifier
-//    // TODO: history
-//}
-
 #[derive(Debug)]
 struct Entry {
     file: walk::File,
@@ -432,6 +406,11 @@ struct App {
 impl App {
     fn new() -> Self {
         let args = Args::parse();
+        if std::env::var("RUST_LOG").is_err() {
+            std::env::set_var("RUST_LOG", &args.log_level);
+        }
+        env_logger::init();
+        info!("{:#?}", args);
         Self {
             args,
             entries: Vec::new(),
@@ -440,20 +419,14 @@ impl App {
         }
     }
 
-    fn init_logging(&self) {
-        if std::env::var("RUST_LOG").is_err() {
-            std::env::set_var("RUST_LOG", &self.args.log_level);
-        }
-        env_logger::init();
-        info!("{:#?}", self.args);
-    }
-
     fn init_thread_priority(&self) {
         rayon::broadcast(|_| {
             set_current_thread_priority(ThreadPriority::Min).unwrap();
         });
     }
 
+    // Split this into two methods, collect_files and create_tokenizer from the entry norm strings.
+    // AI!
     fn collect_files(&mut self) {
         let walk = Walk::new(self.args.video_exts.iter().map(String::as_ref));
         for dir in &self.args.dirs {
@@ -464,7 +437,7 @@ impl App {
         let rx = walk.into_rx();
         
         while let Ok(file) = rx.recv() {
-            info!("{:?}", file);
+            debug!("{:?}", file);
 
             let file_path: PathBuf = file.dir.join(&file.file_name);
             let norm = normalize::normalize(&file_path);
@@ -480,8 +453,7 @@ impl App {
             self.entries.push(entry);
         }
 
-        self.tokenizer = Some(tokenize::PairTokenizer::new(strings.into_iter().collect()).unwrap());
-        info!("{:?}", self.tokenizer);
+        self.tokenizer = Some(tokenize::PairTokenizer::new(strings).unwrap());
     }
 
     fn process_ngrams(&mut self) {
@@ -524,7 +496,6 @@ impl App {
     }
 
     fn run(&mut self) -> io::Result<()> {
-        self.init_logging();
         self.init_thread_priority();
         self.collect_files();
         self.process_ngrams();
@@ -533,8 +504,9 @@ impl App {
 }
 
 fn main() -> io::Result<()> {
-    App::new().run()
-
+    let mut app = App::new();
+    app.run()?;
+    Ok(())
 
     //println!("Tokenize files");
     //let mut file_tokens_vec: Vec<FileTokens> =
@@ -726,5 +698,4 @@ fn main() -> io::Result<()> {
     //    std::thread::sleep(std::time::Duration::from_secs(1));
     //}
     //
-    Ok(())
 }
