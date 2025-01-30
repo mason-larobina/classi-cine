@@ -1,10 +1,14 @@
 use std::hash::{Hash, Hasher};
 use ahash::AHasher;
 
+/// A simple Bloom filter implementation using a 128-bit mask
+/// Provides fast approximate set membership testing
 #[derive(Debug, Default)]
 pub struct Bloom(u128);
 
+/// Trait for types that can be converted into a Bloom filter mask
 pub trait IntoMask {
+    /// Convert this type into a 128-bit Bloom filter mask
     fn into_mask(&self) -> u128;
 }
 

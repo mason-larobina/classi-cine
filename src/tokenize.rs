@@ -104,9 +104,20 @@ pub struct PairTokenizer {
 impl PairTokenizer {
     /// Constructs a new `PairTokenizer` from a list of input strings.
     /// Internally, it iteratively merges the most frequent pair until a frequency threshold is reached.
-    pub fn new(strings: Vec<String>) -> PairTokenizer {
-        // Ensure there's at least one string to tokenize.
-        assert!(strings.len() > 0);
+    /// Creates a new PairTokenizer from a set of training strings
+    /// 
+    /// # Arguments
+    /// * `strings` - Training corpus to learn token pairs from
+    ///
+    /// # Returns
+    /// A new PairTokenizer configured based on the training data
+    ///
+    /// # Panics
+    /// Will panic if strings is empty
+    pub fn new(strings: Vec<String>) -> Result<PairTokenizer, &'static str> {
+        if strings.is_empty() {
+            return Err("Cannot create tokenizer with empty training data");
+        }
 
         // Prevent the tokenizer from splitting on special characters.
         let special_chars = format!(" {}", std::path::MAIN_SEPARATOR);
