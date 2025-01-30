@@ -425,23 +425,18 @@ impl App {
         });
     }
 
-    // Split this into two methods, collect_files and create_tokenizer from the entry norm strings.
-    // AI!
     fn collect_files(&mut self) {
         let walk = Walk::new(self.args.video_exts.iter().map(String::as_ref));
         for dir in &self.args.dirs {
             walk.walk_dir(dir);
         }
 
-        let mut strings = Vec::new();
         let rx = walk.into_rx();
-        
         while let Ok(file) = rx.recv() {
             debug!("{:?}", file);
 
             let file_path: PathBuf = file.dir.join(&file.file_name);
             let norm = normalize::normalize(&file_path);
-            strings.push(norm.clone());
 
             let entry = Entry {
                 file,
@@ -452,7 +447,13 @@ impl App {
 
             self.entries.push(entry);
         }
+    }
 
+    fn create_tokenizer(&mut self) {
+        let strings: Vec<String> = self.entries.iter()
+            .map(|e| e.norm.clone())
+            .collect();
+        
         self.tokenizer = Some(tokenize::PairTokenizer::new(strings).unwrap());
     }
 
@@ -498,6 +499,7 @@ impl App {
     fn run(&mut self) -> io::Result<()> {
         self.init_thread_priority();
         self.collect_files();
+        self.create_tokenizer();
         self.process_ngrams();
         Ok(())
     }
