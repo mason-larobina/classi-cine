@@ -115,8 +115,12 @@ impl PairTokenizer {
     /// # Panics
     /// Will panic if strings is empty
     ///
-    /// TODO: Take a Iterator<Item=&str> rather than Vec<String>. AI!
-    pub fn new(strings: Vec<String>) -> Result<PairTokenizer, &'static str> {
+    pub fn new<'a, I>(strings: I) -> Result<PairTokenizer, &'static str> 
+    where
+        I: IntoIterator<Item = &'a str>
+    {
+        // Convert iterator to Vec<String> since we need multiple passes
+        let strings: Vec<String> = strings.into_iter().map(String::from).collect();
         if strings.is_empty() {
             return Err("Cannot create tokenizer with empty training data");
         }
@@ -267,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_pair_tokenizer_basic() {
-        let pt = PairTokenizer::new(vec!["hello world".to_string()]);
+        let pt = PairTokenizer::new(std::iter::once("hello world"));
         let tokens = pt.tokenize("hello world");
         // Checking if the round trip matches (assuming to_string is valid)
         assert_eq!(

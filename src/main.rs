@@ -450,11 +450,9 @@ impl App {
     }
 
     fn create_tokenizer(&mut self) {
-        let strings: Vec<String> = self.entries.iter()
-            .map(|e| e.norm.clone())
-            .collect();
-        
-        self.tokenizer = Some(tokenize::PairTokenizer::new(strings).unwrap());
+        self.tokenizer = Some(tokenize::PairTokenizer::new(
+            self.entries.iter().map(|e| e.norm.as_str())
+        ).unwrap());
     }
 
     fn process_ngrams(&mut self) {
