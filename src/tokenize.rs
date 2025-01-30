@@ -115,29 +115,35 @@ impl PairTokenizer {
     /// # Panics
     /// Will panic if strings is empty
     ///
-    pub fn new<'a, I>(strings: I) -> Result<PairTokenizer, &'static str> 
+    pub fn new<'a, I>(strings: I) -> PairTokenizer
     where
         I: IntoIterator<Item = &'a str>
     {
-        // Convert iterator to Vec<String> since we need multiple passes
-        let strings: Vec<String> = strings.into_iter().map(String::from).collect();
-        if strings.is_empty() {
-            return Err("Cannot create tokenizer with empty training data");
-        }
+        // Prevent the tokenizer from merging special characters.
+        let mut special_chars = String::new();
+        special_chars.push(' ');
+        special_chars.push(std::path::MAIN_SEPARATOR);
 
-        // Prevent the tokenizer from splitting on special characters.
-        let special_chars = format!(" {}", std::path::MAIN_SEPARATOR);
         let mut token_map = TokenMap::new(&special_chars);
-
-        // Compute the minimum pair merge frequency threshold, derived from the log base 2 of input size.
-        // This is a crude form of stemming that prevents merging very rare pairs.
-        let min_freq: i64 = (strings.len() as f64).log2() as i64;
 
         // Transform each string into a sequence of tokens, creating any necessary tokens in the token_map.
         let mut strings: Vec<Tokens> = strings
             .into_iter()
             .map(|s| Tokens::from_str_and_create(&s, &mut token_map))
             .collect();
+
+        if strings.is_empty() {
+            return PairTokenizer {
+                token_map,
+                merges: Vec::new(),
+            };
+        }
+
+        // Compute the minimum pair merge frequency threshold, derived from the log base 2 of input size.
+        // This is a crude form of stemming that prevents merging very rare pairs.
+        // For example: cook-ing, cook-er, cook-ed, etc retain the stem/root unless very common.
+        let min_freq: i64 = i64::max(2, (strings.len() as f64 + 1.0).log2() as i64);
+        info!("merge min freq {:?}", min_freq);
 
         // Holds the record of merges performed as `(Pair, Token)`.
         let mut merges = Vec::new();
@@ -219,7 +225,7 @@ impl PairTokenizer {
         }
 
         // Return a `PairTokenizer` that includes the final token map and merges performed.
-        Ok(PairTokenizer { token_map, merges })
+        PairTokenizer { token_map, merges }
     }
 
     /// Tokenizes a given input string `s` by using the merges derived during `new`.

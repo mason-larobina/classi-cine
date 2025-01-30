@@ -450,18 +450,19 @@ impl App {
     }
 
     fn create_tokenizer(&mut self) {
-        self.tokenizer = Some(tokenize::PairTokenizer::new(
-            self.entries.iter().map(|e| e.norm.as_str())
-        ).unwrap());
+        let norm_it = self.entries.iter().map(|e| e.norm.as_str());
+        self.tokenizer = Some(tokenize::PairTokenizer::new(norm_it))
     }
 
     fn process_ngrams(&mut self) {
+        let tokenizer = self.tokenizer.as_ref().unwrap();
+
         let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
         let mut ngrams = Ngrams::default();
 
         // First pass to count ngrams
         for e in self.entries.iter_mut() {
-            e.tokens = Some(self.tokenizer.as_ref().unwrap().tokenize(&e.norm));
+            e.tokens = Some(tokenizer.tokenize(&e.norm));
 
             ngrams.windows(e.tokens.as_ref().unwrap(), 5, None, None);
             for ngram in ngrams.iter() {
@@ -508,60 +509,6 @@ fn main() -> io::Result<()> {
     app.run()?;
     Ok(())
 
-    //println!("Tokenize files");
-    //let mut file_tokens_vec: Vec<FileTokens> =
-    //    parallel_tokenize_files(&pool, &tokenizer, file_sizes.keys().cloned().collect());
-
-    //let tokens_vec: Vec<Tokens> = file_tokens_vec.iter().map(|e| e.tokens.clone()).collect();
-    //let (_, common_tokens) = parallel_unique_tokens(&pool, tokens_vec);
-
-    //let common_tokens_ref = &common_tokens;
-
-    //info!("remove unique tokens from file_tokens");
-    //let done = file_tokens_vec
-    //    .par_iter_mut()
-    //    .map(move |ft| {
-    //        ft.tokens.retain(common_tokens_ref);
-    //    })
-    //    .count();
-    //info!("remove unique tokens from file_tokens: done {}", done);
-
-    //let mut total_token_counts: HashMap<u64, u32> =
-    //    parallel_token_count(&pool, token_counts.clone())
-    //        .into_iter()
-    //        .collect();
-
-    //info!("Purge unique tokens before: {}", total_token_counts.len());
-    //total_token_counts.retain(|_, v| *v > 1);
-    //info!("Purge unique tokens done: {}", total_token_counts.len());
-
-    //let mut token_counter = tokenizer::TokenCounter::new();
-
-    //for (file, _) in &file_sizes {
-    //    let tokens: Vec<String> = tokenizer.tokenize(file);
-    //    //let mut hashes: Vec<u64> = tokens.iter().map(TokenCounter::hash).collect();
-    //    //hashes.sort();
-    //    //hashes.dedup();
-    //    //assert_eq!(tokens.len(), hashes.len());
-
-    //    //for hash in &hashes {
-    //    //    token_counter.increment(*hash, 1);
-    //    //}
-
-    //    //println!("File: {:?}, Tokens: {:?}", file, tokens.len());
-    //    //println!("{:?}", tokens);
-    //}
-
-    //for (file, size) in file_sizes {
-    //    let tokens = tokenizer.tokenize(file);
-    //    println!("{:?} {:?}", file, tokens);
-    //}
-
-    //let tokenizer = {
-    //    let files: Vec<PathBuf> = file_sizes.keys().cloned().collect();
-    //    Tokenizer::new(args.k, args.tokenize, &files)
-    //};
-    //let mut classifier = NaiveBayesClassifier::new(&tokenizer);
 
     //let mut delete = State::from(&args.delete)?;
     //for path in delete.iter() {

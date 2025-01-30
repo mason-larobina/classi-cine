@@ -5,3 +5,5 @@ target/
 perf.*
 flamegraph.svg
 .continue*
+.aider*
+.env
