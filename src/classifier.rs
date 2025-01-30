@@ -1,112 +1,134 @@
-//use crate::tokenizer::{Ngram, TokenizeMode, Tokenizer};
-//use std::collections::HashMap;
-//
-//// The NgramCounter struct is designed to maintain counts of ngrams.
-//#[derive(Debug)]
-//pub struct NgramCounter {
-//    // A HashMap storing the counts of each ngram.
-//    counts: HashMap<Ngram, usize>,
-//
-//    // A running total of all ngrams observed.
-//    total: usize,
-//
-//    unique_ngram_count: u32,
-//}
-//
-////impl NgramCounter {
-////    fn new(unique_ngram_count: u32) -> Self {
-////        assert!(unique_ngram_count > 0);
-////
-////        Self {
-////            counts: HashMap::new(),
-////            total: 0,
-////            unique_ngram_count,
-////        }
-////    }
-////
-////    // Increment the count for a given ngram.
-////    fn inc(&mut self, ngram: Ngram) {
-////        let e = self.counts.entry(ngram).or_default();
-////        *e += 1;
-////        self.total += 1;
-////    }
-////
-////    // Get the smoothed log probability of observing a given ngram.
-////    //
-////    // Laplace smoothed.
-////    fn log_p(&self, ngram: &Ngram) -> f64 {
-////        let count = (self.counts.get(ngram).cloned().unwrap_or_default() + 1) as f64;
-////        let total = (self.total + self.unique_ngram_count as usize) as f64;
-////        (count / total).max(f64::MIN_POSITIVE).ln()
-////    }
-////}
-//
-//#[derive(Debug)]
-//pub struct NaiveBayesClassifier {
-//    delete: NgramCounter,
-//    keep: NgramCounter,
-//}
-//
-////impl NaiveBayesClassifier {
-////    pub fn new(tokenizer: &Tokenizer) -> Self {
-////        Self {
-////            delete: NgramCounter::new(tokenizer),
-////            keep: NgramCounter::new(tokenizer),
-////        }
-////    }
-////
-////    pub fn train_delete(&mut self, ngrams: &[Ngram]) {
-////        for ngram in ngrams {
-////            self.delete.inc(*ngram);
-////        }
-////    }
-////
-////    pub fn train_keep(&mut self, ngrams: &[Ngram]) {
-////        for ngram in ngrams {
-////            self.keep.inc(*ngram);
-////        }
-////    }
-////
-////    pub fn predict_delete(&self, ngrams: &[Ngram]) -> f64 {
-////        let mut log_p = 0.0;
-////        for ngram in ngrams {
-////            log_p += self.delete.log_p(ngram);
-////            log_p -= self.keep.log_p(ngram);
-////        }
-////        log_p
-////    }
-////
-////    pub fn debug_delete(&self, tokenizer: &Tokenizer, ngrams: &[Ngram]) -> Vec<(f64, String)> {
-////        let mut scores: Vec<(f64, String)> = Vec::new();
-////
-////        for ngram in ngrams {
-////            let score = self.delete.log_p(ngram) - self.keep.log_p(ngram);
-////
-////            if let Some(tokens) = tokenizer.ngram_tokens.get(ngram) {
-////                let mut v = Vec::new();
-////                for token in tokens {
-////                    if let Some(s) = tokenizer.token_string.get(token) {
-////                        v.push(s.to_string());
-////                    } else {
-////                        v.push(String::from("*"));
-////                    }
-////                }
-////
-////                let k = match tokenizer.tokenize {
-////                    TokenizeMode::Chars => v.join(""),
-////                    TokenizeMode::Words => v.join(" "),
-////                };
-////
-////                scores.push((score, k));
-////            }
-////        }
-////
-////        scores.sort_by(|a, b| a.partial_cmp(&b).unwrap());
-////
-////        for (k, _) in scores.iter_mut() {
-////            *k = crate::round(*k);
-////        }
-////
-////        scores
-////    }
-////}
+use crate::ngrams::Ngram;
+use crate::tokens::Tokens;
+use std::path::Path;
+
+/// A score between 0.0 and 1.0 indicating classification confidence
+#[derive(Debug, Clone, Copy)]
+pub struct Score(pub f64);
+
+impl Score {
+    pub fn new(value: f64) -> Self {
+        Self(value.clamp(0.0, 1.0))
+    }
+}
+
+/// Trait for types that can classify files/content
+pub trait Classifier {
+    /// Returns a score indicating how likely the item should be kept
+    fn score(&self, item: &ClassifierItem) -> Score;
+}
+
+/// Input data for classification
+#[derive(Debug)]
+pub struct ClassifierItem<'a> {
+    /// Path to the file
+    pub path: &'a Path,
+    /// Normalized filename 
+    pub norm: &'a str,
+    /// Tokenized content
+    pub tokens: Option<&'a Tokens>,
+    /// Ngrams extracted from content
+    pub ngrams: Option<&'a [Ngram]>,
+}
+
+/// Classifies based on file size
+pub struct FileSizeClassifier {
+    /// Base for logarithmic scaling
+    log_base: f64,
+}
+
+impl FileSizeClassifier {
+    pub fn new(log_base: f64) -> Self {
+        Self { log_base }
+    }
+}
+
+impl Classifier for FileSizeClassifier {
+    fn score(&self, item: &ClassifierItem) -> Score {
+        let size = std::fs::metadata(item.path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        
+        // Larger files get higher scores
+        let score = if size == 0 {
+            0.0
+        } else {
+            (size as f64).log(self.log_base) / 20.0 
+        };
+        
+        Score::new(score)
+    }
+}
+
+/// Classifies based on number of files in same directory
+pub struct DirSizeClassifier;
+
+impl Classifier for DirSizeClassifier {
+    fn score(&self, item: &ClassifierItem) -> Score {
+        let count = item.path.parent()
+            .and_then(|dir| std::fs::read_dir(dir).ok())
+            .map(|entries| entries.count())
+            .unwrap_or(0);
+
+        // More files = higher score
+        let score = (count as f64).log2() / 10.0;
+        Score::new(score)
+    }
+}
+
+/// Combines multiple classifiers with weights
+pub struct WeightedClassifier {
+    classifiers: Vec<(Box<dyn Classifier>, f64)>, 
+}
+
+impl WeightedClassifier {
+    pub fn new() -> Self {
+        Self {
+            classifiers: Vec::new()
+        }
+    }
+
+    pub fn add(&mut self, classifier: impl Classifier + 'static, weight: f64) {
+        self.classifiers.push((Box::new(classifier), weight));
+    }
+}
+
+impl Classifier for WeightedClassifier {
+    fn score(&self, item: &ClassifierItem) -> Score {
+        let mut total_score = 0.0;
+        let mut total_weight = 0.0;
+
+        for (classifier, weight) in &self.classifiers {
+            total_score += classifier.score(item).0 * weight;
+            total_weight += weight;
+        }
+
+        Score::new(total_score / total_weight)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_weighted_classifier() {
+        let mut classifier = WeightedClassifier::new();
+        
+        // Add size and directory classifiers with weights
+        classifier.add(FileSizeClassifier::new(2.0), 0.7);
+        classifier.add(DirSizeClassifier, 0.3);
+
+        let path = PathBuf::from("test.txt");
+        let item = ClassifierItem {
+            path: &path,
+            norm: "test.txt",
+            tokens: None,
+            ngrams: None,
+        };
+
+        let score = classifier.score(&item);
+        assert!(score.0 >= 0.0 && score.0 <= 1.0);
+    }
+}

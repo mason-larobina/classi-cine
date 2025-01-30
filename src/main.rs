@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 
 mod bloom;
+mod classifier;
 mod ngrams;
 mod normalize;
 mod tokenize;
