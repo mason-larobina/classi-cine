@@ -481,116 +481,35 @@ fn main() -> io::Result<()> {
         e.tokens = Some(tokenizer.tokenize(&e.norm));
 
         // First pass, most ngrams are unique so don't store them per entry yet, just their count.
-        ngrams.generate(e.tokens.as_ref().unwrap(), 5, None);
+        ngrams.windows(e.tokens.as_ref().unwrap(), 5, None, None);
         for ngram in ngrams.iter() {
             let e = ngram_counts.entry(*ngram).or_default();
             *e = e.saturating_add(1);
         }
     }
 
+    info!("total ngrams {:?}", ngram_counts.len());
+
     // Filter ngrams that appear more than once and collect into a new map
-    let frequent_ngrams: ahash::AHashMap<Ngram, u8> = ngram_counts
+    let frequent_ngrams: ahash::AHashSet<Ngram> = ngram_counts
         .into_iter()
-        .filter(|(_, count)| *count >= 2)
+        .filter_map(|(ngram, count)| {
+            if count > 1 {
+                Some(ngram)
+            } else {
+                None
+            }
+        })
         .collect();
 
+    info!("frequent ngrams {:?}", frequent_ngrams.len());
 
-    //info!("{:?}", token_map);
+    // Final ngram pass to generate and keep frequent ngrams.
+    for e in entries.iter_mut() {
+        let mut ngrams = Ngrams::default();
+        ngrams.windows(e.tokens.as_ref().unwrap(), 5, Some(&frequent_ngrams), None);
+    }
 
-    //for dir in dirs {
-    //    info!("Dir {:?}", dir.dir);
-    //    let norm = normalize::normalize(&dir.dir);
-    //    let mut dir_state = DirState {
-    //        dir: dir.dir.clone(),
-    //        files: Vec::new(),
-    //        tokens: TokenState {
-    //            norm,
-    //            ..TokenState::default()
-    //        },
-    //        source: false,
-    //        dest: false,
-    //    };
-    //    for file in dir.files {
-    //        let norm = normalize::normalize(&file.file);
-    //        dir_state.files.push(FileState {
-    //            file: file.file,
-    //            size: file.size,
-    //            inode: file.inode,
-    //            tokens: TokenState {
-    //                norm,
-    //                ..TokenState::default()
-    //            },
-    //        });
-    //    }
-    //    state.dirs.insert(dir.dir, dir_state);
-    //}
-
-    //match args.command {
-    //    Command::MoveInto { dir } => {
-    //        if !dir.exists() {
-    //            std::fs::create_dir_all(&dir).unwrap();
-    //        }
-
-    //        let dir = std::fs::canonicalize(dir).unwrap();
-    //        assert!(dir.is_dir());
-
-    //        let dir = dir
-    //            .strip_prefix(&state.root)
-    //            .expect("move into dir outside of root dir");
-
-    //        info!("move into {:?}", dir);
-    //    }
-    //}
-
-    //{
-    //    let state_mut = state.lock().unwrap();
-    //    for (root, file, size) in root_file_size.into_iter() {
-    //        let file_state = FileState {
-    //            file,
-    //            size,
-    //        }
-    //        context.roots.push(root);
-    //        context.normalized.push(normalize::normalize(&file));
-    //        context.files.push(file);
-    //        context.sizes.push(size);
-    //    }
-    //}
-
-    //let par_chunk_size = get_chunk_size(context.files.len());
-
-    //let (tokens_map, tokens) = match args.mode {
-    //    TokenizeMode::Chars => tokenize::chars(&context.normalized),
-    //    TokenizeMode::Subwords => {
-    //        tokenize::subwords(&context.normalized, par_chunk_size, args.max_subword_len)
-    //    }
-    //    TokenizeMode::Words => tokenize::words(&context.normalized),
-    //};
-
-    //context.tokens_map = Some(tokens_map);
-    //context.tokens = Some(tokens);
-
-    //if let Some(debug) = &args.debug {
-    //    let mut f = std::fs::File::create(debug).unwrap();
-    //    let mut tokens_str = Vec::new();
-    //    for i in 0..files.len() {
-    //        let root = &roots[i];
-    //        let file = &files[i];
-    //        let norm = &norm_files[i];
-    //        let tokens = &tokens_vec[i];
-    //        let size = &sizes[i];
-    //        tokens_str.clear();
-    //        for token in tokens.as_slice() {
-    //            tokens_str.push(vocab.get_str(*token));
-    //        }
-    //        write!(
-    //            f,
-    //            "{{\n    Root: {:?}\n    File: {:?},\n    Norm: {:?},\n    Toks: {:?},\n    Size: {},\n}}\n",
-    //            root, file, norm, tokens_str, size
-    //        )
-    //        .unwrap();
-    //    }
-    //    info!("Wrote debug file: {:?}", debug);
-    //}
 
     //println!("Tokenize files");
     //let mut file_tokens_vec: Vec<FileTokens> =
