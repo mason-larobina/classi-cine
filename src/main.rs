@@ -422,93 +422,118 @@ struct Entry {
     ngrams: Option<Ngrams>,
 }
 
-//#[derive(Default)]
-//struct Classi {
-//    tokenizer: PairTokenizer,
-//    files: Vec<Entry>,
-//}
+struct App {
+    args: Args,
+    entries: Vec<Entry>,
+    tokenizer: Option<PairTokenizer>,
+    frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
+}
 
-fn main() -> io::Result<()> {
-    let args = Args::parse();
-
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", &args.log_level);
-    }
-    env_logger::init();
-
-    info!("{:#?}", args);
-
-    rayon::broadcast(|_| {
-        set_current_thread_priority(ThreadPriority::Min).unwrap();
-    });
-
-    //let mut classi = Classi::default();
-
-    let walk = Walk::new(args.video_exts.iter().map(String::as_ref));
-    for dir in &args.dirs {
-        walk.walk_dir(dir);
-    }
-
-    let mut strings = Vec::new();
-
-    let mut entries = Vec::new();
-
-    let rx = walk.into_rx();
-    while let Ok(file) = rx.recv() {
-        info!("{:?}", file);
-
-        let file_path: PathBuf = file.dir.join(&file.file_name);
-        let norm = normalize::normalize(&file_path);
-        strings.push(norm.clone());
-
-        let entry = Entry {
-            file,
-            norm,
-            tokens: None,
-            ngrams: None,
-        };
-
-        entries.push(entry);
-    }
-
-    let tokenizer = tokenize::PairTokenizer::new(strings.into_iter().collect()).unwrap();
-    info!("{:?}", tokenizer);
-
-    let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
-
-    let mut ngrams = Ngrams::default();
-    for e in entries.iter_mut() {
-        e.tokens = Some(tokenizer.tokenize(&e.norm));
-
-        // First pass, most ngrams are unique so don't store them per entry yet, just their count.
-        ngrams.windows(e.tokens.as_ref().unwrap(), 5, None, None);
-        for ngram in ngrams.iter() {
-            let e = ngram_counts.entry(*ngram).or_default();
-            *e = e.saturating_add(1);
+impl App {
+    fn new() -> Self {
+        let args = Args::parse();
+        Self {
+            args,
+            entries: Vec::new(),
+            tokenizer: None,
+            frequent_ngrams: None,
         }
     }
 
-    info!("total ngrams {:?}", ngram_counts.len());
-
-    // Filter ngrams that appear more than once and collect into a new map
-    let frequent_ngrams: ahash::AHashSet<Ngram> = ngram_counts
-        .into_iter()
-        .filter_map(|(ngram, count)| {
-            if count > 1 {
-                Some(ngram)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    info!("frequent ngrams {:?}", frequent_ngrams.len());
-
-    // Final ngram pass to generate and keep frequent ngrams.
-    for e in entries.iter_mut() {
-        let mut ngrams = Ngrams::default();
-        ngrams.windows(e.tokens.as_ref().unwrap(), 5, Some(&frequent_ngrams), None);
+    fn init_logging(&self) {
+        if std::env::var("RUST_LOG").is_err() {
+            std::env::set_var("RUST_LOG", &self.args.log_level);
+        }
+        env_logger::init();
+        info!("{:#?}", self.args);
     }
+
+    fn init_thread_priority(&self) {
+        rayon::broadcast(|_| {
+            set_current_thread_priority(ThreadPriority::Min).unwrap();
+        });
+    }
+
+    fn collect_files(&mut self) {
+        let walk = Walk::new(self.args.video_exts.iter().map(String::as_ref));
+        for dir in &self.args.dirs {
+            walk.walk_dir(dir);
+        }
+
+        let mut strings = Vec::new();
+        let rx = walk.into_rx();
+        
+        while let Ok(file) = rx.recv() {
+            info!("{:?}", file);
+
+            let file_path: PathBuf = file.dir.join(&file.file_name);
+            let norm = normalize::normalize(&file_path);
+            strings.push(norm.clone());
+
+            let entry = Entry {
+                file,
+                norm,
+                tokens: None,
+                ngrams: None,
+            };
+
+            self.entries.push(entry);
+        }
+
+        self.tokenizer = Some(tokenize::PairTokenizer::new(strings.into_iter().collect()).unwrap());
+        info!("{:?}", self.tokenizer);
+    }
+
+    fn process_ngrams(&mut self) {
+        let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
+        let mut ngrams = Ngrams::default();
+
+        // First pass to count ngrams
+        for e in self.entries.iter_mut() {
+            e.tokens = Some(self.tokenizer.as_ref().unwrap().tokenize(&e.norm));
+
+            ngrams.windows(e.tokens.as_ref().unwrap(), 5, None, None);
+            for ngram in ngrams.iter() {
+                let e = ngram_counts.entry(*ngram).or_default();
+                *e = e.saturating_add(1);
+            }
+        }
+
+        info!("total ngrams {:?}", ngram_counts.len());
+
+        // Filter to frequent ngrams
+        self.frequent_ngrams = Some(
+            ngram_counts
+                .into_iter()
+                .filter_map(|(ngram, count)| if count > 1 { Some(ngram) } else { None })
+                .collect()
+        );
+
+        info!("frequent ngrams {:?}", self.frequent_ngrams.as_ref().unwrap().len());
+
+        // Final pass to store frequent ngrams per entry
+        for e in self.entries.iter_mut() {
+            let mut ngrams = Ngrams::default();
+            ngrams.windows(
+                e.tokens.as_ref().unwrap(),
+                5,
+                self.frequent_ngrams.as_ref(),
+                None,
+            );
+        }
+    }
+
+    fn run(&mut self) -> io::Result<()> {
+        self.init_logging();
+        self.init_thread_priority();
+        self.collect_files();
+        self.process_ngrams();
+        Ok(())
+    }
+}
+
+fn main() -> io::Result<()> {
+    App::new().run()
 
 
     //println!("Tokenize files");
