@@ -1,6 +1,7 @@
 use crate::ngrams::Ngram;
 use crate::tokens::Tokens;
-use std::path::Path;
+use crate::Entry;
+use std::path::{Path, PathBuf};
 
 /// A score between 0.0 and 1.0 indicating classification confidence
 #[derive(Debug, Clone, Copy)]
@@ -15,20 +16,7 @@ impl Score {
 /// Trait for types that can classify files/content
 pub trait Classifier {
     /// Returns a score indicating how likely the item should be kept
-    fn score(&self, item: &ClassifierItem) -> Score;
-}
-
-/// Input data for classification
-#[derive(Debug)]
-pub struct ClassifierItem<'a> {
-    /// Path to the file
-    pub path: &'a Path,
-    /// Normalized filename 
-    pub norm: &'a str,
-    /// Tokenized content
-    pub tokens: Option<&'a Tokens>,
-    /// Ngrams extracted from content
-    pub ngrams: Option<&'a [Ngram]>,
+    fn score(&self, item: &Entry) -> Score;
 }
 
 /// Classifies based on file size
@@ -44,8 +32,9 @@ impl FileSizeClassifier {
 }
 
 impl Classifier for FileSizeClassifier {
-    fn score(&self, item: &ClassifierItem) -> Score {
-        let size = std::fs::metadata(item.path)
+    fn score(&self, item: &Entry) -> Score {
+        let path = item.file.dir.join(&item.file.file_name);
+        let size = std::fs::metadata(&path)
             .map(|m| m.len())
             .unwrap_or(0);
         
@@ -64,9 +53,8 @@ impl Classifier for FileSizeClassifier {
 pub struct DirSizeClassifier;
 
 impl Classifier for DirSizeClassifier {
-    fn score(&self, item: &ClassifierItem) -> Score {
-        let count = item.path.parent()
-            .and_then(|dir| std::fs::read_dir(dir).ok())
+    fn score(&self, item: &Entry) -> Score {
+        let count = std::fs::read_dir(&item.file.dir)
             .map(|entries| entries.count())
             .unwrap_or(0);
 
@@ -120,15 +108,19 @@ mod tests {
         classifier.add(FileSizeClassifier::new(2.0), 0.7);
         classifier.add(DirSizeClassifier, 0.3);
 
-        let path = PathBuf::from("test.txt");
-        let item = ClassifierItem {
-            path: &path,
-            norm: "test.txt",
+        use crate::walk::File;
+        let file = File {
+            dir: PathBuf::from("."),
+            file_name: "test.txt".into(),
+        };
+        let entry = Entry {
+            file,
+            norm: "test.txt".into(),
             tokens: None,
             ngrams: None,
         };
 
-        let score = classifier.score(&item);
+        let score = classifier.score(&entry);
         assert!(score.0 >= 0.0 && score.0 <= 1.0);
     }
 }
