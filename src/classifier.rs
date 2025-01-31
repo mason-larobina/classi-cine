@@ -49,14 +49,6 @@ impl FileSizeClassifier {
 }
 
 impl Classifier for FileSizeClassifier {
-    fn normalize(&self, score: f64) -> f64 {
-        // Normalize to 0.0-1.0 range
-        if (self.max_log_size - self.min_log_size).abs() < f64::EPSILON {
-            0.5 // If min==max, return middle value
-        } else {
-            (score - self.min_log_size) / (self.max_log_size - self.min_log_size)
-        }
-    }
     fn process_bounds(&mut self, entries: &[Entry]) {
         for item in entries {
             let size = item.file.size;
@@ -67,6 +59,15 @@ impl Classifier for FileSizeClassifier {
             };
             self.min_log_size = self.min_log_size.min(log_score);
             self.max_log_size = self.max_log_size.max(log_score);
+        }
+    }
+
+    fn normalize(&self, score: f64) -> f64 {
+        // Normalize to 0.0-1.0 range
+        if (self.max_log_size - self.min_log_size).abs() < f64::EPSILON {
+            0.5 // If min==max, return middle value
+        } else {
+            (score - self.min_log_size) / (self.max_log_size - self.min_log_size)
         }
     }
 
