@@ -54,7 +54,7 @@ pub struct DirSizeClassifier;
 
 impl Classifier for DirSizeClassifier {
     fn score(&self, item: &Entry) -> Score {
-        let count = std::fs::read_dir(&item.file.dir)
+        let count = std::fs::read_dir(item.file.dir.as_path())
             .map(|entries| entries.count())
             .unwrap_or(0);
 
@@ -82,7 +82,7 @@ impl WeightedClassifier {
 }
 
 impl Classifier for WeightedClassifier {
-    fn score(&self, item: &ClassifierItem) -> Score {
+    fn score(&self, item: &Entry) -> Score {
         let mut total_score = 0.0;
         let mut total_weight = 0.0;
 
@@ -99,6 +99,7 @@ impl Classifier for WeightedClassifier {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     #[test]
     fn test_weighted_classifier() {
@@ -110,8 +111,10 @@ mod tests {
 
         use crate::walk::File;
         let file = File {
-            dir: PathBuf::from("."),
+            dir: Arc::new(PathBuf::from(".")),
             file_name: "test.txt".into(),
+            size: 1000,
+            inode: 1000
         };
         let entry = Entry {
             file,
