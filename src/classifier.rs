@@ -15,6 +15,9 @@ impl Score {
 
 /// Trait for types that can classify files/content
 pub trait Classifier {
+    /// Process all entries to calculate scoring bounds
+    fn process_bounds(&mut self, entries: &[Entry]);
+    
     /// Returns a score indicating how likely the item should be kept
     fn score(&self, item: &Entry) -> Score;
 }
@@ -41,11 +44,7 @@ impl FileSizeClassifier {
         }
     }
 
-    fn normalize(&mut self, score: f64) -> f64 {
-        // Update min/max
-        self.min_log_size = self.min_log_size.min(score);
-        self.max_log_size = self.max_log_size.max(score);
-
+    fn normalize(&self, score: f64) -> f64 {
         // Normalize to 0.0-1.0 range
         if (self.max_log_size - self.min_log_size).abs() < f64::EPSILON {
             0.5 // If min==max, return middle value
@@ -56,6 +55,19 @@ impl FileSizeClassifier {
 }
 
 impl Classifier for FileSizeClassifier {
+    fn process_bounds(&mut self, entries: &[Entry]) {
+        for item in entries {
+            let size = item.file.size;
+            let log_score = if size == 0 {
+                0.0
+            } else {
+                (size as f64).log(self.log_base)
+            };
+            self.min_log_size = self.min_log_size.min(log_score);
+            self.max_log_size = self.max_log_size.max(log_score);
+        }
+    }
+
     fn score(&self, item: &Entry) -> Score {
         let size = item.file.size;
         let log_score = if size == 0 {
@@ -64,12 +76,7 @@ impl Classifier for FileSizeClassifier {
             (size as f64).log(self.log_base)
         };
         
-        // Normalize to 0.0-1.0
-        let normalized = unsafe { 
-            // This is safe because we only modify the internal state
-            // and the classifier trait is object-safe
-            (*(self as *const _ as *mut Self)).normalize(log_score)
-        };
+        let normalized = self.normalize(log_score);
         
         // Reverse if requested
         let final_score = if self.reverse {
@@ -101,11 +108,7 @@ impl DirSizeClassifier {
         }
     }
 
-    fn normalize(&mut self, score: f64) -> f64 {
-        // Update min/max
-        self.min_log_count = self.min_log_count.min(score);
-        self.max_log_count = self.max_log_count.max(score);
-
+    fn normalize(&self, score: f64) -> f64 {
         // Normalize to 0.0-1.0 range
         if (self.max_log_count - self.min_log_count).abs() < f64::EPSILON {
             0.5 // If min==max, return middle value
@@ -116,19 +119,24 @@ impl DirSizeClassifier {
 }
 
 impl Classifier for DirSizeClassifier {
+    fn process_bounds(&mut self, entries: &[Entry]) {
+        for item in entries {
+            let count = std::fs::read_dir(item.file.dir.as_path())
+                .map(|entries| entries.count())
+                .unwrap_or(0);
+            let log_score = (count as f64).log2();
+            self.min_log_count = self.min_log_count.min(log_score);
+            self.max_log_count = self.max_log_count.max(log_score);
+        }
+    }
+
     fn score(&self, item: &Entry) -> Score {
         let count = std::fs::read_dir(item.file.dir.as_path())
             .map(|entries| entries.count())
             .unwrap_or(0);
 
         let log_score = (count as f64).log2();
-        
-        // Normalize to 0.0-1.0
-        let normalized = unsafe {
-            // This is safe because we only modify the internal state
-            // and the classifier trait is object-safe
-            (*(self as *const _ as *mut Self)).normalize(log_score)
-        };
+        let normalized = self.normalize(log_score);
         
         // Reverse if requested
         let final_score = if self.reverse {
@@ -159,6 +167,12 @@ impl WeightedClassifier {
 }
 
 impl Classifier for WeightedClassifier {
+    fn process_bounds(&mut self, entries: &[Entry]) {
+        for (classifier, _) in self.classifiers.iter_mut() {
+            classifier.process_bounds(entries);
+        }
+    }
+
     fn score(&self, item: &Entry) -> Score {
         let mut total_score = 0.0;
         let mut total_weight = 0.0;
