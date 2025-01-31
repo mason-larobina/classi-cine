@@ -18,6 +18,9 @@ pub trait Classifier {
     /// Process all entries to calculate scoring bounds
     fn process_bounds(&mut self, entries: &[Entry]);
     
+    /// Normalize a raw score to 0.0-1.0 range
+    fn normalize(&self, score: f64) -> f64;
+    
     /// Returns a score indicating how likely the item should be kept
     fn score(&self, item: &Entry) -> Score;
 }
@@ -43,7 +46,9 @@ impl FileSizeClassifier {
             max_log_size: f64::MIN,
         }
     }
+}
 
+impl Classifier for FileSizeClassifier {
     fn normalize(&self, score: f64) -> f64 {
         // Normalize to 0.0-1.0 range
         if (self.max_log_size - self.min_log_size).abs() < f64::EPSILON {
@@ -52,9 +57,6 @@ impl FileSizeClassifier {
             (score - self.min_log_size) / (self.max_log_size - self.min_log_size)
         }
     }
-}
-
-impl Classifier for FileSizeClassifier {
     fn process_bounds(&mut self, entries: &[Entry]) {
         for item in entries {
             let size = item.file.size;
@@ -110,7 +112,9 @@ impl DirSizeClassifier {
             dir_counts: std::collections::HashMap::new(),
         }
     }
+}
 
+impl Classifier for DirSizeClassifier {
     fn normalize(&self, score: f64) -> f64 {
         // Normalize to 0.0-1.0 range
         if (self.max_log_count - self.min_log_count).abs() < f64::EPSILON {
@@ -119,9 +123,6 @@ impl DirSizeClassifier {
             (score - self.min_log_count) / (self.max_log_count - self.min_log_count)
         }
     }
-}
-
-impl Classifier for DirSizeClassifier {
     fn process_bounds(&mut self, entries: &[Entry]) {
         // Count files per directory
         self.dir_counts.clear();
@@ -172,6 +173,10 @@ impl WeightedClassifier {
 }
 
 impl Classifier for WeightedClassifier {
+    fn normalize(&self, score: f64) -> f64 {
+        // WeightedClassifier's scores are already normalized by construction
+        score.clamp(0.0, 1.0)
+    }
     fn process_bounds(&mut self, entries: &[Entry]) {
         for (classifier, _) in self.classifiers.iter_mut() {
             classifier.process_bounds(entries);
