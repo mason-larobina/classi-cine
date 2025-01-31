@@ -483,6 +483,7 @@ impl App {
                 norm,
                 tokens: None,
                 ngrams: None,
+                score: 0.0,
             };
 
             self.entries.push(entry);
