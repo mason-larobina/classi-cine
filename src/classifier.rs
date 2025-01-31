@@ -120,23 +120,26 @@ impl DirSizeClassifier {
 
 impl Classifier for DirSizeClassifier {
     fn process_bounds(&mut self, entries: &[Entry]) {
+        // Count files per directory
+        let mut dir_counts: std::collections::HashMap<Arc<PathBuf>, usize> = std::collections::HashMap::new();
         for item in entries {
-            // This should only count entries per directory which is the item.file.dir, so use a
-            // hashmap to collect a count per directory to determine the bounds. AI!
-            let count = std::fs::read_dir(item.file.dir.as_path())
-                .map(|entries| entries.count())
-                .unwrap_or(0);
-            let log_score = (count as f64).log2();
+            *dir_counts.entry(item.file.dir.clone()).or_default() += 1;
+        }
+        
+        // Calculate bounds from directory counts
+        for count in dir_counts.values() {
+            let log_score = (*count as f64).log2();
             self.min_log_count = self.min_log_count.min(log_score);
             self.max_log_count = self.max_log_count.max(log_score);
         }
     }
 
     fn score(&self, item: &Entry) -> Score {
+        // Count files in this directory from filesystem
         let count = std::fs::read_dir(item.file.dir.as_path())
             .map(|entries| entries.count())
             .unwrap_or(0);
-
+        
         let log_score = (count as f64).log2();
         let normalized = self.normalize(log_score);
         
