@@ -25,28 +25,57 @@ pub struct FileSizeClassifier {
     log_base: f64,
     /// Whether to reverse the scoring (larger files = lower score)
     reverse: bool,
+    /// Minimum log size seen
+    min_log_size: f64,
+    /// Maximum log size seen 
+    max_log_size: f64,
 }
 
 impl FileSizeClassifier {
     pub fn new(log_base: f64, reverse: bool) -> Self {
-        Self { log_base, reverse }
+        Self { 
+            log_base,
+            reverse,
+            min_log_size: f64::MAX,
+            max_log_size: f64::MIN,
+        }
+    }
+
+    fn normalize(&mut self, score: f64) -> f64 {
+        // Update min/max
+        self.min_log_size = self.min_log_size.min(score);
+        self.max_log_size = self.max_log_size.max(score);
+
+        // Normalize to 0.0-1.0 range
+        if (self.max_log_size - self.min_log_size).abs() < f64::EPSILON {
+            0.5 // If min==max, return middle value
+        } else {
+            (score - self.min_log_size) / (self.max_log_size - self.min_log_size)
+        }
     }
 }
 
 impl Classifier for FileSizeClassifier {
     fn score(&self, item: &Entry) -> Score {
         let size = item.file.size;
-        let score = if size == 0 {
+        let log_score = if size == 0 {
             0.0
         } else {
             (size as f64).log(self.log_base)
         };
         
-        // Reverse the score if requested
+        // Normalize to 0.0-1.0
+        let normalized = unsafe { 
+            // This is safe because we only modify the internal state
+            // and the classifier trait is object-safe
+            (*(self as *const _ as *mut Self)).normalize(log_score)
+        };
+        
+        // Reverse if requested
         let final_score = if self.reverse {
-            -score
+            1.0 - normalized
         } else {
-            score
+            normalized
         };
         
         Score::new(final_score)
@@ -57,11 +86,32 @@ impl Classifier for FileSizeClassifier {
 pub struct DirSizeClassifier {
     /// Whether to reverse the scoring (more files = lower score)
     reverse: bool,
+    /// Minimum log count seen
+    min_log_count: f64,
+    /// Maximum log count seen
+    max_log_count: f64,
 }
 
 impl DirSizeClassifier {
     pub fn new(reverse: bool) -> Self {
-        Self { reverse }
+        Self { 
+            reverse,
+            min_log_count: f64::MAX,
+            max_log_count: f64::MIN,
+        }
+    }
+
+    fn normalize(&mut self, score: f64) -> f64 {
+        // Update min/max
+        self.min_log_count = self.min_log_count.min(score);
+        self.max_log_count = self.max_log_count.max(score);
+
+        // Normalize to 0.0-1.0 range
+        if (self.max_log_count - self.min_log_count).abs() < f64::EPSILON {
+            0.5 // If min==max, return middle value
+        } else {
+            (score - self.min_log_count) / (self.max_log_count - self.min_log_count)
+        }
     }
 }
 
@@ -71,13 +121,20 @@ impl Classifier for DirSizeClassifier {
             .map(|entries| entries.count())
             .unwrap_or(0);
 
-        let score = (count as f64).log2() / 10.0;
+        let log_score = (count as f64).log2();
         
-        // Reverse the score if requested
+        // Normalize to 0.0-1.0
+        let normalized = unsafe {
+            // This is safe because we only modify the internal state
+            // and the classifier trait is object-safe
+            (*(self as *const _ as *mut Self)).normalize(log_score)
+        };
+        
+        // Reverse if requested
         let final_score = if self.reverse {
-            1.0 - score
+            1.0 - normalized
         } else {
-            score
+            normalized
         };
         
         Score::new(final_score)
