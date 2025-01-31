@@ -388,6 +388,7 @@ struct Args {
 //}
 
 use std::sync::{Mutex, MutexGuard};
+use std::collections::HashSet;
 
 #[derive(Debug)]
 struct Entry {
@@ -467,8 +468,17 @@ impl App {
     }
 
     fn create_tokenizer(&mut self) {
-        let norm_it = self.entries.iter().map(|e| e.norm.as_str());
-        self.tokenizer = Some(tokenize::PairTokenizer::new(norm_it))
+        // Collect all paths that need tokenization
+        let mut paths = HashSet::new();
+        
+        // Add paths from walk results
+        paths.extend(self.entries.iter().map(|e| e.norm.as_str().to_string()));
+        
+        // Add paths from playlist classifications
+        paths.extend(self.playlist.positives().iter().map(|p| normalize::normalize(p)));
+        paths.extend(self.playlist.negatives().iter().map(|p| normalize::normalize(p)));
+
+        self.tokenizer = Some(tokenize::PairTokenizer::new(paths.iter().map(String::as_str)))
     }
 
     fn process_ngrams(&mut self) {
