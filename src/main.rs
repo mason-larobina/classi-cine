@@ -390,12 +390,13 @@ struct Args {
 
 use std::sync::{Mutex, MutexGuard};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Entry {
     file: walk::File,
     norm: String,
     tokens: Option<Tokens>,
     ngrams: Option<Ngrams>,
+    score: f64,
 }
 
 struct App {
@@ -435,28 +436,16 @@ impl App {
             classifier.process_bounds(&self.entries);
         }
 
-        // Calculate combined scores and sort entries
-        let mut scored_entries: Vec<(usize, f64)> = self.entries
-            .iter()
-            .enumerate()
-            .map(|(i, entry)| {
-                let score: f64 = self.classifiers
-                    .iter()
-                    .map(|c| c.score(entry))
-                    .sum::<f64>() / self.classifiers.len() as f64;
-                (i, score)
-            })
-            .collect();
-
-        // Sort by score descending
-        scored_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-        // Reorder entries based on scores
-        let mut new_entries = Vec::with_capacity(self.entries.len());
-        for (idx, _) in scored_entries {
-            new_entries.push(self.entries[idx].clone());
+        // Calculate combined scores
+        for entry in &mut self.entries {
+            entry.score = self.classifiers
+                .iter()
+                .map(|c| c.score(entry))
+                .sum::<f64>() / self.classifiers.len() as f64;
         }
-        self.entries = new_entries;
+
+        // Sort entries in place by score descending
+        self.entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
     }
 
     fn init_thread_priority(&self) {
