@@ -58,9 +58,9 @@ struct Args {
     #[clap(required = true)]
     dirs: Vec<PathBuf>,
 
-    /// Create ngrams (windows of tokens) from 1 to N.
-    //#[clap(long, default_value = "20")]
-    //windows: usize,
+    /// M3U playlist file for storing classifications
+    #[clap(required = true)]
+    playlist: PathBuf,
 
     #[clap(long, default_value = "info")]
     log_level: String,
@@ -69,8 +69,6 @@ struct Args {
     #[clap(short, long)]
     fullscreen: bool,
 
-    //#[clap(long, default_value = "4")]
-    //max_subword_len: u32,
     #[clap(long, default_value_t = 9111)]
     port: u16,
 
@@ -406,10 +404,11 @@ struct App {
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
     classifiers: Vec<Box<dyn Classifier>>,
+    playlist: M3uPlaylist,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new() -> io::Result<Self> {
         let args = Args::parse();
         if std::env::var("RUST_LOG").is_err() {
             std::env::set_var("RUST_LOG", &args.log_level);
@@ -422,13 +421,17 @@ impl App {
         classifiers.push(Box::new(FileSizeClassifier::new(2.0, false)));
         classifiers.push(Box::new(DirSizeClassifier::new(2.0, false)));
 
-        Self {
+        // Initialize playlist
+        let playlist = M3uPlaylist::new(args.playlist.clone())?;
+
+        Ok(Self {
             args,
             entries: Vec::new(),
             tokenizer: None,
             frequent_ngrams: None,
             classifiers,
-        }
+            playlist,
+        })
     }
 
 
@@ -538,7 +541,7 @@ impl App {
 }
 
 fn main() -> io::Result<()> {
-    let mut app = App::new();
+    let mut app = App::new()?;
     app.run()?;
     Ok(())
 
