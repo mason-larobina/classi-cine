@@ -2,6 +2,7 @@ use crate::ngrams::Ngram;
 use crate::tokens::Tokens;
 use crate::Entry;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Trait for types that can classify files/content
 pub trait Classifier {
@@ -106,14 +107,6 @@ impl DirSizeClassifier {
 }
 
 impl Classifier for DirSizeClassifier {
-    fn normalize(&self, score: f64) -> f64 {
-        // Normalize to 0.0-1.0 range
-        if (self.max_log_count - self.min_log_count).abs() < f64::EPSILON {
-            0.5 // If min==max, return middle value
-        } else {
-            (score - self.min_log_count) / (self.max_log_count - self.min_log_count)
-        }
-    }
     fn process_bounds(&mut self, entries: &[Entry]) {
         // Count files per directory
         self.dir_counts.clear();
@@ -126,6 +119,15 @@ impl Classifier for DirSizeClassifier {
             let log_score = (*count as f64).log2();
             self.min_log_count = self.min_log_count.min(log_score);
             self.max_log_count = self.max_log_count.max(log_score);
+        }
+    }
+
+    fn normalize(&self, score: f64) -> f64 {
+        // Normalize to 0.0-1.0 range
+        if (self.max_log_count - self.min_log_count).abs() < f64::EPSILON {
+            0.5 // If min==max, return middle value
+        } else {
+            (score - self.min_log_count) / (self.max_log_count - self.min_log_count)
         }
     }
 
@@ -164,14 +166,15 @@ impl WeightedClassifier {
 }
 
 impl Classifier for WeightedClassifier {
-    fn normalize(&self, score: f64) -> f64 {
-        // WeightedClassifier's scores are already normalized by construction
-        score.clamp(0.0, 1.0)
-    }
     fn process_bounds(&mut self, entries: &[Entry]) {
         for (classifier, _) in self.classifiers.iter_mut() {
             classifier.process_bounds(entries);
         }
+    }
+
+    fn normalize(&self, score: f64) -> f64 {
+        // WeightedClassifier's scores are already normalized by construction
+        score.clamp(0.0, 1.0)
     }
 
     fn score(&self, item: &Entry) -> f64 {
