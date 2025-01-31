@@ -23,11 +23,13 @@ pub trait Classifier {
 pub struct FileSizeClassifier {
     /// Base for logarithmic scaling
     log_base: f64,
+    /// Whether to reverse the scoring (larger files = lower score)
+    reverse: bool,
 }
 
 impl FileSizeClassifier {
-    pub fn new(log_base: f64) -> Self {
-        Self { log_base }
+    pub fn new(log_base: f64, reverse: bool) -> Self {
+        Self { log_base, reverse }
     }
 }
 
@@ -38,19 +40,34 @@ impl Classifier for FileSizeClassifier {
             .map(|m| m.len())
             .unwrap_or(0);
         
-        // Larger files get higher scores
         let score = if size == 0 {
             0.0
         } else {
             (size as f64).log(self.log_base) / 20.0 
         };
         
-        Score::new(score)
+        // Reverse the score if requested
+        let final_score = if self.reverse {
+            1.0 - score
+        } else {
+            score
+        };
+        
+        Score::new(final_score)
     }
 }
 
 /// Classifies based on number of files in same directory
-pub struct DirSizeClassifier;
+pub struct DirSizeClassifier {
+    /// Whether to reverse the scoring (more files = lower score)
+    reverse: bool,
+}
+
+impl DirSizeClassifier {
+    pub fn new(reverse: bool) -> Self {
+        Self { reverse }
+    }
+}
 
 impl Classifier for DirSizeClassifier {
     fn score(&self, item: &Entry) -> Score {
@@ -58,9 +75,16 @@ impl Classifier for DirSizeClassifier {
             .map(|entries| entries.count())
             .unwrap_or(0);
 
-        // More files = higher score
         let score = (count as f64).log2() / 10.0;
-        Score::new(score)
+        
+        // Reverse the score if requested
+        let final_score = if self.reverse {
+            1.0 - score
+        } else {
+            score
+        };
+        
+        Score::new(final_score)
     }
 }
 
@@ -106,8 +130,8 @@ mod tests {
         let mut classifier = WeightedClassifier::new();
         
         // Add size and directory classifiers with weights
-        classifier.add(FileSizeClassifier::new(2.0), 0.7);
-        classifier.add(DirSizeClassifier, 0.3);
+        classifier.add(FileSizeClassifier::new(2.0, false), 0.7);
+        classifier.add(DirSizeClassifier::new(false), 0.3);
 
         use crate::walk::File;
         let file = File {
