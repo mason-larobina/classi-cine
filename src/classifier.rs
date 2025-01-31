@@ -35,20 +35,16 @@ impl FileSizeClassifier {
 
 impl Classifier for FileSizeClassifier {
     fn score(&self, item: &Entry) -> Score {
-        let path = item.file.dir.join(&item.file.file_name);
-        let size = std::fs::metadata(&path)
-            .map(|m| m.len())
-            .unwrap_or(0);
-        
+        let size = item.file.size;
         let score = if size == 0 {
             0.0
         } else {
-            (size as f64).log(self.log_base) / 20.0 
+            (size as f64).log(self.log_base)
         };
         
         // Reverse the score if requested
         let final_score = if self.reverse {
-            1.0 - score
+            -score
         } else {
             score
         };
