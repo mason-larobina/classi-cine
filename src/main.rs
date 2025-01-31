@@ -5,6 +5,7 @@ mod bloom;
 mod classifier;
 mod ngrams;
 mod normalize;
+mod playlist;
 mod tokenize;
 mod tokens;
 mod walk;
