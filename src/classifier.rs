@@ -97,6 +97,8 @@ pub struct DirSizeClassifier {
     min_log_count: f64,
     /// Maximum log count seen
     max_log_count: f64,
+    /// Map of directory to file count
+    dir_counts: std::collections::HashMap<Arc<PathBuf>, usize>,
 }
 
 impl DirSizeClassifier {
@@ -105,6 +107,7 @@ impl DirSizeClassifier {
             reverse,
             min_log_count: f64::MAX,
             max_log_count: f64::MIN,
+            dir_counts: std::collections::HashMap::new(),
         }
     }
 
@@ -121,13 +124,13 @@ impl DirSizeClassifier {
 impl Classifier for DirSizeClassifier {
     fn process_bounds(&mut self, entries: &[Entry]) {
         // Count files per directory
-        let mut dir_counts: std::collections::HashMap<Arc<PathBuf>, usize> = std::collections::HashMap::new();
+        self.dir_counts.clear();
         for item in entries {
-            *dir_counts.entry(item.file.dir.clone()).or_default() += 1;
+            *self.dir_counts.entry(item.file.dir.clone()).or_default() += 1;
         }
         
         // Calculate bounds from directory counts
-        for count in dir_counts.values() {
+        for count in self.dir_counts.values() {
             let log_score = (*count as f64).log2();
             self.min_log_count = self.min_log_count.min(log_score);
             self.max_log_count = self.max_log_count.max(log_score);
@@ -135,11 +138,8 @@ impl Classifier for DirSizeClassifier {
     }
 
     fn score(&self, item: &Entry) -> Score {
-        // Count files in this directory from filesystem
-        let count = std::fs::read_dir(item.file.dir.as_path())
-            .map(|entries| entries.count())
-            .unwrap_or(0);
-        
+        // Use cached directory count
+        let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
         let log_score = (count as f64).log2();
         let normalized = self.normalize(log_score);
         
