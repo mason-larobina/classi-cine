@@ -390,7 +390,7 @@ struct Args {
 
 use std::sync::{Mutex, MutexGuard};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Entry {
     file: walk::File,
     norm: String,
@@ -430,23 +430,6 @@ impl App {
         }
     }
 
-    fn process_classifiers(&mut self) {
-        // Process bounds for all classifiers
-        for classifier in &mut self.classifiers {
-            classifier.process_bounds(&self.entries);
-        }
-
-        // Calculate combined scores
-        for entry in &mut self.entries {
-            entry.score = self.classifiers
-                .iter()
-                .map(|c| c.score(entry))
-                .sum::<f64>() / self.classifiers.len() as f64;
-        }
-
-        // Sort entries in place by score descending
-        self.entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
-    }
 
     fn init_thread_priority(&self) {
         rayon::broadcast(|_| {
@@ -523,6 +506,24 @@ impl App {
                 None,
             );
         }
+    }
+
+    fn process_classifiers(&mut self) {
+        // Process bounds for all classifiers
+        for classifier in &mut self.classifiers {
+            classifier.process_bounds(&self.entries);
+        }
+
+        // Calculate combined scores
+        for entry in &mut self.entries {
+            entry.score = self.classifiers
+                .iter()
+                .map(|c| c.score(entry))
+                .sum::<f64>() / self.classifiers.len() as f64;
+        }
+
+        // Sort entries in place by score descending
+        self.entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
     }
 
     fn run(&mut self) -> io::Result<()> {
