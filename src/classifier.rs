@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 /// Trait for types that can classify files/content
 pub trait Classifier {
+    /// Returns the name of this classifier
+    fn name(&self) -> &'static str;
+
     /// Process all entries to calculate scoring bounds
     fn process_bounds(&mut self, entries: &[Entry]);
     
@@ -40,6 +43,9 @@ impl FileSizeClassifier {
 }
 
 impl Classifier for FileSizeClassifier {
+    fn name(&self) -> &'static str {
+        "file_size"
+    }
     fn process_bounds(&mut self, entries: &[Entry]) {
         for item in entries {
             let size = item.file.size;
@@ -110,6 +116,9 @@ impl DirSizeClassifier {
 }
 
 impl Classifier for DirSizeClassifier {
+    fn name(&self) -> &'static str {
+        "dir_size"
+    }
     fn process_bounds(&mut self, entries: &[Entry]) {
         // Count files per directory
         self.dir_counts.clear();
