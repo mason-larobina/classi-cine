@@ -417,7 +417,7 @@ impl App {
         // Create default classifiers
         let mut classifiers: Vec<Box<dyn Classifier>> = Vec::new();
         classifiers.push(Box::new(FileSizeClassifier::new(2.0, false)));
-        classifiers.push(Box::new(DirSizeClassifier::new(false)));
+        classifiers.push(Box::new(DirSizeClassifier::new(2.0, false)));
 
         Self {
             args,

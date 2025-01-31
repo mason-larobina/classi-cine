@@ -85,6 +85,8 @@ impl Classifier for FileSizeClassifier {
 
 /// Classifies based on number of files in same directory
 pub struct DirSizeClassifier {
+    /// Base for logarithmic scaling
+    log_base: f64,
     /// Whether to reverse the scoring (more files = lower score)
     reverse: bool,
     /// Minimum log count seen
@@ -96,8 +98,9 @@ pub struct DirSizeClassifier {
 }
 
 impl DirSizeClassifier {
-    pub fn new(reverse: bool) -> Self {
+    pub fn new(log_base: f64, reverse: bool) -> Self {
         Self { 
+            log_base,
             reverse,
             min_log_count: f64::MAX,
             max_log_count: f64::MIN,
@@ -116,7 +119,7 @@ impl Classifier for DirSizeClassifier {
         
         // Calculate bounds from directory counts
         for count in self.dir_counts.values() {
-            let log_score = (*count as f64).log2();
+            let log_score = (*count as f64).log(self.log_base);
             self.min_log_count = self.min_log_count.min(log_score);
             self.max_log_count = self.max_log_count.max(log_score);
         }
@@ -134,7 +137,7 @@ impl Classifier for DirSizeClassifier {
     fn score(&self, item: &Entry) -> f64 {
         // Use cached directory count
         let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
-        let log_score = (count as f64).log2();
+        let log_score = (count as f64).log(self.log_base);
         let normalized = self.normalize(log_score);
         
         // Reverse if requested
