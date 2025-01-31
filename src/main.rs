@@ -31,6 +31,7 @@ use textplots::{Chart, Plot, Shape};
 use thread_priority::*;
 use walk::Walk;
 use ngrams::{Ngram,Ngrams};
+use classifier::{Classifier, FileSizeClassifier, DirSizeClassifier};
 
 #[derive(Debug)]
 enum Error {
@@ -389,7 +390,7 @@ struct Args {
 
 use std::sync::{Mutex, MutexGuard};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Entry {
     file: walk::File,
     norm: String,
