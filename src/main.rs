@@ -389,7 +389,7 @@ struct Args {
 
 use std::sync::{Mutex, MutexGuard};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Entry {
     file: walk::File,
     norm: String,
@@ -402,6 +402,7 @@ struct App {
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
+    classifiers: Vec<Box<dyn Classifier>>,
 }
 
 impl App {
@@ -412,12 +413,49 @@ impl App {
         }
         env_logger::init();
         info!("{:#?}", args);
+
+        // Create default classifiers
+        let mut classifiers: Vec<Box<dyn Classifier>> = Vec::new();
+        classifiers.push(Box::new(FileSizeClassifier::new(2.0, false)));
+        classifiers.push(Box::new(DirSizeClassifier::new(false)));
+
         Self {
             args,
             entries: Vec::new(),
             tokenizer: None,
             frequent_ngrams: None,
+            classifiers,
         }
+    }
+
+    fn process_classifiers(&mut self) {
+        // Process bounds for all classifiers
+        for classifier in &mut self.classifiers {
+            classifier.process_bounds(&self.entries);
+        }
+
+        // Calculate combined scores and sort entries
+        let mut scored_entries: Vec<(usize, f64)> = self.entries
+            .iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                let score: f64 = self.classifiers
+                    .iter()
+                    .map(|c| c.score(entry))
+                    .sum::<f64>() / self.classifiers.len() as f64;
+                (i, score)
+            })
+            .collect();
+
+        // Sort by score descending
+        scored_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+        // Reorder entries based on scores
+        let mut new_entries = Vec::with_capacity(self.entries.len());
+        for (idx, _) in scored_entries {
+            new_entries.push(self.entries[idx].clone());
+        }
+        self.entries = new_entries;
     }
 
     fn init_thread_priority(&self) {
@@ -501,6 +539,7 @@ impl App {
         self.collect_files();
         self.create_tokenizer();
         self.process_ngrams();
+        self.process_classifiers();
         Ok(())
     }
 }
