@@ -3,16 +3,6 @@ use crate::tokens::Tokens;
 use crate::Entry;
 use std::path::{Path, PathBuf};
 
-/// A score between 0.0 and 1.0 indicating classification confidence
-#[derive(Debug, Clone, Copy)]
-pub struct Score(pub f64);
-
-impl Score {
-    pub fn new(value: f64) -> Self {
-        Self(value.clamp(0.0, 1.0))
-    }
-}
-
 /// Trait for types that can classify files/content
 pub trait Classifier {
     /// Process all entries to calculate scoring bounds
@@ -21,8 +11,8 @@ pub trait Classifier {
     /// Normalize a raw score to 0.0-1.0 range
     fn normalize(&self, score: f64) -> f64;
     
-    /// Returns a score indicating how likely the item should be kept
-    fn score(&self, item: &Entry) -> Score;
+    /// Returns a score between 0.0 and 1.0 indicating how likely the item should be kept
+    fn score(&self, item: &Entry) -> f64;
 }
 
 /// Classifies based on file size
@@ -71,7 +61,7 @@ impl Classifier for FileSizeClassifier {
         }
     }
 
-    fn score(&self, item: &Entry) -> Score {
+    fn score(&self, item: &Entry) -> f64 {
         let size = item.file.size;
         let log_score = if size == 0 {
             0.0
@@ -88,7 +78,7 @@ impl Classifier for FileSizeClassifier {
             normalized
         };
         
-        Score::new(final_score)
+        final_score.clamp(0.0, 1.0)
     }
 }
 
@@ -139,7 +129,7 @@ impl Classifier for DirSizeClassifier {
         }
     }
 
-    fn score(&self, item: &Entry) -> Score {
+    fn score(&self, item: &Entry) -> f64 {
         // Use cached directory count
         let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
         let log_score = (count as f64).log2();
@@ -152,7 +142,7 @@ impl Classifier for DirSizeClassifier {
             normalized
         };
         
-        Score::new(final_score)
+        final_score.clamp(0.0, 1.0)
     }
 }
 
@@ -184,16 +174,16 @@ impl Classifier for WeightedClassifier {
         }
     }
 
-    fn score(&self, item: &Entry) -> Score {
+    fn score(&self, item: &Entry) -> f64 {
         let mut total_score = 0.0;
         let mut total_weight = 0.0;
 
         for (classifier, weight) in &self.classifiers {
-            total_score += classifier.score(item).0 * weight;
+            total_score += classifier.score(item) * weight;
             total_weight += weight;
         }
 
-        Score::new(total_score / total_weight)
+        (total_score / total_weight).clamp(0.0, 1.0)
     }
 }
 
@@ -226,6 +216,6 @@ mod tests {
         };
 
         let score = classifier.score(&entry);
-        assert!(score.0 >= 0.0 && score.0 <= 1.0);
+        assert!(score >= 0.0 && score <= 1.0);
     }
 }
