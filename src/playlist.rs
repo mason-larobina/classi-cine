@@ -32,12 +32,34 @@ pub struct M3uPlaylist {
 }
 
 impl M3uPlaylist {
-    pub fn new(path: PathBuf) -> Self {
-        Self {
+    pub fn new(path: PathBuf) -> io::Result<Self> {
+        let playlist = Self {
             path,
             positives: HashSet::new(),
             negatives: HashSet::new(),
+        };
+        
+        playlist.ensure_file_exists()?;
+        Ok(playlist)
+    }
+
+    fn ensure_file_exists(&self) -> io::Result<()> {
+        if !self.path.exists() {
+            let mut file = File::create(&self.path)?;
+            writeln!(file, "{}", M3U_HEADER)?;
+        } else {
+            // Verify header in existing file
+            let file = File::open(&self.path)?;
+            let mut reader = BufReader::new(file);
+            let mut first_line = String::new();
+            if reader.read_line(&mut first_line)? == 0 || first_line.trim() != M3U_HEADER {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Existing playlist file missing M3U header",
+                ));
+            }
         }
+        Ok(())
     }
 }
 
@@ -47,15 +69,8 @@ impl Playlist for M3uPlaylist {
         let reader = BufReader::new(file);
         let mut lines = reader.lines();
 
-        // Verify M3U header
-        if let Some(Ok(first_line)) = lines.next() {
-            if first_line != M3U_HEADER {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Missing M3U header",
-                ));
-            }
-        }
+        // Skip M3U header (we already verified it exists in new())
+        let _ = lines.next();
 
         // Process remaining lines
         for line in lines {
@@ -78,14 +93,8 @@ impl Playlist for M3uPlaylist {
         self.positives.insert(path.to_path_buf());
         
         let mut file = OpenOptions::new()
-            .create(true)
             .append(true)
             .open(&self.path)?;
-
-        // Write header if file is empty
-        if file.metadata()?.len() == 0 {
-            writeln!(file, "{}", M3U_HEADER)?;
-        }
 
         writeln!(file, "{}", path.display())?;
         Ok(())
@@ -95,14 +104,8 @@ impl Playlist for M3uPlaylist {
         self.negatives.insert(path.to_path_buf());
         
         let mut file = OpenOptions::new()
-            .create(true)
             .append(true)
             .open(&self.path)?;
-
-        // Write header if file is empty
-        if file.metadata()?.len() == 0 {
-            writeln!(file, "{}", M3U_HEADER)?;
-        }
 
         writeln!(file, "{}{}", NEGATIVE_PREFIX, path.display())?;
         Ok(())
