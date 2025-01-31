@@ -121,6 +121,8 @@ impl DirSizeClassifier {
 impl Classifier for DirSizeClassifier {
     fn process_bounds(&mut self, entries: &[Entry]) {
         for item in entries {
+            // This should only count entries per directory which is the item.file.dir, so use a
+            // hashmap to collect a count per directory to determine the bounds. AI!
             let count = std::fs::read_dir(item.file.dir.as_path())
                 .map(|entries| entries.count())
                 .unwrap_or(0);
