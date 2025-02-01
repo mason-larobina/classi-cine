@@ -33,6 +33,7 @@ use thread_priority::*;
 use walk::Walk;
 use ngrams::{Ngram,Ngrams};
 use classifier::{Classifier, FileSizeClassifier, DirSizeClassifier};
+use ahash::AHashSet;
 
 #[derive(Debug)]
 enum Error {
@@ -472,7 +473,7 @@ impl App {
         let mut paths = HashSet::new();
         
         // Add paths from walk results
-        paths.extend(self.entries.iter().map(|e| e.norm.as_str().to_string()));
+        paths.extend(self.entries.iter().map(|e| e.norm.to_string()));
         
         // Add paths from playlist classifications
         paths.extend(self.playlist.positives().iter().map(|p| normalize::normalize(p)));
