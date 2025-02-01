@@ -32,7 +32,7 @@ pub struct M3uPlaylist {
 }
 
 impl M3uPlaylist {
-    pub fn new(path: PathBuf) -> io::Result<Self> {
+    pub fn open(path: PathBuf) -> io::Result<Self> {
         let playlist = Self {
             path,
             positives: HashSet::new(),

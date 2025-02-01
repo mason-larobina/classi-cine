@@ -419,7 +419,7 @@ impl App {
         info!("{:#?}", args);
 
         // Initialize playlist
-        let playlist = M3uPlaylist::new(args.playlist.clone())?;
+        let playlist = M3uPlaylist::open(args.playlist.clone())?;
 
         // Create default classifiers
         let mut classifiers: Vec<Box<dyn Classifier>> = Vec::new();
