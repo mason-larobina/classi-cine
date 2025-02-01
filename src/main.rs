@@ -397,7 +397,8 @@ struct Entry {
     norm: String,
     tokens: Option<Tokens>,
     ngrams: Option<Ngrams>,
-    score: f64,
+    scores: Vec<f64>,  // One score per classifier
+    combined_score: f64,
 }
 
 struct App {
@@ -571,24 +572,28 @@ impl App {
     }
 
     fn process_classifiers(&mut self) {
-        // Process bounds for all classifiers
-        for classifier in &mut self.classifiers {
-            classifier.process_bounds(&self.entries);
-        }
-
-        // Calculate combined scores including naive bayes
+        // Initialize score vectors in entries
         let classifier_count = self.classifiers.len() + 1;
         for entry in &mut self.entries {
-            let classifier_sum: f64 = self.classifiers
-                .iter()
-                .map(|c| c.score(entry))
-                .sum();
-            let naive_bayes_score = self.naive_bayes.score(entry);
-            entry.score = (classifier_sum + naive_bayes_score) / classifier_count as f64;
+            entry.scores = vec![0.0; classifier_count];
+            entry.combined_score = 0.0;
         }
 
-        // Sort entries in place by score descending
-        self.entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        // Calculate scores for each classifier
+        for (idx, classifier) in &mut self.classifiers.iter_mut().enumerate() {
+            classifier.calculate_scores(&mut self.entries, idx);
+        }
+        
+        // Calculate naive bayes scores
+        self.naive_bayes.calculate_scores(&mut self.entries, self.classifiers.len());
+
+        // Calculate combined scores
+        for entry in &mut self.entries {
+            entry.combined_score = entry.scores.iter().sum::<f64>() / classifier_count as f64;
+        }
+
+        // Sort entries in place by combined score descending
+        self.entries.sort_by(|a, b| b.combined_score.partial_cmp(&a.combined_score).unwrap());
     }
 
     fn run(&mut self) -> io::Result<()> {

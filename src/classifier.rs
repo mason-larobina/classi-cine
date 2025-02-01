@@ -11,14 +11,8 @@ pub trait Classifier {
     /// Returns the name of this classifier
     fn name(&self) -> &'static str;
 
-    /// Process all entries to calculate scoring bounds
-    fn process_bounds(&mut self, entries: &[Entry]);
-    
-    /// Normalize a raw score to 0.0-1.0 range
-    fn normalize(&self, score: f64) -> f64;
-    
-    /// Returns a score between 0.0 and 1.0 indicating how likely the item should be kept
-    fn score(&self, item: &Entry) -> f64;
+    /// Calculate and store scores for all entries at the given classifier index
+    fn calculate_scores(&mut self, entries: &mut [Entry], classifier_idx: usize);
 }
 
 /// Classifies based on ngram frequencies in positive/negative examples
