@@ -68,18 +68,18 @@ impl NaiveBayesClassifier {
         }
     }
 
-    fn probability(&self, ngram: &Ngram, positive: bool) -> f64 {
+    /// Returns log probability with Laplace smoothing
+    fn log_probability(&self, ngram: &Ngram, positive: bool) -> f64 {
         let (counts, total) = if positive {
             (&self.positive_counts, self.positive_total)
         } else {
             (&self.negative_counts, self.negative_total)
         };
 
-        // Laplace smoothing
+        // Laplace smoothing in log space
         let count = counts.get(ngram).copied().unwrap_or(0) as f64;
         let vocab_size = self.positive_counts.len() + self.negative_counts.len();
-        let probability = (count + 1.0) / ((total as f64) + (vocab_size as f64));
-        probability.max(f64::MIN_POSITIVE).ln()
+        ((count + 1.0) / ((total as f64) + (vocab_size as f64))).ln()
     }
 }
 
@@ -124,21 +124,22 @@ impl Classifier for NaiveBayesClassifier {
     fn score(&self, item: &Entry) -> f64 {
         let ngrams = item.ngrams.as_ref().unwrap();
         
-        // Calculate log probabilities to avoid underflow
-        let mut positive_prob = (self.positive_total as f64 / 
+        // Start with log prior probabilities
+        let mut log_positive = (self.positive_total as f64 / 
             (self.positive_total + self.negative_total) as f64).ln();
-        let mut negative_prob = (self.negative_total as f64 / 
+        let mut log_negative = (self.negative_total as f64 / 
             (self.positive_total + self.negative_total) as f64).ln();
 
+        // Add log likelihoods
         for ngram in ngrams.iter() {
-            positive_prob += self.probability(ngram, true).ln();
-            negative_prob += self.probability(ngram, false).ln();
+            log_positive += self.log_probability(ngram, true);
+            log_negative += self.log_probability(ngram, false);
         }
 
-        // Convert back from log space and normalize
-        let pos_exp = positive_prob.exp();
-        let neg_exp = negative_prob.exp();
-        let normalized = pos_exp / (pos_exp + neg_exp);
+        // Convert to probability space using log-sum-exp trick to avoid overflow
+        let max_log = log_positive.max(log_negative);
+        let normalized = (log_positive - max_log).exp() / 
+            ((log_positive - max_log).exp() + (log_negative - max_log).exp());
 
         if self.reverse {
             1.0 - normalized
