@@ -56,13 +56,14 @@ impl From<serde_json::Error> for Error {
 }
 
 #[derive(Parser, Debug, Clone)]
+#[command(name = "classi-cine")]
 struct Args {
-    #[clap(required = true)]
-    dirs: Vec<PathBuf>,
-
     /// M3U playlist file for storing classifications
-    #[clap(required = true)]
     playlist: PathBuf,
+
+    /// Directories to scan for video files (defaults to current directory)
+    #[arg(default_value = ".")]
+    dirs: Vec<PathBuf>,
 
     #[clap(long, default_value = "info")]
     log_level: String,
