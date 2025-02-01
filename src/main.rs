@@ -398,7 +398,6 @@ struct Entry {
     tokens: Option<Tokens>,
     ngrams: Option<Ngrams>,
     scores: Vec<f64>,  // One score per classifier
-    combined_score: f64,
 }
 
 struct App {
@@ -576,7 +575,6 @@ impl App {
         let classifier_count = self.classifiers.len() + 1;
         for entry in &mut self.entries {
             entry.scores = vec![0.0; classifier_count];
-            entry.combined_score = 0.0;
         }
 
         // Calculate scores for each classifier
@@ -587,13 +585,12 @@ impl App {
         // Calculate naive bayes scores
         self.naive_bayes.calculate_scores(&mut self.entries, self.classifiers.len());
 
-        // Calculate combined scores
-        for entry in &mut self.entries {
-            entry.combined_score = entry.scores.iter().sum::<f64>() / classifier_count as f64;
-        }
-
-        // Sort entries in place by combined score descending
-        self.entries.sort_by(|a, b| b.combined_score.partial_cmp(&a.combined_score).unwrap());
+        // Sort entries in place by average score descending
+        self.entries.sort_by(|a, b| {
+            let a_avg = a.scores.iter().sum::<f64>() / classifier_count as f64;
+            let b_avg = b.scores.iter().sum::<f64>() / classifier_count as f64;
+            b_avg.partial_cmp(&a_avg).unwrap()
+        });
     }
 
     fn run(&mut self) -> io::Result<()> {
