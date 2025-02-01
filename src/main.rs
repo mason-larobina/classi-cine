@@ -13,7 +13,7 @@ mod walk;
 use ahash::AHashSet;
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
-use classifier::{Classifier, FileSizeClassifier, DirSizeClassifier};
+use classifier::{Classifier, FileSizeClassifier, DirSizeClassifier, NaiveBayesClassifier};
 use crate::ngrams::{Ngram,Ngrams};
 use crate::playlist::{Playlist, M3uPlaylist};
 use crate::tokenize::PairTokenizer;

@@ -1,4 +1,4 @@
-use crate::ngrams::Ngram;
+use crate::ngrams::{Ngram,Ngrams};
 use crate::normalize;
 use crate::tokens::Tokens;
 use crate::Entry;
@@ -46,14 +46,14 @@ impl NaiveBayesClassifier {
         }
     }
 
-    fn train_positive(&mut self, ngrams: &Ngrams) {
+    pub fn train_positive(&mut self, ngrams: &Ngrams) {
         self.positive_total += 1;
         for ngram in ngrams.iter() {
             *self.positive_counts.entry(*ngram).or_default() += 1;
         }
     }
 
-    fn train_negative(&mut self, ngrams: &Ngrams) {
+    pub fn train_negative(&mut self, ngrams: &Ngrams) {
         self.negative_total += 1;
         for ngram in ngrams.iter() {
             *self.negative_counts.entry(*ngram).or_default() += 1;
