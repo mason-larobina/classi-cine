@@ -78,7 +78,8 @@ impl NaiveBayesClassifier {
         // Laplace smoothing
         let count = counts.get(ngram).copied().unwrap_or(0) as f64;
         let vocab_size = self.positive_counts.len() + self.negative_counts.len();
-        (count + 1.0) / ((total as f64) + (vocab_size as f64))
+        let probability = (count + 1.0) / ((total as f64) + (vocab_size as f64));
+        probability.max(f64::MIN_POSITIVE).ln()
     }
 }
 
