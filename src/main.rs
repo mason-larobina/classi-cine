@@ -468,32 +468,30 @@ impl App {
         }
     }
 
-    fn create_tokenizer(&mut self) {
+    fn process_tokens_and_ngrams(&mut self) {
         // Collect all paths that need tokenization
         let mut paths = HashSet::new();
         
-        // Add paths from walk results
+        // Add paths from walk results (candidates)
         paths.extend(self.entries.iter().map(|e| e.norm.to_string()));
         
         // Add paths from playlist classifications
         paths.extend(self.playlist.positives().iter().map(|p| normalize::normalize(p)));
         paths.extend(self.playlist.negatives().iter().map(|p| normalize::normalize(p)));
 
-        self.tokenizer = Some(tokenize::PairTokenizer::new(paths.iter().map(String::as_str)))
-    }
-
-    fn process_ngrams(&mut self) {
+        // Create tokenizer from all paths
+        self.tokenizer = Some(tokenize::PairTokenizer::new(paths.iter().map(String::as_str)));
         let tokenizer = self.tokenizer.as_ref().unwrap();
 
+        // Process all paths to find frequent ngrams
         let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
-        let mut ngrams = Ngrams::default();
+        let mut temp_ngrams = Ngrams::default();
 
-        // First pass to count ngrams
-        for e in self.entries.iter_mut() {
-            e.tokens = Some(tokenizer.tokenize(&e.norm));
-
-            ngrams.windows(e.tokens.as_ref().unwrap(), 5, None, None);
-            for ngram in ngrams.iter() {
+        // Count ngrams from all sources
+        for path in &paths {
+            let tokens = tokenizer.tokenize(path);
+            temp_ngrams.windows(&tokens, 5, None, None);
+            for ngram in temp_ngrams.iter() {
                 let e = ngram_counts.entry(*ngram).or_default();
                 *e = e.saturating_add(1);
             }
@@ -511,8 +509,10 @@ impl App {
 
         info!("frequent ngrams {:?}", self.frequent_ngrams.as_ref().unwrap().len());
 
-        // Final pass to store frequent ngrams per entry
+        // Final pass to store tokens and frequent ngrams for candidates only
         for e in self.entries.iter_mut() {
+            e.tokens = Some(tokenizer.tokenize(&e.norm));
+            
             let mut ngrams = Ngrams::default();
             ngrams.windows(
                 e.tokens.as_ref().unwrap(),
@@ -520,6 +520,7 @@ impl App {
                 self.frequent_ngrams.as_ref(),
                 None,
             );
+            e.ngrams = Some(ngrams);
         }
     }
 
@@ -544,8 +545,7 @@ impl App {
     fn run(&mut self) -> io::Result<()> {
         self.init_thread_priority();
         self.collect_files();
-        self.create_tokenizer();
-        self.process_ngrams();
+        self.process_tokens_and_ngrams();
         self.process_classifiers();
         Ok(())
     }
