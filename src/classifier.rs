@@ -46,25 +46,17 @@ impl NaiveBayesClassifier {
         }
     }
 
-    fn count_ngrams(&self, ngrams: &Ngrams) -> HashMap<Ngram, u32> {
-        let mut counts = HashMap::new();
-        for ngram in ngrams.iter() {
-            *counts.entry(*ngram).or_default() += 1;
-        }
-        counts
-    }
-
     fn train_positive(&mut self, ngrams: &Ngrams) {
         self.positive_total += 1;
-        for (ngram, count) in self.count_ngrams(ngrams) {
-            *self.positive_counts.entry(ngram).or_default() += count;
+        for ngram in ngrams.iter() {
+            *self.positive_counts.entry(*ngram).or_default() += 1;
         }
     }
 
     fn train_negative(&mut self, ngrams: &Ngrams) {
         self.negative_total += 1;
-        for (ngram, count) in self.count_ngrams(ngrams) {
-            *self.negative_counts.entry(ngram).or_default() += count;
+        for ngram in ngrams.iter() {
+            *self.negative_counts.entry(*ngram).or_default() += 1;
         }
     }
 
