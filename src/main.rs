@@ -10,30 +10,31 @@ mod tokenize;
 mod tokens;
 mod walk;
 
-use crate::tokenize::PairTokenizer;
-use crate::tokens::{Pair, Token, TokenMap, Tokens};
+use ahash::AHashSet;
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
+use classifier::{Classifier, FileSizeClassifier, DirSizeClassifier};
+use crate::ngrams::{Ngram,Ngrams};
+use crate::playlist::{Playlist, M3uPlaylist};
+use crate::tokenize::PairTokenizer;
+use crate::tokens::{Pair, Token, TokenMap, Tokens};
+use crate::walk::Walk;
 use humansize::{format_size, BINARY};
 use log::*;
-use rayon::prelude::*;
 use rayon::ThreadPool;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::Component;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 use textplots::{Chart, Plot, Shape};
 use thread_priority::*;
-use walk::Walk;
-use ngrams::{Ngram,Ngrams};
-use classifier::{Classifier, FileSizeClassifier, DirSizeClassifier};
-use ahash::AHashSet;
 
 #[derive(Debug)]
 enum Error {
@@ -388,8 +389,6 @@ struct Args {
 //    });
 //}
 
-use std::sync::{Mutex, MutexGuard};
-use std::collections::HashSet;
 
 #[derive(Debug)]
 struct Entry {
