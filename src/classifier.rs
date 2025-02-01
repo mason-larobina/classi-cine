@@ -80,32 +80,8 @@ impl Classifier for NaiveBayesClassifier {
         "naive_bayes"
     }
 
-    fn process_bounds(&mut self, entries: &[Entry]) {
-        // Clear previous training
-        self.positive_counts.clear();
-        self.negative_counts.clear();
-        self.positive_total = 0;
-        self.negative_total = 0;
-
-        // Train on playlist entries
-        let tokenizer = entries[0].tokens.as_ref().unwrap().tokenizer();
-        let mut temp_ngrams = Ngrams::default();
-
-        // Process positive examples
-        for path in tokenizer.playlist().positives() {
-            let norm = normalize::normalize(path);
-            let tokens = tokenizer.tokenize(&norm);
-            temp_ngrams.windows(&tokens, 5, None, None);
-            self.train_positive(&temp_ngrams);
-        }
-
-        // Process negative examples
-        for path in tokenizer.playlist().negatives() {
-            let norm = normalize::normalize(path);
-            let tokens = tokenizer.tokenize(&norm);
-            temp_ngrams.windows(&tokens, 5, None, None);
-            self.train_negative(&temp_ngrams);
-        }
+    fn process_bounds(&mut self, _entries: &[Entry]) {
+        // Training now happens during App initialization
     }
 
     fn normalize(&self, score: f64) -> f64 {

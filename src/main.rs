@@ -406,6 +406,7 @@ struct App {
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
     classifiers: Vec<Box<dyn Classifier>>,
+    naive_bayes: NaiveBayesClassifier,
     playlist: M3uPlaylist,
 }
 
@@ -425,7 +426,9 @@ impl App {
         let mut classifiers: Vec<Box<dyn Classifier>> = Vec::new();
         classifiers.push(Box::new(FileSizeClassifier::new(2.0, false)));
         classifiers.push(Box::new(DirSizeClassifier::new(2.0, false)));
-        classifiers.push(Box::new(NaiveBayesClassifier::new(false)));
+
+        // Create naive bayes classifier separately
+        let naive_bayes = NaiveBayesClassifier::new(false);
 
         Ok(Self {
             args,
@@ -433,6 +436,7 @@ impl App {
             tokenizer: None,
             frequent_ngrams: None,
             classifiers,
+            naive_bayes,
             playlist,
         })
     }
@@ -469,7 +473,7 @@ impl App {
         }
     }
 
-    fn process_tokens_and_ngrams(&mut self) {
+    fn process_tokens_and_ngrams(&mut self) -> io::Result<()> {
         // Collect all paths that need tokenization
         let mut paths = HashSet::new();
         
@@ -523,6 +527,47 @@ impl App {
             );
             e.ngrams = Some(ngrams);
         }
+
+        // Train naive bayes classifier on playlist entries
+        let mut temp_ngrams = Ngrams::default();
+        
+        // Process positive examples
+        for path in self.playlist.positives() {
+            let norm = normalize::normalize(path);
+            let tokens = self.tokenizer.as_ref().unwrap().tokenize(&norm);
+            temp_ngrams.windows(&tokens, 5, None, None);
+            let entry = Entry {
+                file: walk::File { dir: Arc::new(path.parent().unwrap_or(Path::new("")).to_path_buf()), 
+                                 file_name: path.file_name().unwrap().to_string_lossy().to_string(),
+                                 size: 0, 
+                                 inode: 0 },
+                norm,
+                tokens: Some(tokens),
+                ngrams: Some(temp_ngrams.clone()),
+                score: 0.0,
+            };
+            self.naive_bayes.train_positive(&entry);
+        }
+
+        // Process negative examples
+        for path in self.playlist.negatives() {
+            let norm = normalize::normalize(path);
+            let tokens = self.tokenizer.as_ref().unwrap().tokenize(&norm);
+            temp_ngrams.windows(&tokens, 5, None, None);
+            let entry = Entry {
+                file: walk::File { dir: Arc::new(path.parent().unwrap_or(Path::new("")).to_path_buf()), 
+                                 file_name: path.file_name().unwrap().to_string_lossy().to_string(),
+                                 size: 0, 
+                                 inode: 0 },
+                norm,
+                tokens: Some(tokens),
+                ngrams: Some(temp_ngrams.clone()),
+                score: 0.0,
+            };
+            self.naive_bayes.train_negative(&entry);
+        }
+
+        Ok(())
     }
 
     fn process_classifiers(&mut self) {
@@ -531,12 +576,15 @@ impl App {
             classifier.process_bounds(&self.entries);
         }
 
-        // Calculate combined scores
+        // Calculate combined scores including naive bayes
+        let classifier_count = self.classifiers.len() + 1;
         for entry in &mut self.entries {
-            entry.score = self.classifiers
+            let classifier_sum: f64 = self.classifiers
                 .iter()
                 .map(|c| c.score(entry))
-                .sum::<f64>() / self.classifiers.len() as f64;
+                .sum();
+            let naive_bayes_score = self.naive_bayes.score(entry);
+            entry.score = (classifier_sum + naive_bayes_score) / classifier_count as f64;
         }
 
         // Sort entries in place by score descending
@@ -546,7 +594,7 @@ impl App {
     fn run(&mut self) -> io::Result<()> {
         self.init_thread_priority();
         self.collect_files();
-        self.process_tokens_and_ngrams();
+        self.process_tokens_and_ngrams()?;
         self.process_classifiers();
         Ok(())
     }
