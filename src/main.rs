@@ -536,7 +536,7 @@ impl App {
             let norm = normalize::normalize(path);
             let tokens = self.tokenizer.as_ref().unwrap().tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
-            self.naive_bayes.train_positive(temp_ngrams.iter().collect::<Vec<_>>().as_slice());
+            self.naive_bayes.train_positive(&temp_ngrams);
         }
 
         // Process negative examples
@@ -544,7 +544,7 @@ impl App {
             let norm = normalize::normalize(path);
             let tokens = self.tokenizer.as_ref().unwrap().tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
-            self.naive_bayes.train_negative(temp_ngrams.iter().collect::<Vec<_>>().as_slice());
+            self.naive_bayes.train_negative(&temp_ngrams);
         }
 
         Ok(())

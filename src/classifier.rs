@@ -40,14 +40,14 @@ impl NaiveBayesClassifier {
         }
     }
 
-    pub fn train_positive(&mut self, ngrams: &[Ngram]) {
+    pub fn train_positive(&mut self, ngrams: &Ngrams) {
         self.positive_total += 1;
         for ngram in ngrams.iter() {
             *self.positive_counts.entry(*ngram).or_default() += 1;
         }
     }
 
-    pub fn train_negative(&mut self, ngrams: &[Ngram]) {
+    pub fn train_negative(&mut self, ngrams: &Ngrams) {
         self.negative_total += 1;
         for ngram in ngrams.iter() {
             *self.negative_counts.entry(*ngram).or_default() += 1;
