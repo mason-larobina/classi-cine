@@ -546,6 +546,7 @@ impl App {
                 ngrams: Some(temp_ngrams.clone()),
                 score: 0.0,
             };
+            // train_positive should take ngrams, not entry, remove the fake entry stuff above. AI!
             self.naive_bayes.train_positive(&entry);
         }
 
