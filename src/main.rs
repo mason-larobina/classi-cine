@@ -589,10 +589,12 @@ impl App {
         }
 
         // Sort entries by total score descending
+        debug!("Sorting {} entries", self.entries.len());
         self.entries.sort_by(|a, b| {
             let a_sum = a.scores.iter().sum::<f64>();
             let b_sum = b.scores.iter().sum::<f64>();
-            b_sum.partial_cmp(&a_sum).unwrap()
+            debug!("Comparing scores: {} vs {}", a_sum, b_sum);
+            b_sum.partial_cmp(&a_sum).expect("Invalid score comparison")
         });
     }
 

@@ -112,7 +112,12 @@ impl Classifier for NaiveBayesClassifier {
         // Positive values indicate more likely positive, negative values more likely negative
         let score = log_positive - log_negative;
         
-        if self.reverse {
+        // Check for invalid values
+        if !score.is_finite() {
+            warn!("Invalid naive bayes score: {} (log_pos={}, log_neg={})", 
+                  score, log_positive, log_negative);
+            0.0 // Return neutral score for invalid calculations
+        } else if self.reverse {
             -score
         } else {
             score
@@ -167,7 +172,10 @@ impl Classifier for FileSizeClassifier {
             0.0
         } else {
             let score = (size as f64).log(self.log_base);
-            if self.reverse {
+            if !score.is_finite() {
+                warn!("Invalid file size score for size {}: {}", size, score);
+                0.0
+            } else if self.reverse {
                 -score
             } else {
                 score
@@ -225,7 +233,10 @@ impl Classifier for DirSizeClassifier {
     fn calculate_score(&self, item: &Entry) -> f64 {
         let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
         let score = (count as f64).log(self.log_base);
-        if self.reverse {
+        if !score.is_finite() {
+            warn!("Invalid dir size score for count {}: {}", count, score);
+            0.0
+        } else if self.reverse {
             -score
         } else {
             score
