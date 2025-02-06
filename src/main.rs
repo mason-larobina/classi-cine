@@ -24,7 +24,8 @@ use log::*;
 use rayon::prelude::*;
 use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
+use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::Component;
@@ -447,6 +448,11 @@ impl App {
     }
 
     fn collect_files(&mut self) {
+        // Create set of already classified paths
+        let mut classified = HashSet::new();
+        classified.extend(self.playlist.positives().iter().cloned());
+        classified.extend(self.playlist.negatives().iter().cloned());
+
         let walk = Walk::new(self.args.video_exts.iter().map(String::as_ref));
         for dir in &self.args.dirs {
             walk.walk_dir(dir);
@@ -456,9 +462,15 @@ impl App {
         while let Ok(file) = rx.recv() {
             debug!("{:?}", file);
 
-            let file_path: PathBuf = file.dir.join(&file.file_name);
-            let norm = normalize::normalize(&file_path);
+            let file_path = file.dir.join(&file.file_name);
+            
+            // Skip if already classified
+            if classified.contains(&file_path) {
+                debug!("Skipping already classified file: {:?}", file_path);
+                continue;
+            }
 
+            let norm = normalize::normalize(&file_path);
             let entry = Entry {
                 file,
                 norm,
@@ -469,6 +481,8 @@ impl App {
 
             self.entries.push(entry);
         }
+
+        info!("Collected {} unclassified entries", self.entries.len());
     }
 
     fn process_tokens_and_ngrams(&mut self) -> io::Result<()> {
