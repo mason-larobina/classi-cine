@@ -619,7 +619,49 @@ impl App {
         self.init_thread_priority();
         self.collect_files();
         self.process_tokens_and_ngrams()?;
-        self.process_classifiers();
+
+        // Main classification loop
+        while !self.entries.is_empty() {
+            self.process_classifiers();
+
+            // Get highest scoring entry
+            if let Some(entry) = self.entries.first() {
+                let path = entry.file.dir.join(&entry.file.file_name);
+                info!("Top candidate: {:?} (scores: {:?})", path, entry.scores);
+                
+                // Read user input for classification
+                print!("Classify as (p)ositive, (n)egative, or (q)uit? ");
+                std::io::stdout().flush()?;
+                
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                
+                match input.trim().to_lowercase().as_str() {
+                    "p" => {
+                        // Remove from entries and add to positive examples
+                        let entry = self.entries.remove(0);
+                        self.playlist.add_positive(&path)?;
+                        if let Some(ngrams) = entry.ngrams {
+                            self.naive_bayes.train_positive(&ngrams);
+                        }
+                    }
+                    "n" => {
+                        // Remove from entries and add to negative examples
+                        let entry = self.entries.remove(0);
+                        self.playlist.add_negative(&path)?;
+                        if let Some(ngrams) = entry.ngrams {
+                            self.naive_bayes.train_negative(&ngrams);
+                        }
+                    }
+                    "q" => break,
+                    _ => {
+                        info!("Invalid input, skipping entry");
+                        continue;
+                    }
+                }
+            }
+        }
+        
         Ok(())
     }
 }
