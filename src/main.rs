@@ -534,7 +534,7 @@ impl App {
         // Process positive examples
         for path in self.playlist.positives() {
             let norm = normalize::normalize(path);
-            let tokens = self.tokenizer.as_ref().unwrap().tokenize(&norm);
+            let tokens = tokenizer.tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
             self.naive_bayes.train_positive(&temp_ngrams);
         }
@@ -542,7 +542,7 @@ impl App {
         // Process negative examples
         for path in self.playlist.negatives() {
             let norm = normalize::normalize(path);
-            let tokens = self.tokenizer.as_ref().unwrap().tokenize(&norm);
+            let tokens = tokenizer.tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
             self.naive_bayes.train_negative(&temp_ngrams);
         }

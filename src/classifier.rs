@@ -11,11 +11,12 @@ pub trait Classifier {
     /// Returns the name of this classifier.
     fn name(&self) -> &'static str;
 
-    /// Process any bounds/statistics needed across all entries
-    fn process_bounds(&mut self, entries: &[Entry]);
-
-    /// Calculate raw score for a single entry
-    fn score(&self, entry: &Entry) -> f64;
+    /// Called when the list of entries changes (typically after classification and removal of an
+    /// entry). Classifiers may choose to do work once when first called or each time it is called.
+    fn process_entries(&mut self, entries: &[Entry]);
+             
+    /// Calculate score for an entry.
+    fn calculate_score(&self, entry: &Entry) -> f64;
 }
 
 /// Classifies based on ngram frequencies in positive/negative examples
@@ -78,7 +79,7 @@ impl Classifier for NaiveBayesClassifier {
     }
 
     fn process_entries(&mut self, _entries: &[Entry]) {
-        // Training now happens during App initialization
+        // Training happens with the train_positive and train_negative functions.
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
