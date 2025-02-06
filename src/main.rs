@@ -452,6 +452,7 @@ impl App {
         let mut classified = HashSet::new();
         classified.extend(self.playlist.positives().iter().cloned());
         classified.extend(self.playlist.negatives().iter().cloned());
+        info!("Classified {:?}", classified);
 
         let walk = Walk::new(self.args.video_exts.iter().map(String::as_ref));
         for dir in &self.args.dirs {

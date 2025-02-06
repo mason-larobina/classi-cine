@@ -175,7 +175,7 @@ impl PairTokenizer {
                     break;
                 }
                 // Log and keep track of the pair chosen for merging.
-                info!("{:?} {:?}", count, pair.to_string(&token_map));
+                //info!("{:?} {:?}", count, pair.to_string(&token_map));
                 pair
             } else {
                 // If no pairs are found, break.
