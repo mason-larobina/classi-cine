@@ -466,7 +466,7 @@ impl App {
                 norm,
                 tokens: None,
                 ngrams: None,
-                score: 0.0,
+                scores: Vec::new(),
             };
 
             self.entries.push(entry);
