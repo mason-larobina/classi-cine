@@ -641,17 +641,13 @@ impl App {
                         // Remove from entries and add to positive examples
                         let entry = self.entries.remove(0);
                         self.playlist.add_positive(&path)?;
-                        if let Some(ngrams) = entry.ngrams {
-                            self.naive_bayes.train_positive(&ngrams);
-                        }
+                        self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
                     }
                     "n" => {
                         // Remove from entries and add to negative examples
                         let entry = self.entries.remove(0);
                         self.playlist.add_negative(&path)?;
-                        if let Some(ngrams) = entry.ngrams {
-                            self.naive_bayes.train_negative(&ngrams);
-                        }
+                        self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
                     }
                     "q" => break,
                     _ => {
