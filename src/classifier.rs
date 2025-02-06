@@ -11,12 +11,11 @@ pub trait Classifier {
     /// Returns the name of this classifier.
     fn name(&self) -> &'static str;
 
-    /// Called when the list of entries changes (typically after classification and removal of an
-    /// entry). Classifiers may choose to do work once when first called or each time it is called.
-    fn process_entries(&mut self, entries: &[Entry]);
+    /// Process any bounds/statistics needed across all entries
+    fn process_bounds(&mut self, entries: &[Entry]);
 
-    /// Calculate score for an entry.
-    fn calculate_score(&self, entry: &Entry) -> f64;
+    /// Calculate raw score for a single entry
+    fn score(&self, entry: &Entry) -> f64;
 }
 
 /// Classifies based on ngram frequencies in positive/negative examples
@@ -78,16 +77,11 @@ impl Classifier for NaiveBayesClassifier {
         "naive_bayes"
     }
 
-    fn process_bounds(&mut self, _entries: &[Entry]) {
+    fn process_entries(&mut self, _entries: &[Entry]) {
         // Training now happens during App initialization
     }
 
-    fn normalize(&self, score: f64) -> f64 {
-        // Score is already normalized by the naive bayes calculation
-        score
-    }
-
-    fn score(&self, item: &Entry) -> f64 {
+    fn calculate_score(&self, item: &Entry) -> f64 {
         let ngrams = item.ngrams.as_ref().unwrap();
         
         // Start with log prior probabilities
@@ -143,7 +137,7 @@ impl Classifier for FileSizeClassifier {
         "file_size"
     }
 
-    fn process_bounds(&mut self, entries: &[Entry]) {
+    fn process_entries(&mut self, entries: &[Entry]) {
         for item in entries {
             let size = item.file.size;
             let log_score = if size == 0 {
@@ -156,33 +150,18 @@ impl Classifier for FileSizeClassifier {
         }
     }
 
-    fn normalize(&self, score: f64) -> f64 {
-        // Normalize to 0.0-1.0 range
-        if (self.max_log_size - self.min_log_size).abs() < f64::EPSILON {
-            0.5 // If min==max, return middle value
-        } else {
-            (score - self.min_log_size) / (self.max_log_size - self.min_log_size)
-        }
-    }
-
-    fn score(&self, item: &Entry) -> f64 {
+    fn calculate_score(&self, item: &Entry) -> f64 {
         let size = item.file.size;
-        let log_score = if size == 0 {
+        if size == 0 {
             0.0
         } else {
-            (size as f64).log(self.log_base)
-        };
-        
-        let normalized = self.normalize(log_score);
-        
-        // Reverse if requested
-        let final_score = if self.reverse {
-            1.0 - normalized
-        } else {
-            normalized
-        };
-        
-        final_score.clamp(0.0, 1.0)
+            let score = (size as f64).log(self.log_base);
+            if self.reverse {
+                -score
+            } else {
+                score
+            }
+        }
     }
 }
 
@@ -217,7 +196,7 @@ impl Classifier for DirSizeClassifier {
         "dir_size"
     }
 
-    fn process_bounds(&mut self, entries: &[Entry]) {
+    fn process_entries(&mut self, entries: &[Entry]) {
         // Count files per directory
         self.dir_counts.clear();
         for item in entries {
@@ -232,29 +211,14 @@ impl Classifier for DirSizeClassifier {
         }
     }
 
-    fn normalize(&self, score: f64) -> f64 {
-        // Normalize to 0.0-1.0 range
-        if (self.max_log_count - self.min_log_count).abs() < f64::EPSILON {
-            0.5 // If min==max, return middle value
-        } else {
-            (score - self.min_log_count) / (self.max_log_count - self.min_log_count)
-        }
-    }
-
-    fn score(&self, item: &Entry) -> f64 {
-        // Use cached directory count
+    fn calculate_score(&self, item: &Entry) -> f64 {
         let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
-        let log_score = (count as f64).log(self.log_base);
-        let normalized = self.normalize(log_score);
-        
-        // Reverse if requested
-        let final_score = if self.reverse {
-            1.0 - normalized
+        let score = (count as f64).log(self.log_base);
+        if self.reverse {
+            -score
         } else {
-            normalized
-        };
-        
-        final_score.clamp(0.0, 1.0)
+            score
+        }
     }
 }
 

@@ -557,19 +557,42 @@ impl App {
             entry.scores = vec![0.0; classifier_count];
         }
 
-        // Calculate scores for each classifier
-        for (idx, classifier) in &mut self.classifiers.iter_mut().enumerate() {
-            classifier.calculate_scores(&mut self.entries, idx);
+        // Process bounds for each classifier
+        for classifier in &mut self.classifiers {
+            classifier.process_entries(&self.entries);
         }
-        
-        // Calculate naive bayes scores
-        self.naive_bayes.calculate_scores(&mut self.entries, self.classifiers.len());
+        self.naive_bayes.process_entries(&self.entries);
 
-        // Sort entries in place by average score descending
+        // Calculate raw scores for each classifier
+        for (idx, classifier) in self.classifiers.iter().enumerate() {
+            for entry in &mut self.entries {
+                entry.scores[idx] = classifier.calculate_score(entry);
+            }
+        }
+
+        // Calculate naive bayes scores
+        for entry in &mut self.entries {
+            entry.scores[classifier_count - 1] = self.naive_bayes.calculate_score(entry);
+        }
+
+        // Normalize each column of scores
+        for col in 0..classifier_count {
+            let mut col_scores: Vec<f64> = self.entries.iter().map(|e| e.scores[col]).collect();
+            if let (Some(min), Some(max)) = (col_scores.iter().copied().reduce(f64::min),
+                                           col_scores.iter().copied().reduce(f64::max)) {
+                if (max - min).abs() > f64::EPSILON {
+                    for (entry, &raw_score) in self.entries.iter_mut().zip(&col_scores) {
+                        entry.scores[col] = (raw_score - min) / (max - min);
+                    }
+                }
+            }
+        }
+
+        // Sort entries by total score descending
         self.entries.sort_by(|a, b| {
-            let a_avg = a.scores.iter().sum::<f64>() / classifier_count as f64;
-            let b_avg = b.scores.iter().sum::<f64>() / classifier_count as f64;
-            b_avg.partial_cmp(&a_avg).unwrap()
+            let a_sum = a.scores.iter().sum::<f64>();
+            let b_sum = b.scores.iter().sum::<f64>();
+            b_sum.partial_cmp(&a_sum).unwrap()
         });
     }
 
