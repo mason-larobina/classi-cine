@@ -37,50 +37,43 @@ impl M3uPlaylist {
             negatives: HashSet::new(),
         };
 
-        playlist.ensure_file_exists()?;
-
-        // Load existing entries if file exists
-        let file = File::open(&path)?;
-        let reader = BufReader::new(file);
-        let mut lines = reader.lines();
-
-        // Skip M3U header (we already verified it exists in ensure_file_exists)
-        let _ = lines.next();
-
-        // Process remaining lines
-        for line in lines {
-            let line = line?;
-            if line.starts_with(NEGATIVE_PREFIX) {
-                // Negative classification (commented out)
-                if let Some(path) = line.strip_prefix(NEGATIVE_PREFIX) {
-                    playlist.negatives.insert(PathBuf::from(path.trim()));
-                }
-            } else if !line.starts_with('#') {
-                // Positive classification (regular entry)
-                playlist.positives.insert(PathBuf::from(line.trim()));
-            }
-        }
-
-        Ok(playlist)
-    }
-
-    fn ensure_file_exists(&self) -> io::Result<()> {
-        if !self.path.exists() {
-            let mut file = File::create(&self.path)?;
+        if !path.exists() {
+            // Create new file with M3U header
+            let mut file = File::create(&path)?;
             writeln!(file, "{}", M3U_HEADER)?;
         } else {
-            // Verify header in existing file
-            let file = File::open(&self.path)?;
-            let mut reader = BufReader::new(file);
-            let mut first_line = String::new();
-            if reader.read_line(&mut first_line)? == 0 || first_line.trim() != M3U_HEADER {
+            // Load and verify existing file
+            let file = File::open(&path)?;
+            let reader = BufReader::new(file);
+            let mut lines = reader.lines();
+
+            // Verify M3U header in existing file
+            let first_line = lines.next().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "Empty playlist file")
+            })??;
+            if first_line.trim() != M3U_HEADER {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "Existing playlist file missing M3U header",
                 ));
             }
+
+            // Process remaining lines
+            for line in lines {
+                let line = line?;
+                if line.starts_with(NEGATIVE_PREFIX) {
+                    // Negative classification (commented out)
+                    if let Some(path) = line.strip_prefix(NEGATIVE_PREFIX) {
+                        playlist.negatives.insert(PathBuf::from(path.trim()));
+                    }
+                } else if !line.starts_with('#') {
+                    // Positive classification (regular entry)
+                    playlist.positives.insert(PathBuf::from(line.trim()));
+                }
+            }
         }
-        Ok(())
+
+        Ok(playlist)
     }
 }
 
