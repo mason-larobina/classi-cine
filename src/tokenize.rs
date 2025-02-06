@@ -105,7 +105,7 @@ impl PairTokenizer {
     /// Constructs a new `PairTokenizer` from a list of input strings.
     /// Internally, it iteratively merges the most frequent pair until a frequency threshold is reached.
     /// Creates a new PairTokenizer from a set of training strings
-    /// 
+    ///
     /// # Arguments
     /// * `strings` - Training corpus to learn token pairs from
     ///
@@ -117,7 +117,7 @@ impl PairTokenizer {
     ///
     pub fn new<'a, I>(strings: I) -> PairTokenizer
     where
-        I: IntoIterator<Item = &'a str>
+        I: IntoIterator<Item = &'a str>,
     {
         // Prevent the tokenizer from merging special characters.
         let mut special_chars = String::new();
@@ -246,6 +246,10 @@ impl PairTokenizer {
             }
         }
         tokens
+    }
+
+    pub fn count(&self) -> usize {
+        self.token_map.count()
     }
 }
 

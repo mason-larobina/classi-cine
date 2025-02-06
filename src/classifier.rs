@@ -1,11 +1,11 @@
-use crate::ngrams::{Ngram,Ngrams};
+use crate::ngrams::{Ngram, Ngrams};
 use crate::normalize;
 use crate::tokens::Tokens;
 use crate::Entry;
+use log::*;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::collections::HashMap;
-use log::*;
 
 /// Trait for types that can classify files/content
 pub trait Classifier {
@@ -15,7 +15,7 @@ pub trait Classifier {
     /// Called when the list of entries changes (typically after classification and removal of an
     /// entry). Classifiers may choose to do work once when first called or each time it is called.
     fn process_entries(&mut self, entries: &[Entry]);
-             
+
     /// Calculate score for an entry.
     fn calculate_score(&self, entry: &Entry) -> f64;
 }
@@ -85,25 +85,24 @@ impl Classifier for NaiveBayesClassifier {
 
     fn calculate_score(&self, item: &Entry) -> f64 {
         let ngrams = item.ngrams.as_ref().unwrap();
-        
+
         // Calculate log probabilities for positive and negative cases using Bayes' theorem:
         // P(class|ngrams) ∝ P(ngrams|class) * P(class)
         // In log space this becomes:
         // log P(class|ngrams) = log P(ngrams|class) + log P(class) + const
-        
+
         // Start with log prior probabilities: log P(class)
         // Priors account for class frequency in training data and prevent bias from unbalanced training
         // For example, if we have 90 positive and 10 negative examples:
         // log_positive = ln(0.9) ≈ -0.105
         // log_negative = ln(0.1) ≈ -2.302
         // This captures our prior belief that new examples are more likely to be positive
-        let mut log_positive = ((1.0 + self.positive_total as f64) / 
-            (1 + self.positive_total + self.negative_total) as f64).ln();
-        let mut log_negative = (1.0 + self.negative_total as f64 / 
-            (1 + self.positive_total + self.negative_total) as f64).ln();
-
-        dbg!(log_positive);
-        dbg!(log_negative);
+        let mut log_positive = ((1.0 + self.positive_total as f64)
+            / (1 + self.positive_total + self.negative_total) as f64)
+            .ln();
+        let mut log_negative = ((1.0 + self.negative_total as f64)
+            / (1 + self.positive_total + self.negative_total) as f64)
+            .ln();
 
         // Add log likelihoods: log P(ngrams|class)
         for ngram in ngrams.iter() {
@@ -115,13 +114,9 @@ impl Classifier for NaiveBayesClassifier {
         // This maintains better numerical stability than converting to probabilities
         // Positive values indicate more likely positive, negative values more likely negative
         let score = log_positive - log_negative;
-        
-        // Check for invalid values
-        if !score.is_finite() {
-            warn!("Invalid naive bayes score: {} (log_pos={}, log_neg={})", 
-                  score, log_positive, log_negative);
-            0.0 // Return neutral score for invalid calculations
-        } else if self.reverse {
+        assert!(score.is_finite());
+
+        if self.reverse {
             -score
         } else {
             score
@@ -137,13 +132,13 @@ pub struct FileSizeClassifier {
     reverse: bool,
     /// Minimum log size seen
     min_log_size: f64,
-    /// Maximum log size seen 
+    /// Maximum log size seen
     max_log_size: f64,
 }
 
 impl FileSizeClassifier {
     pub fn new(log_base: f64, reverse: bool) -> Self {
-        Self { 
+        Self {
             log_base,
             reverse,
             min_log_size: f64::MAX,
@@ -204,7 +199,7 @@ pub struct DirSizeClassifier {
 
 impl DirSizeClassifier {
     pub fn new(log_base: f64, reverse: bool) -> Self {
-        Self { 
+        Self {
             log_base,
             reverse,
             min_log_count: f64::MAX,
@@ -225,7 +220,7 @@ impl Classifier for DirSizeClassifier {
         for item in entries {
             *self.dir_counts.entry(item.file.dir.clone()).or_default() += 1;
         }
-        
+
         // Calculate bounds from directory counts
         for count in self.dir_counts.values() {
             let log_score = (*count as f64).log(self.log_base);
@@ -247,4 +242,3 @@ impl Classifier for DirSizeClassifier {
         }
     }
 }
-

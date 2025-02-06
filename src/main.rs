@@ -10,27 +10,27 @@ mod tokenize;
 mod tokens;
 mod walk;
 
-use ahash::AHashSet;
-use chrono::{DateTime, Utc};
-use clap::{Parser, Subcommand};
-use classifier::{Classifier, FileSizeClassifier, DirSizeClassifier, NaiveBayesClassifier};
-use crate::ngrams::{Ngram,Ngrams};
-use crate::playlist::{Playlist, M3uPlaylist};
+use crate::ngrams::{Ngram, Ngrams};
+use crate::playlist::{M3uPlaylist, Playlist};
 use crate::tokenize::PairTokenizer;
 use crate::tokens::{Pair, Token, TokenMap, Tokens};
 use crate::walk::Walk;
+use ahash::AHashSet;
+use chrono::{DateTime, Utc};
+use clap::{Parser, Subcommand};
+use classifier::{Classifier, DirSizeClassifier, FileSizeClassifier, NaiveBayesClassifier};
 use humansize::{format_size, BINARY};
 use log::*;
-use rayon::ThreadPool;
 use rayon::prelude::*;
+use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::Component;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 use textplots::{Chart, Plot, Shape};
@@ -390,14 +390,13 @@ struct Args {
 //    });
 //}
 
-
 #[derive(Debug)]
 struct Entry {
     file: walk::File,
     norm: String,
     tokens: Option<Tokens>,
     ngrams: Option<Ngrams>,
-    scores: Vec<f64>,  // One score per classifier
+    scores: Vec<f64>, // One score per classifier
 }
 
 struct App {
@@ -441,7 +440,6 @@ impl App {
         })
     }
 
-
     fn init_thread_priority(&self) {
         rayon::broadcast(|_| {
             set_current_thread_priority(ThreadPriority::Min).unwrap();
@@ -476,17 +474,31 @@ impl App {
     fn process_tokens_and_ngrams(&mut self) -> io::Result<()> {
         // Collect all paths that need tokenization
         let mut paths = HashSet::new();
-        
+
         // Add paths from walk results (candidates)
         paths.extend(self.entries.iter().map(|e| e.norm.to_string()));
-        
+
         // Add paths from playlist classifications
-        paths.extend(self.playlist.positives().iter().map(|p| normalize::normalize(p)));
-        paths.extend(self.playlist.negatives().iter().map(|p| normalize::normalize(p)));
+        paths.extend(
+            self.playlist
+                .positives()
+                .iter()
+                .map(|p| normalize::normalize(p)),
+        );
+        paths.extend(
+            self.playlist
+                .negatives()
+                .iter()
+                .map(|p| normalize::normalize(p)),
+        );
 
         // Create tokenizer from all paths
-        self.tokenizer = Some(tokenize::PairTokenizer::new(paths.iter().map(String::as_str)));
+        self.tokenizer = Some(tokenize::PairTokenizer::new(
+            paths.iter().map(String::as_str),
+        ));
         let tokenizer = self.tokenizer.as_ref().unwrap();
+
+        info!("tokenizer tokens {:?}", tokenizer.count());
 
         // Process all paths to find frequent ngrams
         let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
@@ -509,15 +521,18 @@ impl App {
             ngram_counts
                 .into_iter()
                 .filter_map(|(ngram, count)| if count > 1 { Some(ngram) } else { None })
-                .collect()
+                .collect(),
         );
 
-        info!("frequent ngrams {:?}", self.frequent_ngrams.as_ref().unwrap().len());
+        info!(
+            "frequent ngrams {:?}",
+            self.frequent_ngrams.as_ref().unwrap().len()
+        );
 
         // Final pass to store tokens and frequent ngrams for candidates only
         for e in self.entries.iter_mut() {
             e.tokens = Some(tokenizer.tokenize(&e.norm));
-            
+
             let mut ngrams = Ngrams::default();
             ngrams.windows(
                 e.tokens.as_ref().unwrap(),
@@ -530,7 +545,7 @@ impl App {
 
         // Train naive bayes classifier on playlist entries
         let mut temp_ngrams = Ngrams::default();
-        
+
         // Process positive examples
         for path in self.playlist.positives() {
             let norm = normalize::normalize(path);
@@ -578,8 +593,10 @@ impl App {
         // Normalize each column of scores
         for col in 0..classifier_count {
             let col_scores: Vec<f64> = self.entries.iter().map(|e| e.scores[col]).collect();
-            if let (Some(min), Some(max)) = (col_scores.iter().copied().reduce(f64::min),
-                                           col_scores.iter().copied().reduce(f64::max)) {
+            if let (Some(min), Some(max)) = (
+                col_scores.iter().copied().reduce(f64::min),
+                col_scores.iter().copied().reduce(f64::max),
+            ) {
                 if (max - min).abs() > f64::EPSILON {
                     for (entry, &raw_score) in self.entries.iter_mut().zip(&col_scores) {
                         entry.scores[col] = (raw_score - min) / (max - min);
@@ -611,7 +628,6 @@ fn main() -> io::Result<()> {
     let mut app = App::new()?;
     app.run()?;
     Ok(())
-
 
     //let mut delete = State::from(&args.delete)?;
     //for path in delete.iter() {

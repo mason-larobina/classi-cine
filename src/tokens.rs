@@ -208,4 +208,8 @@ impl TokenMap {
     pub fn get_str<'a>(&'a self, token: Token) -> Option<&'a str> {
         self.token_str.get(&token).map(String::as_str)
     }
+
+    pub fn count(&self) -> usize {
+        self.token_str.len()
+    }
 }

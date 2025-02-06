@@ -1,5 +1,5 @@
-use std::hash::{Hash, Hasher};
 use ahash::AHasher;
+use std::hash::{Hash, Hasher};
 
 /// A simple Bloom filter implementation using a 128-bit mask
 /// Provides fast approximate set membership testing
@@ -25,7 +25,7 @@ impl Bloom {
         e.hash(&mut hasher);
         hasher.finish()
     }
-    
+
     pub fn mask<T: Hash + Copy>(e: T) -> u128 {
         1u128 << (Self::hash(e) % 128)
     }
@@ -33,7 +33,7 @@ impl Bloom {
     pub fn set<T: Hash + Copy>(&mut self, e: T) {
         self.0 |= Self::mask(e);
     }
-    
+
     pub fn contains<M: IntoMask>(&self, e: &M) -> bool {
         let mask = e.into_mask();
         (self.0 & mask) == mask

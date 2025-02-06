@@ -1,7 +1,7 @@
+use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::collections::HashSet;
 
 const M3U_HEADER: &str = "#EXTM3U";
 const NEGATIVE_PREFIX: &str = "#NEGATIVE:";
@@ -10,16 +10,16 @@ const NEGATIVE_PREFIX: &str = "#NEGATIVE:";
 pub trait Playlist {
     /// Load positive and negative classifications from a playlist file
     fn load(&mut self, path: &Path) -> io::Result<()>;
-    
+
     /// Add a positive classification
     fn add_positive(&mut self, path: &Path) -> io::Result<()>;
-    
+
     /// Add a negative classification
     fn add_negative(&mut self, path: &Path) -> io::Result<()>;
-    
+
     /// Get positive classifications
     fn positives(&self) -> &HashSet<PathBuf>;
-    
+
     /// Get negative classifications
     fn negatives(&self) -> &HashSet<PathBuf>;
 }
@@ -38,7 +38,7 @@ impl M3uPlaylist {
             positives: HashSet::new(),
             negatives: HashSet::new(),
         };
-        
+
         playlist.ensure_file_exists()?;
         Ok(playlist)
     }
@@ -91,10 +91,8 @@ impl Playlist for M3uPlaylist {
 
     fn add_positive(&mut self, path: &Path) -> io::Result<()> {
         self.positives.insert(path.to_path_buf());
-        
-        let mut file = OpenOptions::new()
-            .append(true)
-            .open(&self.path)?;
+
+        let mut file = OpenOptions::new().append(true).open(&self.path)?;
 
         writeln!(file, "{}", path.display())?;
         Ok(())
@@ -102,10 +100,8 @@ impl Playlist for M3uPlaylist {
 
     fn add_negative(&mut self, path: &Path) -> io::Result<()> {
         self.negatives.insert(path.to_path_buf());
-        
-        let mut file = OpenOptions::new()
-            .append(true)
-            .open(&self.path)?;
+
+        let mut file = OpenOptions::new().append(true).open(&self.path)?;
 
         writeln!(file, "{}{}", NEGATIVE_PREFIX, path.display())?;
         Ok(())

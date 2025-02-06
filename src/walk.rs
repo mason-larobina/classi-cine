@@ -1,13 +1,13 @@
 use log::*;
 use rayon::ThreadPool;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ffi::{OsStr,OsString};
+use std::ffi::{OsStr, OsString};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use walkdir::WalkDir;
-use std::os::unix::fs::MetadataExt;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct File {
