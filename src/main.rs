@@ -8,6 +8,7 @@ mod normalize;
 mod playlist;
 mod tokenize;
 mod tokens;
+mod vlc;
 mod walk;
 
 use crate::ngrams::{Ngram, Ngrams};
@@ -346,30 +347,58 @@ impl App {
                     .collect();
                 info!("Top candidate: {:?}\nScores: {}", path, score_details.join(", "));
                 
-                // Read user input for classification
-                print!("Classify as (p)ositive, (n)egative, or (q)uit? ");
-                std::io::stdout().flush()?;
-                
-                let mut input = String::new();
-                std::io::stdin().read_line(&mut input)?;
-                
-                match input.trim().to_lowercase().as_str() {
-                    "p" => {
-                        // Remove from entries and add to positive examples
-                        let entry = self.entries.remove(0);
-                        self.playlist.add_positive(&path)?;
-                        self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
+                // Start VLC for classification
+                let vlc = vlc::VLCProcessHandle::new(&self.args, &path);
+                match vlc.wait_for_status() {
+                    Ok(status) => {
+                        let found_file_name = status.file_name();
+                        if Some(&entry.file.file_name) != found_file_name.as_ref() {
+                            error!(
+                                "Filename mismatch {:?} {:?}, skipping",
+                                entry.file.file_name, found_file_name
+                            );
+                            continue;
+                        }
                     }
-                    "n" => {
-                        // Remove from entries and add to negative examples
-                        let entry = self.entries.remove(0);
-                        self.playlist.add_negative(&path)?;
-                        self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
-                    }
-                    "q" => break,
-                    _ => {
-                        info!("Invalid input, skipping entry");
+                    Err(e) => {
+                        error!("VLC startup error {:?}", e);
                         continue;
+                    }
+                }
+
+                // Wait for user classification via VLC controls
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+
+                    let status = match vlc.status() {
+                        Ok(status) => {
+                            debug!("{:?}", status);
+                            status
+                        }
+                        Err(e) => {
+                            error!("Status error: {:?}", e);
+                            break;
+                        }
+                    };
+
+                    match status.state() {
+                        "stopped" => {
+                            // Negative classification
+                            let entry = self.entries.remove(0);
+                            self.playlist.add_negative(&path)?;
+                            self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
+                            info!("{:?} (NEGATIVE)", path);
+                            break;
+                        }
+                        "paused" => {
+                            // Positive classification
+                            let entry = self.entries.remove(0);
+                            self.playlist.add_positive(&path)?;
+                            self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
+                            info!("{:?} (POSITIVE)", path);
+                            break;
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -385,58 +414,4 @@ fn main() -> io::Result<()> {
     Ok(())
 
 
-    //    let vlc = VLCProcessHandle::new(&args, &file_state.path);
-    //    match vlc.wait_for_status() {
-    //        Ok(status) => {
-    //            let found_file_name = status.file_name();
-    //            if Some(&file_name) != found_file_name.as_ref() {
-    //                error!(
-    //                    "Filename mismatch {:?} {:?}, skipping",
-    //                    file_name, found_file_name
-    //                );
-    //                continue;
-    //            }
-    //        }
-    //        Err(e) => {
-    //            error!("Vlc startup error {:?}", e);
-    //            continue;
-    //        }
-    //    }
-
-    //    loop {
-    //        std::thread::sleep(std::time::Duration::from_millis(100));
-
-    //        let status = match vlc.status() {
-    //            Ok(status) => {
-    //                debug!("{:?}", status);
-    //                status
-    //            }
-    //            Err(e) => {
-    //                error!("Status error: {:?}", e);
-    //                break;
-    //            }
-    //        };
-
-    //        match status.state() {
-    //            "stopped" => {
-    //                delete.update(&path_str)?;
-    //                classifier.train_delete(&file_state.ngrams);
-    //                info!("{:?} (DELETE)", path_str);
-    //                break;
-    //            }
-    //            "paused" => {
-    //                keep.update(&path_str)?;
-    //                classifier.train_keep(&file_state.ngrams);
-    //                info!("{:?} (KEEP)", path_str);
-    //                break;
-    //            }
-    //            _ => {}
-    //        }
-    //    }
-    //}
-
-    //loop {
-    //    std::thread::sleep(std::time::Duration::from_secs(1));
-    //}
-    //
 }
