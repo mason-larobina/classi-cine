@@ -85,17 +85,23 @@ impl Classifier for NaiveBayesClassifier {
     fn calculate_score(&self, item: &Entry) -> f64 {
         let ngrams = item.ngrams.as_ref().unwrap();
         
-        // Calculate log probabilities for positive and negative cases:
-        // log P(class) + sum(log P(ngram|class))
-        // This gives us log P(class|ngrams) up to a normalization constant
+        // Calculate log probabilities for positive and negative cases using Bayes' theorem:
+        // P(class|ngrams) ∝ P(ngrams|class) * P(class)
+        // In log space this becomes:
+        // log P(class|ngrams) = log P(ngrams|class) + log P(class) + const
         
         // Start with log prior probabilities: log P(class)
+        // Priors account for class frequency in training data and prevent bias from unbalanced training
+        // For example, if we have 90 positive and 10 negative examples:
+        // log_positive = ln(0.9) ≈ -0.105
+        // log_negative = ln(0.1) ≈ -2.302
+        // This captures our prior belief that new examples are more likely to be positive
         let mut log_positive = (self.positive_total as f64 / 
             (self.positive_total + self.negative_total) as f64).ln();
         let mut log_negative = (self.negative_total as f64 / 
             (self.positive_total + self.negative_total) as f64).ln();
 
-        // Add log likelihoods: sum(log P(ngram|class))
+        // Add log likelihoods: log P(ngrams|class)
         for ngram in ngrams.iter() {
             log_positive += self.log_probability(ngram, true);
             log_negative += self.log_probability(ngram, false);
