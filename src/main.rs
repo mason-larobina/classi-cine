@@ -577,7 +577,7 @@ impl App {
 
         // Normalize each column of scores
         for col in 0..classifier_count {
-            let mut col_scores: Vec<f64> = self.entries.iter().map(|e| e.scores[col]).collect();
+            let col_scores: Vec<f64> = self.entries.iter().map(|e| e.scores[col]).collect();
             if let (Some(min), Some(max)) = (col_scores.iter().copied().reduce(f64::min),
                                            col_scores.iter().copied().reduce(f64::max)) {
                 if (max - min).abs() > f64::EPSILON {
