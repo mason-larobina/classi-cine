@@ -642,7 +642,13 @@ impl App {
             // Get highest scoring entry
             if let Some(entry) = self.entries.first() {
                 let path = entry.file.dir.join(&entry.file.file_name);
-                info!("Top candidate: {:?} (scores: {:?})", path, entry.scores);
+                // Build score string with classifier names
+                let score_details: Vec<String> = self.classifiers.iter()
+                    .enumerate()
+                    .map(|(i, c)| format!("{}: {:.3}", c.name(), entry.scores[i]))
+                    .chain(std::iter::once(format!("naive_bayes: {:.3}", entry.scores.last().unwrap())))
+                    .collect();
+                info!("Top candidate: {:?}\nScores: {}", path, score_details.join(", "));
                 
                 // Read user input for classification
                 print!("Classify as (p)ositive, (n)egative, or (q)uit? ");
