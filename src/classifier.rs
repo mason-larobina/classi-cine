@@ -85,27 +85,31 @@ impl Classifier for NaiveBayesClassifier {
     fn calculate_score(&self, item: &Entry) -> f64 {
         let ngrams = item.ngrams.as_ref().unwrap();
         
-        // Start with log prior probabilities
+        // Calculate log probabilities for positive and negative cases:
+        // log P(class) + sum(log P(ngram|class))
+        // This gives us log P(class|ngrams) up to a normalization constant
+        
+        // Start with log prior probabilities: log P(class)
         let mut log_positive = (self.positive_total as f64 / 
             (self.positive_total + self.negative_total) as f64).ln();
         let mut log_negative = (self.negative_total as f64 / 
             (self.positive_total + self.negative_total) as f64).ln();
 
-        // Add log likelihoods
+        // Add log likelihoods: sum(log P(ngram|class))
         for ngram in ngrams.iter() {
             log_positive += self.log_probability(ngram, true);
             log_negative += self.log_probability(ngram, false);
         }
 
-        // Convert to probability space using log-sum-exp trick to avoid overflow
-        let max_log = log_positive.max(log_negative);
-        let normalized = (log_positive - max_log).exp() / 
-            ((log_positive - max_log).exp() + (log_negative - max_log).exp());
-
+        // Return difference of log probabilities
+        // This maintains better numerical stability than converting to probabilities
+        // Positive values indicate more likely positive, negative values more likely negative
+        let score = log_positive - log_negative;
+        
         if self.reverse {
-            1.0 - normalized
+            -score
         } else {
-            normalized
+            score
         }
     }
 }
