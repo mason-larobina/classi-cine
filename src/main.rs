@@ -536,18 +536,7 @@ impl App {
             let norm = normalize::normalize(path);
             let tokens = self.tokenizer.as_ref().unwrap().tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
-            let entry = Entry {
-                file: walk::File { dir: Arc::new(path.parent().unwrap_or(Path::new("")).to_path_buf()), 
-                                 file_name: path.file_name().unwrap().to_string_lossy().to_string(),
-                                 size: 0, 
-                                 inode: 0 },
-                norm,
-                tokens: Some(tokens),
-                ngrams: Some(temp_ngrams.clone()),
-                score: 0.0,
-            };
-            // train_positive should take ngrams, not entry, remove the fake entry stuff above. AI!
-            self.naive_bayes.train_positive(&entry);
+            self.naive_bayes.train_positive(temp_ngrams.iter().collect::<Vec<_>>().as_slice());
         }
 
         // Process negative examples
@@ -555,17 +544,7 @@ impl App {
             let norm = normalize::normalize(path);
             let tokens = self.tokenizer.as_ref().unwrap().tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
-            let entry = Entry {
-                file: walk::File { dir: Arc::new(path.parent().unwrap_or(Path::new("")).to_path_buf()), 
-                                 file_name: path.file_name().unwrap().to_string_lossy().to_string(),
-                                 size: 0, 
-                                 inode: 0 },
-                norm,
-                tokens: Some(tokens),
-                ngrams: Some(temp_ngrams.clone()),
-                score: 0.0,
-            };
-            self.naive_bayes.train_negative(&entry);
+            self.naive_bayes.train_negative(temp_ngrams.iter().collect::<Vec<_>>().as_slice());
         }
 
         Ok(())
