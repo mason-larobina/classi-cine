@@ -5,6 +5,7 @@ use crate::Entry;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::collections::HashMap;
+use log::*;
 
 /// Trait for types that can classify files/content
 pub trait Classifier {
@@ -69,7 +70,7 @@ impl NaiveBayesClassifier {
         // Laplace smoothing in log space
         let count = counts.get(ngram).copied().unwrap_or(0) as f64;
         let vocab_size = self.positive_counts.len() + self.negative_counts.len();
-        ((count + 1.0) / ((total as f64) + (vocab_size as f64))).ln()
+        ((1.0 + count) / (1.0 + (total as f64) + (vocab_size as f64))).ln()
     }
 }
 
@@ -96,10 +97,13 @@ impl Classifier for NaiveBayesClassifier {
         // log_positive = ln(0.9) ≈ -0.105
         // log_negative = ln(0.1) ≈ -2.302
         // This captures our prior belief that new examples are more likely to be positive
-        let mut log_positive = (self.positive_total as f64 / 
-            (self.positive_total + self.negative_total) as f64).ln();
-        let mut log_negative = (self.negative_total as f64 / 
-            (self.positive_total + self.negative_total) as f64).ln();
+        let mut log_positive = ((1.0 + self.positive_total as f64) / 
+            (1 + self.positive_total + self.negative_total) as f64).ln();
+        let mut log_negative = (1.0 + self.negative_total as f64 / 
+            (1 + self.positive_total + self.negative_total) as f64).ln();
+
+        dbg!(log_positive);
+        dbg!(log_negative);
 
         // Add log likelihoods: log P(ngrams|class)
         for ngram in ngrams.iter() {
