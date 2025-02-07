@@ -6,14 +6,14 @@
 
 [![Rust](https://github.com/mason-larobina/classi-cine/actions/workflows/rust.yml/badge.svg)](https://github.com/mason-larobina/classi-cine/actions/workflows/rust.yml)
 
-**Classi-Cine** is a Rust-based tool that combines multiple classifiers for intelligent
-video organization. It uses file characteristics and content-based features along with
+**Classi-Cine** is a Rust-based tool that combines multiple classifiers for
+intelligent video organization. It uses file path characteristics along with
 user feedback through VLC's playback controls to build smart playlists.
 
 The system employs multiple classification approaches:
-- File size analysis with logarithmic scaling
-- Directory size/density patterns
 - Naive Bayes classification of filename features (words, tokens, ngrams)
+- File size analysis (Optional)
+- Directory size/density patterns (Optional)
 
 This multi-classifier approach allows the system to learn from both content patterns
 and file organization structures. For example, you could use this as a video 
@@ -22,7 +22,7 @@ filename patterns and your existing file organization.
 
 ## Key Features
 
-- **Multi-Classifier System:** Combines file size, directory patterns, and content analysis
+- **Multi-Classifier System:** Combines file size, directory patterns, and filename token analysis
   for more accurate recommendations
 - **Interactive Training:** Pause (Shortcut: space) to mark as positive or
   stop (Shortcut: s) to mark as negative
