@@ -84,26 +84,29 @@ struct Args {
     #[clap(long, default_value = "60")]
     vlc_timeout: u64,
 
-    /// File size bias
+    /// Bias scoring based on file sizes
     ///
-    /// `n = 0` is disabled,
-    /// `n < -1.0` prefers smaller files,
-    /// `n > +1.0` prefers larger files,
-    /// `abs(n)` is the file size log base,
-    /// negative values reverse the ordering/ranking
+    /// Values:
+    ///   0       - Classifier disabled
+    ///   > 1.0   - Prefer larger files (e.g. 1.01)
+    ///   < -1.0  - Prefer smaller files (e.g. -1.01)
     ///
-    /// Try 1.01 for a moderate size preference.
-    /// Try 1.001 for a strong size preference.
+    /// The magnitude controls strength:
+    ///   Close to 1: Subtle preference (1.001)
+    ///   Further from 1: Stronger preference (1.1)
     #[clap(long, default_value = "0")]
     file_size_bias: f64,
 
-    /// Directory size file_size_bias
+    /// Bias scoring based on number of files in directories
     ///
-    /// `n = 0` is disabled,
-    /// `n < -1.0` prefers files from small dirs,
-    /// `n > +1.0` prefers files from large dirs,
-    /// `abs(n)` is the dir size log base,
-    /// negative values reverse the ordering/ranking
+    /// Values:
+    ///   0       - Classifier disabled  
+    ///   > 1.0   - Prefer files from populated dirs (e.g. 1.01)
+    ///   < -1.0  - Prefer files from sparse dirs (e.g. -1.01)
+    ///
+    /// The magnitude controls strength:
+    ///   Close to 1: Subtle preference (1.001)
+    ///   Further from 1: Stronger preference (1.1)
     #[clap(long, default_value = "0")]
     dir_size_bias: f64,
 
