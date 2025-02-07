@@ -385,17 +385,16 @@ impl App {
 
     // Plots a single distribution
     fn plot_distribution(&self, name: &str, idx: usize, current_score: f64) {
-        let mut scores: Vec<(f32, f32)> = self.entries.iter()
+        let scores: Vec<(f32, f32)> = self.entries.iter()
             .enumerate()
-            .map(|(i, e)| (e.scores[idx] as f32, i as f32 / self.entries.len() as f32))
+            .map(|(i, e)| (i as f32, e.scores[idx] as f32))
             .collect();
-        scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
         
         println!("\nScore distribution for {}:", name);
         
-        let marker = vec![(current_score as f32, 0.0f32), (current_score as f32, 1.0f32)];
+        let marker = vec![(0f32, current_score as f32), (self.entries.len() as f32, current_score as f32)];
         
-        Chart::new(300, 50, 0.0, 1.0)
+        Chart::new(300, 50, 0.0, self.entries.len() as f32)
             .lineplot(&Shape::Lines(&scores))
             .lineplot(&Shape::Lines(&marker))
             .display();
