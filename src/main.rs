@@ -88,6 +88,10 @@ struct Args {
     #[clap(long, default_value = "0")]
     file_size_bias: f64,
 
+    /// Directory size bias - positive values prefer populated dirs, negative prefer sparse dirs, 0 disables
+    #[clap(long, default_value = "0")]
+    dir_size_bias: f64,
+
     #[arg(
         long,
         value_delimiter = ',',
@@ -137,8 +141,14 @@ impl App {
             let reverse = args.file_size_bias < 0.0;
             classifiers.push(Box::new(FileSizeClassifier::new(log_base, reverse)));
         }
-        
-        classifiers.push(Box::new(DirSizeClassifier::new(2.0, false)));
+
+        // Add directory size classifier if bias is non-zero
+        if args.dir_size_bias != 0.0 {
+            let log_base = args.dir_size_bias.abs();
+            assert!(log_base > 1.0);
+            let reverse = args.dir_size_bias < 0.0;
+            classifiers.push(Box::new(DirSizeClassifier::new(log_base, reverse)));
+        }
 
         // Create naive bayes classifier separately
         let naive_bayes = NaiveBayesClassifier::new(false);
