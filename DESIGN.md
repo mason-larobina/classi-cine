@@ -67,9 +67,11 @@ The text processing pipeline transforms raw filenames into meaningful features t
    The pair tokenizer adapts to naming conventions in the corpus:
    ```
    Training corpus:
+   "comedy movie.mp4"
+   "scifi documentary.avi"
    "scifi movie.mp4"
    "scifi series.mkv" 
-   "scifi documentary.avi"
+   "western movie.mp4"
    
    Learned merges:
    's'+'c' -> 'sc'
@@ -86,12 +88,10 @@ The text processing pipeline transforms raw filenames into meaningful features t
    - Filters rare n-grams to reduce noise
    - Creates Bloom filter for efficient matching
    
-   Example with window size 2:
+   Example with window size [1..4]:
    Tokens: ["sci", "fi", "movie"]
-   N-grams: ["sci-fi", "fi-movie"]
+   N-grams: ["sci", "sci-fi", "sci-fi-movie", "fi-movie", "movie"]
    
-   The Bloom filter enables quick checks for potential n-gram matches without storing the full set.
-
 This pipeline effectively handles:
 - Inconsistent naming conventions
 - Multiple languages and character sets
