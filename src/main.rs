@@ -377,6 +377,35 @@ impl App {
                 let path = entry.file.dir.join(&entry.file.file_name);
                 let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
+                // Plot score distributions for each classifier
+                for (idx, classifier) in self.classifiers.iter().enumerate() {
+                    let mut scores: Vec<(f64, f64)> = self.entries.iter()
+                        .enumerate()
+                        .map(|(i, e)| (i as f64 / self.entries.len() as f64, e.scores[idx]))
+                        .collect();
+                    scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                    
+                    println!("\nScore distribution for {}:", classifier.name());
+                    Chart::new(120, 30, 0.0, 1.0)
+                        .lineplot(&Shape::Lines(&scores))
+                        .line(0.0, entry.scores[idx], 1.0, entry.scores[idx], '*')
+                        .display();
+                }
+
+                // Also plot naive bayes scores
+                let naive_idx = self.classifiers.len();
+                let mut scores: Vec<(f64, f64)> = self.entries.iter()
+                    .enumerate()
+                    .map(|(i, e)| (i as f64 / self.entries.len() as f64, e.scores[naive_idx]))
+                    .collect();
+                scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                
+                println!("\nScore distribution for naive_bayes:");
+                Chart::new(120, 30, 0.0, 1.0)
+                    .lineplot(&Shape::Lines(&scores))
+                    .line(0.0, entry.scores[naive_idx], 1.0, entry.scores[naive_idx], '*')
+                    .display();
+
                 // Build score string with classifier names
                 let score_details: Vec<String> = self.classifiers.iter()
                     .enumerate()
