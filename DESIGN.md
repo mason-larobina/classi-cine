@@ -2,16 +2,15 @@
 
 ## Overview
 
-Classi-cine is an intelligent video recommendation tool that combines multiple
-machine learning approaches with interactive user feedback to efficiently build
-playlists of related videos.
+Classi-cine is an intelligent video recommendation tool that combines a mix of
+bayesian, static and dynamic classifiers with user feedback to efficiently
+build a playlist of related videos.
 
 It addresses common challenges in managing video libraries:
 
-- Time-consuming manual organization of videos
-- Inconsistent naming conventions and file locations
+- Time-consuming manual organization of videos from disorganized file names and locations
 - Need to preview content before classification
-- Desire to learn from user preferences over time
+- Learn from user preferences over time
 
 The system uses VLC media player for previews and classification input, making
 it immediately familiar to users while providing a robust foundation for video
@@ -21,11 +20,11 @@ playback across formats and platforms.
 
 ### 1. Multi-Classifier System
 
-The Naive Bayes Classifier extracts meaning from filenames themselves. While
-individual words or tokens might be ambiguous, analyzing patterns of character
-sequences (n-grams) helps identify naming conventions and content indicators.
-This is particularly valuable when dealing with inconsistent naming schemes or
-multiple languages.
+The Naive Bayes Classifier extracts meaning from tokenized filenames and user
+feedback. While individual words or tokens might be ambiguous, analyzing
+patterns of character sequences (n-grams) helps identify common strings, names,
+studios and content indicators. This is particularly valuable when dealing with
+inconsistent naming schemes or multiple languages.
 
 The File Size Classifier can be configured to favour either larger or smaller
 files. This is particularly useful when file size correlates with content
@@ -39,7 +38,8 @@ which the user may wish to select the best-of and delete the worst-of.
 
 ### 2. Text Processing Pipeline
 
-The text processing pipeline transforms raw filenames into meaningful features through three stages:
+The text processing pipeline transforms raw filepaths into meaningful features
+through three stages:
 
 1. Normalization
    - Converts text to lowercase for case-insensitive matching
@@ -85,8 +85,9 @@ The text processing pipeline transforms raw filenames into meaningful features t
 
 3. N-grams
    - Generates overlapping windows of tokens
-   - Filters rare n-grams to reduce noise
-   - Creates Bloom filter for efficient matching
+   - Filters unique n-grams for efficient classification
+   - Uses bloom filters for efficient probabilistic matching and replacement of
+     frequent token pairs
    
    Example with window size [1..4]:
    Tokens: ["sci", "fi", "movie"]
@@ -100,14 +101,13 @@ This pipeline effectively handles:
 
 ### 3. VLC Integration
 
-The system integrates with VLC media player to create a seamless classification
-workflow. By using VLC's built-in HTTP interface we can inspect and control the
-player state to get classification results from the user.
+This tool uses VLC and the VLC's built-in HTTP interface to inspect and control
+the VLC playlist and playback state for user classification feedback.
 
-Classification controls are designed to feel natural during video preview -
-stopping marks content (default: s) as positive, while pausing (default: space)
-marks it as negative. This lets users make quick decisions while watching,
-maintaining an efficient workflow even when processing large collections.
+Stopping a video (default key: s) is a positive classification (more of this)
+and pausing a video (default key: space) is a negative classification (less
+like this). This lets users make quick decisions while watching, maintaining an
+efficient workflow even when processing large collections.
 
 ### 4. Playlist Management
 
@@ -118,11 +118,10 @@ can immediately start using their organized playlists in their preferred media
 player.
 
 The system stores positive classifications as standard entries in the M3U
-playlist, making them immediately usable in any media player. Negative
-classifications are stored with a special prefix in the playlist metadata
-section, which standard players ignore. This dual storage approach maintains
-compatibility with existing media players while preserving the full
-classification history for training.
+playlist. Negative classifications are stored with a special metadata prefix in
+the playlist, which standard players ignore. This dual storage approach
+maintains compatibility with existing media players while preserving the full
+classification history for training and future classification sessions.
 
 Classifications are saved incrementally, with each decision being immediately
 appended to the appropriate playlist. This ensures that progress is preserved
@@ -150,35 +149,23 @@ review process. This intelligent ordering helps users find related content more
 quickly and makes better use of classification time.
 
 The interactive loop ties everything together, continuously learning from user
-decisions to improve future recommendations. Each classification not only
-organizes the current file but also helps train the system to better understand
-user preferences. This creates a virtuous cycle where the system becomes
-increasingly attuned to the user's organization style over time.
+decisions to improve future recommendations. Each classification builds the
+targeted playlist and also helps train the system to better understand user
+preferences for that playlist. This creates a virtuous cycle where the system
+becomes increasingly attuned to the user's playlist preferences over time.
 
 ## Performance Considerations
-
-Processing large video collections requires careful attention to performance.
-The system manages thread priorities to ensure smooth video playback during
-classification - background tasks like feature extraction run at lower
-priority, preventing them from interfering with the user interface and video
-preview.
 
 Modern CPUs offer significant parallel processing capability, which the system
 leverages through careful workload distribution. Tasks like filename analysis
 and feature extraction run in parallel where possible, significantly reducing
 processing time for large collections.
 
-Bloom filters provide an elegant solution for fast feature lookups without
-excessive memory use. This probabilistic data structure lets the system quickly
-check if a file might have certain features, avoiding unnecessary detailed
-analysis of files that couldn't possibly match the current classification
-patterns.
+Bloom filters are used for fast probabilistic filtering of token lists to
+update with token merges avoiding unnecessary processing of unrelated tokens.
 
-When processing data in parallel, contention for shared resources can become a
-bottleneck. The system uses sharded data structures to distribute work across
-multiple independent containers, reducing lock contention and allowing better
-scaling across CPU cores. This is particularly important when processing large
-directories with many files.
+In some cases sharded data structures are used to distribute work across CPU
+cores.
 
 ## Future Improvements
 

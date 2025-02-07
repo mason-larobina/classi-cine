@@ -132,10 +132,10 @@ impl App {
         
         // Add file size classifier if bias is non-zero
         if args.file_size_bias != 0.0 {
-            classifiers.push(Box::new(FileSizeClassifier::new(
-                2.0,
-                args.file_size_bias < 0.0,
-            )));
+            let log_base = args.file_size_bias.abs();
+            assert!(log_base > 1.0);
+            let reverse = args.file_size_bias < 0.0;
+            classifiers.push(Box::new(FileSizeClassifier::new(log_base, reverse)));
         }
         
         classifiers.push(Box::new(DirSizeClassifier::new(2.0, false)));
@@ -398,15 +398,15 @@ impl App {
                         "stopped" => {
                             let entry = self.entries.remove(0);
                             self.playlist.add_positive(&path)?;
-                            self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
-                            info!("{:?} (NEGATIVE)", path);
+                            self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
+                            info!("{:?} (POSITIVE)", path);
                             break;
                         }
                         "paused" => {
                             let entry = self.entries.remove(0);
                             self.playlist.add_negative(&path)?;
-                            self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
-                            info!("{:?} (POSITIVE)", path);
+                            self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
+                            info!("{:?} (NEGATIVE)", path);
                             break;
                         }
                         _ => {}
