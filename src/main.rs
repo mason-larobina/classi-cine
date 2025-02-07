@@ -169,12 +169,13 @@ impl App {
             }
 
             let norm = normalize::normalize(&file_path);
+            // Initialize entry with scores array sized for all classifiers plus naive bayes
             let entry = Entry {
                 file,
                 norm,
                 tokens: None,
                 ngrams: None,
-                scores: Vec::new().into_boxed_slice(),
+                scores: vec![0.0; self.classifiers.len() + 1].into_boxed_slice(),
             };
 
             self.entries.push(entry);
@@ -278,11 +279,6 @@ impl App {
     }
 
     fn process_classifiers(&mut self) {
-        // Initialize score slices in entries
-        let classifier_count = self.classifiers.len() + 1;
-        for entry in &mut self.entries {
-            entry.scores = vec![0.0; classifier_count].into_boxed_slice();
-        }
 
         // Process bounds for each classifier
         for classifier in &mut self.classifiers {
