@@ -339,6 +339,8 @@ impl App {
             // Get highest scoring entry
             if let Some(entry) = self.entries.first() {
                 let path = entry.file.dir.join(&entry.file.file_name);
+                let file_name: Option<String> = Some(entry.file.file_name.to_string_lossy().to_string());
+
                 // Build score string with classifier names
                 let score_details: Vec<String> = self.classifiers.iter()
                     .enumerate()
@@ -351,11 +353,11 @@ impl App {
                 let vlc = vlc::VLCProcessHandle::new(&self.args, &path);
                 match vlc.wait_for_status() {
                     Ok(status) => {
-                        let found_file_name = status.file_name();
-                        if Some(&entry.file.file_name) != found_file_name.as_ref() {
+                        let found_file_name: Option<String> = status.file_name();
+                        if file_name != found_file_name {
                             error!(
                                 "Filename mismatch {:?} {:?}, skipping",
-                                entry.file.file_name, found_file_name
+                                file_name, found_file_name
                             );
                             continue;
                         }
@@ -383,17 +385,15 @@ impl App {
 
                     match status.state() {
                         "stopped" => {
-                            // Negative classification
                             let entry = self.entries.remove(0);
-                            self.playlist.add_negative(&path)?;
+                            self.playlist.add_positive(&path)?;
                             self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
                             info!("{:?} (NEGATIVE)", path);
                             break;
                         }
                         "paused" => {
-                            // Positive classification
                             let entry = self.entries.remove(0);
-                            self.playlist.add_positive(&path)?;
+                            self.playlist.add_negative(&path)?;
                             self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
                             info!("{:?} (POSITIVE)", path);
                             break;
