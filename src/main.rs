@@ -174,7 +174,7 @@ impl App {
                 norm,
                 tokens: None,
                 ngrams: None,
-                scores: Vec::new(),
+                scores: Vec::new().into_boxed_slice(),
             };
 
             self.entries.push(entry);
