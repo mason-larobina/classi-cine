@@ -15,81 +15,34 @@ to users while providing a robust foundation for video playback across formats a
 ## Core Components
 
 ### 1. Multi-Classifier System
-The system employs multiple complementary classifiers to capture different aspects of video organization:
+The system combines three complementary approaches to understand video organization patterns. The File Size Classifier recognizes that file size is often a reliable indicator of video quality and content type - for example, distinguishing between high-definition movies and short clips. By using logarithmic scaling, it can meaningfully compare files ranging from megabytes to gigabytes.
 
-- File Size Classifier
-  - Why: File size often correlates with video quality and content type
-  - How: Uses logarithmic scaling to handle wide size ranges naturally
-  - Benefit: Helps distinguish between different quality versions or content types
+The Directory Size Classifier leverages existing organization efforts by analyzing how files are grouped. Users often naturally organize related content into directories, and the number of files in a directory can reveal these implicit categorizations. This helps the system understand and build upon existing organizational patterns.
 
-- Directory Size Classifier
-  - Why: Directory structure often reflects meaningful organization
-  - How: Analyzes number of files in directories to identify patterns
-  - Benefit: Learns from existing manual organization efforts
+The Naive Bayes Classifier extracts meaning from filenames themselves. While individual words or tokens might be ambiguous, analyzing patterns of character sequences (n-grams) helps identify naming conventions and content indicators. This is particularly valuable when dealing with inconsistent naming schemes or multiple languages.
 
-- Naive Bayes Classifier
-  - Why: Filenames often contain valuable semantic information
-  - How: Learns from n-gram patterns in normalized filenames
-  - Benefit: Captures naming conventions and content indicators
-
-The scores from all classifiers are normalized and combined, allowing the system to:
-- Balance multiple factors in decision making
-- Remain robust when individual signals are weak
-- Adapt to different organization strategies
+By normalizing and combining scores from all classifiers, the system achieves a balanced view that remains effective even when individual signals are weak. This multi-faceted approach allows it to adapt to different organization strategies while maintaining robust classification performance.
 
 ### 2. Text Processing Pipeline
-A sophisticated pipeline processes filenames to extract meaningful features:
+The text processing pipeline tackles one of the most challenging aspects of video organization: making sense of filenames. Raw filenames come in countless formats and styles, often mixing different conventions, languages, and special characters. The pipeline begins with normalization, converting these varied inputs into a standardized form where patterns can be more reliably detected.
 
-- Normalization
-  - Why: Raw filenames vary widely in format and style
-  - How: Standardizes case, spacing, and special characters
-  - Benefit: Enables consistent pattern recognition
+Rather than relying on traditional word splitting, which often fails with filenames, the system uses pair encoding tokenization. This approach learns from the data itself, identifying common character pairs that tend to mark word boundaries. This makes it remarkably effective at handling arbitrary naming conventions and multiple languages without requiring predefined rules.
 
-- Pair Encoding Tokenization
-  - Why: Traditional word splitting often fails with filenames
-  - How: Learns common character pairs to identify word boundaries
-  - Benefit: Handles arbitrary naming conventions and languages
-
-- N-gram Generation
-  - Why: Individual tokens may be too granular
-  - How: Creates overlapping sequences of tokens
-  - Benefit: Captures phrases and context
+The final stage generates n-grams - overlapping sequences of tokens that capture more context than individual words alone. This helps identify meaningful phrases and patterns, even when the original filename uses unconventional formatting or lacks clear word boundaries. The result is a robust feature extraction system that works across a wide range of naming styles.
 
 ### 3. VLC Integration
-Seamless integration with VLC provides an efficient classification workflow:
+The system integrates with VLC media player to create a seamless classification workflow. By leveraging VLC's built-in HTTP interface, it achieves programmatic control without requiring any modifications to VLC itself. This ensures reliable operation across different platforms and VLC versions.
 
-- HTTP Interface
-  - Why: Enables programmatic control without VLC modifications
-  - How: Uses VLC's built-in HTTP server
-  - Benefit: Reliable cross-platform operation
+Classification controls are designed to feel natural during video preview - pausing marks content as positive, while stopping marks it as negative. This intuitive mapping lets users make quick decisions while watching, maintaining an efficient workflow even when processing large collections.
 
-- Simple Controls
-  - Why: Classification should be quick and intuitive
-  - How: Maps pause/stop to positive/negative classifications
-  - Benefit: Users can classify while naturally previewing content
-
-- Process Management
-  - Why: VLC instances need careful handling
-  - How: Monitors process state and handles cleanup
-  - Benefit: Prevents resource leaks and zombie processes
+Behind the scenes, careful process management ensures VLC instances are properly tracked and cleaned up. This prevents resource leaks and zombie processes that could otherwise accumulate during extended classification sessions.
 
 ### 4. Playlist Management
-Uses M3U playlists as a robust storage format:
+The system stores classifications in M3U playlists, a universal format that works with virtually any media player. This simple text-based format ensures that classification results remain useful even outside the tool itself - users can immediately start using their organized playlists in their preferred media player.
 
-- Standard Format
-  - Why: Universal compatibility
-  - How: Uses plain text with simple markup
-  - Benefit: Results work with any media player
+To support different organizational needs, the system maintains separate positive and negative classification lists. This separation allows for multiple organization schemes to coexist, giving users flexibility in how they structure their collections.
 
-- Separate Classifications
-  - Why: Different use cases need different organizations
-  - How: Maintains distinct positive/negative lists
-  - Benefit: Supports multiple organization schemes
-
-- Incremental Updates
-  - Why: Classification is often an ongoing process
-  - How: Appends new classifications immediately
-  - Benefit: Progress is never lost
+Classifications are saved incrementally, with each decision being immediately appended to the appropriate playlist. This ensures that progress is preserved even during long classification sessions, and users can safely pause and resume their organization efforts at any time.
 
 ## Data Flow
 
