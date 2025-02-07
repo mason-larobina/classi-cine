@@ -27,9 +27,9 @@ sequences (n-grams) helps identify naming conventions and content indicators.
 This is particularly valuable when dealing with inconsistent naming schemes or
 multiple languages.
 
-TODO: File Size Classifier can be configure to recommend larger or smaller files which is mixed into the classification score. Depending on the classification goals large or small files may be a valuable predictor for low or high quality content.
+The File Size Classifier uses logarithmic scaling to handle the wide range of video file sizes. It can be configured to favor either larger or smaller files through its reverse flag. This is particularly useful when file size correlates with content quality - for example, preferring high-bitrate files for archival purposes, or smaller files for casual viewing. The logarithmic scaling ensures that differences between small files (e.g., 100MB vs 200MB) are as significant as proportional differences between large files (e.g., 1GB vs 2GB).
 
-TODO: Directory Size Classifier can be configured to recommend videos in large directories or small directories. Depending on the classification goals directories with large number of files may contain a lot of duplicate or redundant content or contain unique content.
+The Directory Size Classifier analyzes the number of files in each directory to identify content groupings. Like the file size classifier, it can be configured to favor either densely or sparsely populated directories. This helps capture different organization patterns - some users group related content together in large directories, while others prefer fine-grained categorization with fewer files per directory. The classifier's reverse flag lets it adapt to these different organizational styles.
 
 ### 2. Text Processing Pipeline
 
@@ -71,9 +71,7 @@ that classification results remain useful even outside the tool itself - users
 can immediately start using their organized playlists in their preferred media
 player.
 
-TODO: Positive classifications are stored as a new entry in the m3u playlist.
-Negative classifications are stored in the m3u metadata and most players should
-ignore the negative training entries.
+The system stores positive classifications as standard entries in the M3U playlist, making them immediately usable in any media player. Negative classifications are stored with a special prefix in the playlist metadata section, which standard players ignore. This dual storage approach maintains compatibility with existing media players while preserving the full classification history for training. The metadata approach for negatives means users can share their playlists without exposing their negative classifications.
 
 Classifications are saved incrementally, with each decision being immediately
 appended to the appropriate playlist. This ensures that progress is preserved
