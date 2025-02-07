@@ -39,21 +39,16 @@ which the user may wish to select the best-of and delete the worst-of.
 
 ### 2. Text Processing Pipeline
 
-The text processing pipeline transforms raw filenames into meaningful features through a sophisticated three-stage process. Unlike traditional text processing that assumes well-formed words and sentences, this pipeline is specifically designed for the messy reality of video filenames.
-
-The first stage, normalization, creates a level playing field by standardizing case, spacing, and special characters. This handles common variations like "Star.Wars.2004.720p" versus "star wars (2004) [720p]" - converting them into a consistent format that subsequent stages can process reliably.
-
-The second stage employs an adaptive tokenization strategy based on character pair frequencies. Instead of splitting on predefined delimiters, it analyzes the entire corpus to identify natural word boundaries. For example, in a collection containing both "StarWars" and "star_wars", it learns that the transition from lowercase to uppercase and the underscore both indicate word boundaries. This data-driven approach handles mixed naming conventions elegantly, from CamelCase to snake_case to arbitrary-separators.
-
-The final stage generates n-grams - overlapping sequences of tokens that capture local context. While individual tokens like "star" or "wars" might be ambiguous, n-grams preserve meaningful phrases like "star wars" and "720p bluray". The system uses Bloom filters to efficiently track which n-grams appear in each file, enabling fast similarity comparisons without excessive memory usage.
-
-This pipeline's strength lies in its ability to learn from the data itself rather than relying on predetermined rules. It handles multilingual content naturally - working equally well with English, Japanese, or mixed-language filenames. The resulting features capture both obvious patterns like common words and subtle signals like consistent formatting choices, providing rich input for the classification system.
+TODO:
+- Normalization
+- Tokenization, pair tokenization learning from the corpus in a context free way across conventions and languages
+- N-grams, windows of tokens
 
 ### 3. VLC Integration
 
 The system integrates with VLC media player to create a seamless classification
-workflow. By leveraging VLC's built-in HTTP interface, it achieves programmatic
-control without requiring any modifications to VLC itself.
+workflow. By using VLC's built-in HTTP interface we can inspect and control the
+player state to get classification results from the user.
 
 Classification controls are designed to feel natural during video preview -
 stopping marks content (default: s) as positive, while pausing (default: space)
