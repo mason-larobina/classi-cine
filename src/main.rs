@@ -94,7 +94,7 @@ struct Entry {
     norm: String,
     tokens: Option<Tokens>,
     ngrams: Option<Ngrams>,
-    scores: Vec<f64>, // One score per classifier
+    scores: Box<[f64]>, // One score per classifier
 }
 
 struct App {
@@ -278,10 +278,10 @@ impl App {
     }
 
     fn process_classifiers(&mut self) {
-        // Initialize score vectors in entries
+        // Initialize score slices in entries
         let classifier_count = self.classifiers.len() + 1;
         for entry in &mut self.entries {
-            entry.scores = vec![0.0; classifier_count];
+            entry.scores = vec![0.0; classifier_count].into_boxed_slice();
         }
 
         // Process bounds for each classifier
