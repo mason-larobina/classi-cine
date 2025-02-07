@@ -80,6 +80,10 @@ struct Args {
     #[clap(long, default_value = "9010")]
     vlc_port: u16,
 
+    /// Timeout in seconds for VLC startup
+    #[clap(long, default_value = "60")]
+    vlc_timeout: u64,
+
     #[arg(
         long,
         value_delimiter = ',',
@@ -346,7 +350,7 @@ impl App {
                 
                 // Start VLC for classification
                 let vlc = vlc::VLCProcessHandle::new(&self.args, &path);
-                match vlc.wait_for_status() {
+                match vlc.wait_for_status(self.args.vlc_timeout) {
                     Ok(status) => {
                         let found_file_name: Option<String> = status.file_name();
                         if file_name != found_file_name {

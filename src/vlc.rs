@@ -91,9 +91,10 @@ impl VLCProcessHandle {
         Ok(serde_json::from_str(&text)?)
     }
 
-    pub fn wait_for_status(&self) -> Result<Status, Error> {
-        for _ in 0..100 {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+    pub fn wait_for_status(&self, timeout_secs: u64) -> Result<Status, Error> {
+        let attempts = (timeout_secs * 1000) / 100; // Convert to 100ms intervals
+        for _ in 0..attempts {
+            std::thread::sleep(std::time::Duration::from_millis(100)); 
             if let Ok(status) = self.status() {
                 if status.file_name().is_some() && status.length > 0.0 && status.position > 0.0 {
                     return Ok(status);
