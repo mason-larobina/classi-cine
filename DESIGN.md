@@ -1,48 +1,84 @@
 # Classi-cine Design Document
 
 ## Overview
-Classi-cine is an intelligent video organization tool that combines multiple machine learning approaches 
-with interactive user feedback to efficiently sort large video collections. It addresses common challenges
-in managing video libraries:
+
+Classi-cine is an intelligent video recommendation tool that combines multiple
+machine learning approaches with interactive user feedback to efficiently build
+playlists of related videos.
+
+It addresses common challenges in managing video libraries:
+
 - Time-consuming manual organization
-- Inconsistent naming conventions
+- Inconsistent naming conventions and file locations
 - Need to preview content before classification
 - Desire to learn from user preferences over time
 
-The system uses VLC media player for previews and classification input, making it immediately familiar
-to users while providing a robust foundation for video playback across formats and platforms.
+The system uses VLC media player for previews and classification input, making
+it immediately familiar to users while providing a robust foundation for video
+playback across formats and platforms.
 
 ## Core Components
 
 ### 1. Multi-Classifier System
-The system combines three complementary approaches to understand video organization patterns. The File Size Classifier recognizes that file size is often a reliable indicator of video quality and content type - for example, distinguishing between high-definition movies and short clips. By using logarithmic scaling, it can meaningfully compare files ranging from megabytes to gigabytes.
 
-The Directory Size Classifier leverages existing organization efforts by analyzing how files are grouped. Users often naturally organize related content into directories, and the number of files in a directory can reveal these implicit categorizations. This helps the system understand and build upon existing organizational patterns.
+The Naive Bayes Classifier extracts meaning from filenames themselves. While
+individual words or tokens might be ambiguous, analyzing patterns of character
+sequences (n-grams) helps identify naming conventions and content indicators.
+This is particularly valuable when dealing with inconsistent naming schemes or
+multiple languages.
 
-The Naive Bayes Classifier extracts meaning from filenames themselves. While individual words or tokens might be ambiguous, analyzing patterns of character sequences (n-grams) helps identify naming conventions and content indicators. This is particularly valuable when dealing with inconsistent naming schemes or multiple languages.
+TODO: File Size Classifier can be configure to recommend larger or smaller files which is mixed into the classification score. Depending on the classification goals large or small files may be a valuable predictor for low or high quality content.
 
-By normalizing and combining scores from all classifiers, the system achieves a balanced view that remains effective even when individual signals are weak. This multi-faceted approach allows it to adapt to different organization strategies while maintaining robust classification performance.
+TODO: Directory Size Classifier can be configured to recommend videos in large directories or small directories. Depending on the classification goals directories with large number of files may contain a lot of duplicate or redundant content or contain unique content.
 
 ### 2. Text Processing Pipeline
-The text processing pipeline tackles one of the most challenging aspects of video organization: making sense of filenames. Raw filenames come in countless formats and styles, often mixing different conventions, languages, and special characters. The pipeline begins with normalization, converting these varied inputs into a standardized form where patterns can be more reliably detected.
 
-Rather than relying on traditional word splitting, which often fails with filenames, the system uses pair encoding tokenization. This approach learns from the data itself, identifying common character pairs that tend to mark word boundaries. This makes it remarkably effective at handling arbitrary naming conventions and multiple languages without requiring predefined rules.
+The text processing pipeline tackles one of the most challenging aspects of
+video organization: making sense of filenames. Raw filenames come in countless
+formats and styles, often mixing different conventions, languages, and special
+characters. The pipeline begins with normalization, converting these varied
+inputs into a standardized form where patterns can be more reliably detected.
 
-The final stage generates n-grams - overlapping sequences of tokens that capture more context than individual words alone. This helps identify meaningful phrases and patterns, even when the original filename uses unconventional formatting or lacks clear word boundaries. The result is a robust feature extraction system that works across a wide range of naming styles.
+Rather than relying on traditional word splitting, which often fails with
+filenames, the system uses pair encoding tokenization. This approach learns
+from the data itself, identifying common character pairs that tend to mark word
+boundaries. This makes it remarkably effective at handling arbitrary naming
+conventions and multiple languages without requiring predefined rules.
+
+The final stage generates n-grams - overlapping sequences of tokens that
+capture more context than individual words alone. This helps identify
+meaningful phrases and patterns, even when the original filename uses
+unconventional formatting or lacks clear word boundaries. The result is a
+robust feature extraction system that works across a wide range of naming
+styles.
 
 ### 3. VLC Integration
-The system integrates with VLC media player to create a seamless classification workflow. By leveraging VLC's built-in HTTP interface, it achieves programmatic control without requiring any modifications to VLC itself. This ensures reliable operation across different platforms and VLC versions.
 
-Classification controls are designed to feel natural during video preview - pausing marks content as positive, while stopping marks it as negative. This intuitive mapping lets users make quick decisions while watching, maintaining an efficient workflow even when processing large collections.
+The system integrates with VLC media player to create a seamless classification
+workflow. By leveraging VLC's built-in HTTP interface, it achieves programmatic
+control without requiring any modifications to VLC itself.
 
-Behind the scenes, careful process management ensures VLC instances are properly tracked and cleaned up. This prevents resource leaks and zombie processes that could otherwise accumulate during extended classification sessions.
+Classification controls are designed to feel natural during video preview -
+stopping marks content (default: s) as positive, while pausing (default: space)
+marks it as negative. This lets users make quick decisions while watching,
+maintaining an efficient workflow even when processing large collections.
 
 ### 4. Playlist Management
-The system stores classifications in M3U playlists, a universal format that works with virtually any media player. This simple text-based format ensures that classification results remain useful even outside the tool itself - users can immediately start using their organized playlists in their preferred media player.
 
-To support different organizational needs, the system maintains separate positive and negative classification lists. This separation allows for multiple organization schemes to coexist, giving users flexibility in how they structure their collections.
+The system stores classifications in M3U playlists, a universal format that
+works with virtually any media player. This simple text-based format ensures
+that classification results remain useful even outside the tool itself - users
+can immediately start using their organized playlists in their preferred media
+player.
 
-Classifications are saved incrementally, with each decision being immediately appended to the appropriate playlist. This ensures that progress is preserved even during long classification sessions, and users can safely pause and resume their organization efforts at any time.
+TODO: Positive classifications are stored as a new entry in the m3u playlist.
+Negative classifications are stored in the m3u metadata and most players should
+ignore the negative training entries.
+
+Classifications are saved incrementally, with each decision being immediately
+appended to the appropriate playlist. This ensures that progress is preserved
+even during long classification sessions, and users can safely pause and resume
+their organization efforts at any time.
 
 ## Data Flow
 
