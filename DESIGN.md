@@ -97,51 +97,23 @@ their organization efforts at any time.
 
 ## Data Flow
 
-The system processes files through several stages, each building on the previous:
+The system processes video files through several carefully orchestrated stages. It begins with comprehensive file collection, recursively scanning directories to build a complete view of the video library. This initial scan filters out previously classified content and focuses only on supported video formats, ensuring efficient processing of relevant files.
 
-1. File Collection
-   - Why: Need complete view of video collection
-   - How: Recursive directory scanning with filtering
-   - Benefit: Handles any directory structure
+The text processing stage transforms raw filenames into meaningful features. This is crucial because filenames often contain valuable information about content, but in widely varying formats. The multi-stage pipeline normalizes these names and extracts patterns that help identify related content, building up a rich set of features for classification.
 
-2. Text Processing
-   - Why: Raw filenames need preparation
-   - How: Multi-stage pipeline with feedback
-   - Benefit: Extracts maximum information from names
+Classification combines signals from multiple sources to prioritize which files to review first. By analyzing file characteristics, directory structures, and learned patterns, the system can present the most relevant files early in the review process. This intelligent ordering helps users find related content more quickly and makes better use of classification time.
 
-3. Classification
-   - Why: Need to prioritize files for review
-   - How: Multi-classifier scoring and ranking
-   - Benefit: Presents most relevant files first
-
-4. Interactive Loop
-   - Why: User feedback improves accuracy
-   - How: Continuous learning from classifications
-   - Benefit: System improves over time
+The interactive loop ties everything together, continuously learning from user decisions to improve future recommendations. Each classification not only organizes the current file but also helps train the system to better understand user preferences. This creates a virtuous cycle where the system becomes increasingly attuned to the user's organization style over time.
 
 ## Performance Considerations
 
-Several techniques ensure efficient operation with large collections:
+Processing large video collections requires careful attention to performance. The system manages thread priorities to ensure smooth video playback during classification - background tasks like feature extraction run at lower priority, preventing them from interfering with the user interface and video preview.
 
-- Thread Priority Management
-  - Why: Video playback must be smooth
-  - How: Background processing uses lower priority
-  - Benefit: Responsive UI during processing
+Modern CPUs offer significant parallel processing capability, which the system leverages through careful workload distribution. Tasks like filename analysis and feature extraction run in parallel where possible, significantly reducing processing time for large collections.
 
-- Parallel Processing
-  - Why: Modern CPUs have multiple cores
-  - How: Parallel algorithms where possible
-  - Benefit: Faster processing of large collections
+Bloom filters provide an elegant solution for fast feature lookups without excessive memory use. This probabilistic data structure lets the system quickly check if a file might have certain features, avoiding unnecessary detailed analysis of files that couldn't possibly match the current classification patterns.
 
-- Bloom Filters
-  - Why: Need fast feature lookups
-  - How: Probabilistic data structure
-  - Benefit: Memory efficient pattern matching
-
-- Sharded Data Structures
-  - Why: Reduce contention in parallel code
-  - How: Split data across multiple containers
-  - Benefit: Better scaling on many cores
+When processing data in parallel, contention for shared resources can become a bottleneck. The system uses sharded data structures to distribute work across multiple independent containers, reducing lock contention and allowing better scaling across CPU cores. This is particularly important when processing large directories with many files.
 
 ## Future Improvements
 
