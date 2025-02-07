@@ -56,32 +56,19 @@ $ cargo install --path=.
 ## Usage
 
 ```bash
-Usage: classi-cine [OPTIONS] <PATHS>...
+Usage: classi-cine [OPTIONS] <PLAYLIST> [DIRS]...
 
 Arguments:
-  <PATHS>...
+  <PLAYLIST>  M3U playlist file for storing classifications
+  [DIRS]...   Directories to scan for video files (defaults to current directory) [default: .]
 
 Options:
-      --tokenize <TOKENIZE>
-          The tokenizer to use [default: chars] [possible values: words, chars]
-      --windows <WINDOWS>
-          Create ngrams (windows of tokens) from 1 to N [default: 20]
-      --delete <DELETE>
-          The text file containing the files to delete [default: delete.txt]
-      --keep <KEEP>
-          The text file containing the files to keep [default: keep.txt]
-      --log-level <LOG_LEVEL>
-          [default: info]
-  -f, --fullscreen
-          Fullscreen VLC playback
-      --file-size-log-base <FILE_SIZE_LOG_BASE>
-          The log base for the file size which is mixed into the classifier score to preference larger files over smaller files. Recommended values are close to 1.0, for example 1.1, 1.01, 1.001, and so on
-      --vlc-port <VLC_PORT>
-          [default: 9010]
-      --video-exts <VIDEO_EXTS>
-          [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
-  -h, --help
-          Print help
+      --log-level <LOG_LEVEL>    [default: info]
+  -f, --fullscreen               Fullscreen VLC playback
+      --port <PORT>              [default: 9111]
+      --vlc-port <VLC_PORT>      [default: 9010]
+      --video-exts <VIDEO_EXTS>  [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
+  -h, --help                     Print help
 ```
 
 ## How it works

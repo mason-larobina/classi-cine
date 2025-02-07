@@ -1,7 +1,10 @@
 # Classi-cine Design Document
 
 ## Overview
-Classi-cine is a video file classifier that uses machine learning and interactive user feedback through VLC media player to help organize video collections. It combines multiple classification approaches including file characteristics and content-based features.
+Classi-cine is a video file classifier that uses machine learning and
+interactive user feedback through VLC media player to help organize video
+collections by building playlists. It combines multiple classification
+approaches including file characteristics and content-based features.
 
 ## Core Components
 
@@ -17,7 +20,6 @@ All classifier scores are normalized and combined to rank candidates.
 - Normalization: Standardizes filenames for consistent processing
 - Tokenization: Breaks normalized text into tokens using pair encoding
 - N-gram Generation: Creates n-grams from tokens for feature extraction
-- Bloom Filter: Efficient storage and lookup of n-gram features
 
 ### 3. VLC Integration
 - HTTP Interface: Controls VLC via its HTTP API
@@ -74,7 +76,6 @@ Command line arguments control:
 
 ## Future Improvements
 - Additional classifier types
-- Alternative media players
 - Classification export formats
 - Remote control interface
-- GPU acceleration for feature extraction
+- Web interface for inspecting internal classifer state
