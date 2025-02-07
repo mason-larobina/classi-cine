@@ -1,81 +1,164 @@
 # Classi-cine Design Document
 
 ## Overview
-Classi-cine is a video file classifier that uses machine learning and
-interactive user feedback through VLC media player to help organize video
-collections by building playlists. It combines multiple classification
-approaches including file characteristics and content-based features.
+Classi-cine is an intelligent video organization tool that combines multiple machine learning approaches 
+with interactive user feedback to efficiently sort large video collections. It addresses common challenges
+in managing video libraries:
+- Time-consuming manual organization
+- Inconsistent naming conventions
+- Need to preview content before classification
+- Desire to learn from user preferences over time
+
+The system uses VLC media player for previews and classification input, making it immediately familiar
+to users while providing a robust foundation for video playback across formats and platforms.
 
 ## Core Components
 
-### 1. Classification System
-The system uses multiple classifiers working in parallel:
-- File Size Classifier: Scores based on file size using logarithmic scaling
-- Directory Size Classifier: Scores based on number of files in directories
-- Naive Bayes Classifier: Learns from text features extracted from filenames
+### 1. Multi-Classifier System
+The system employs multiple complementary classifiers to capture different aspects of video organization:
 
-All classifier scores are normalized and combined to rank candidates.
+- File Size Classifier
+  - Why: File size often correlates with video quality and content type
+  - How: Uses logarithmic scaling to handle wide size ranges naturally
+  - Benefit: Helps distinguish between different quality versions or content types
+
+- Directory Size Classifier
+  - Why: Directory structure often reflects meaningful organization
+  - How: Analyzes number of files in directories to identify patterns
+  - Benefit: Learns from existing manual organization efforts
+
+- Naive Bayes Classifier
+  - Why: Filenames often contain valuable semantic information
+  - How: Learns from n-gram patterns in normalized filenames
+  - Benefit: Captures naming conventions and content indicators
+
+The scores from all classifiers are normalized and combined, allowing the system to:
+- Balance multiple factors in decision making
+- Remain robust when individual signals are weak
+- Adapt to different organization strategies
 
 ### 2. Text Processing Pipeline
-- Normalization: Standardizes filenames for consistent processing
-- Tokenization: Breaks normalized text into tokens using pair encoding
-- N-gram Generation: Creates n-grams from tokens for feature extraction
+A sophisticated pipeline processes filenames to extract meaningful features:
+
+- Normalization
+  - Why: Raw filenames vary widely in format and style
+  - How: Standardizes case, spacing, and special characters
+  - Benefit: Enables consistent pattern recognition
+
+- Pair Encoding Tokenization
+  - Why: Traditional word splitting often fails with filenames
+  - How: Learns common character pairs to identify word boundaries
+  - Benefit: Handles arbitrary naming conventions and languages
+
+- N-gram Generation
+  - Why: Individual tokens may be too granular
+  - How: Creates overlapping sequences of tokens
+  - Benefit: Captures phrases and context
 
 ### 3. VLC Integration
-- HTTP Interface: Controls VLC via its HTTP API
-- Classification Controls:
-  - Pause = Positive classification
-  - Stop = Negative classification
-- Process Management: Handles VLC lifecycle and status monitoring
+Seamless integration with VLC provides an efficient classification workflow:
+
+- HTTP Interface
+  - Why: Enables programmatic control without VLC modifications
+  - How: Uses VLC's built-in HTTP server
+  - Benefit: Reliable cross-platform operation
+
+- Simple Controls
+  - Why: Classification should be quick and intuitive
+  - How: Maps pause/stop to positive/negative classifications
+  - Benefit: Users can classify while naturally previewing content
+
+- Process Management
+  - Why: VLC instances need careful handling
+  - How: Monitors process state and handles cleanup
+  - Benefit: Prevents resource leaks and zombie processes
 
 ### 4. Playlist Management
-- M3U Format: Stores classifications in standard playlist format
-- Maintains separate positive and negative classifications
-- Supports incremental updates
+Uses M3U playlists as a robust storage format:
+
+- Standard Format
+  - Why: Universal compatibility
+  - How: Uses plain text with simple markup
+  - Benefit: Results work with any media player
+
+- Separate Classifications
+  - Why: Different use cases need different organizations
+  - How: Maintains distinct positive/negative lists
+  - Benefit: Supports multiple organization schemes
+
+- Incremental Updates
+  - Why: Classification is often an ongoing process
+  - How: Appends new classifications immediately
+  - Benefit: Progress is never lost
 
 ## Data Flow
 
+The system processes files through several stages, each building on the previous:
+
 1. File Collection
-   - Walks specified directories
-   - Filters by video file extensions
-   - Excludes previously classified files
+   - Why: Need complete view of video collection
+   - How: Recursive directory scanning with filtering
+   - Benefit: Handles any directory structure
 
 2. Text Processing
-   - Normalizes filenames
-   - Builds tokenizer from all paths
-   - Generates n-grams
-   - Identifies frequent n-grams
+   - Why: Raw filenames need preparation
+   - How: Multi-stage pipeline with feedback
+   - Benefit: Extracts maximum information from names
 
 3. Classification
-   - Initializes classifiers
-   - Processes entries to establish bounds
-   - Calculates and normalizes scores
-   - Sorts entries by combined score
+   - Why: Need to prioritize files for review
+   - How: Multi-classifier scoring and ranking
+   - Benefit: Presents most relevant files first
 
 4. Interactive Loop
-   - Presents highest scoring candidate
-   - Launches VLC for preview
-   - Captures user classification
-   - Updates playlist and training data
-   - Reprocesses remaining entries
-
-## Configuration
-Command line arguments control:
-- Input directories
-- Playlist location
-- Video file extensions
-- VLC display options
-- Network ports
-- Logging level
+   - Why: User feedback improves accuracy
+   - How: Continuous learning from classifications
+   - Benefit: System improves over time
 
 ## Performance Considerations
-- Thread priority management
-- Parallel processing where applicable
-- Bloom filters for efficient feature lookup
-- Sharded data structures for concurrent access
+
+Several techniques ensure efficient operation with large collections:
+
+- Thread Priority Management
+  - Why: Video playback must be smooth
+  - How: Background processing uses lower priority
+  - Benefit: Responsive UI during processing
+
+- Parallel Processing
+  - Why: Modern CPUs have multiple cores
+  - How: Parallel algorithms where possible
+  - Benefit: Faster processing of large collections
+
+- Bloom Filters
+  - Why: Need fast feature lookups
+  - How: Probabilistic data structure
+  - Benefit: Memory efficient pattern matching
+
+- Sharded Data Structures
+  - Why: Reduce contention in parallel code
+  - How: Split data across multiple containers
+  - Benefit: Better scaling on many cores
 
 ## Future Improvements
-- Additional classifier types
-- Classification export formats
-- Remote control interface
-- Web interface for inspecting internal classifer state
+
+Planned enhancements to extend functionality:
+
+- Additional Classifier Types
+  - Video frame analysis
+  - Audio fingerprinting
+  - Metadata extraction
+
+- Classification Export
+  - JSON/XML formats
+  - Database integration
+  - Cloud storage sync
+
+- Remote Control
+  - Mobile app integration
+  - Web interface
+  - Network control protocol
+
+- Analysis Tools
+  - Classification visualization
+  - Pattern discovery
+  - Suggestion system
