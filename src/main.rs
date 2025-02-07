@@ -390,7 +390,7 @@ impl App {
                     // Create horizontal line data for the current entry's score
                     let marker = vec![(0.0f32, entry.scores[idx] as f32), (1.0f32, entry.scores[idx] as f32)];
                     
-                    Chart::new(120, 30, 0.0, 1.0)
+                    Chart::new(300, 50, 0.0, 1.0)
                         .lineplot(&Shape::Lines(&scores))
                         .lineplot(&Shape::Lines(&marker))
                         .display();
@@ -409,7 +409,7 @@ impl App {
                 // Create horizontal line data for the current entry's score
                 let marker = vec![(0.0f32, entry.scores[naive_idx] as f32), (1.0f32, entry.scores[naive_idx] as f32)];
                 
-                Chart::new(120, 30, 0.0, 1.0)
+                Chart::new(300, 50, 0.0, 1.0)
                     .lineplot(&Shape::Lines(&scores))
                     .lineplot(&Shape::Lines(&marker))
                     .display();
