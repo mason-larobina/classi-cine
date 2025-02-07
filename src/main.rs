@@ -43,6 +43,7 @@ enum Error {
     Reqwest(reqwest::Error),
     SerdeJson(serde_json::Error),
     Timeout,
+    FilenameMismatch,
 }
 
 impl From<reqwest::Error> for Error {
