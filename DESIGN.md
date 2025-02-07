@@ -39,26 +39,15 @@ which the user may wish to select the best-of and delete the worst-of.
 
 ### 2. Text Processing Pipeline
 
-// TODO: improve this section
+The text processing pipeline transforms raw filenames into meaningful features through a sophisticated three-stage process. Unlike traditional text processing that assumes well-formed words and sentences, this pipeline is specifically designed for the messy reality of video filenames.
 
-The text processing pipeline attempts to make sense of filenames in a context
-free way. Raw filenames come in countless formats and styles, often mixing
-different conventions, components, languages, and special characters. The
-pipeline begins with normalization, converting these varied inputs into a
-standardized form where patterns can be more reliably detected.
+The first stage, normalization, creates a level playing field by standardizing case, spacing, and special characters. This handles common variations like "Star.Wars.2004.720p" versus "star wars (2004) [720p]" - converting them into a consistent format that subsequent stages can process reliably.
 
-Rather than relying on traditional word splitting, which often fails with
-filenames, the system uses pair encoding tokenization. This approach learns
-from the data itself, identifying common character pairs that tend to mark word
-boundaries. This makes it remarkably effective at handling arbitrary naming
-conventions and multiple languages without requiring predefined rules.
+The second stage employs an adaptive tokenization strategy based on character pair frequencies. Instead of splitting on predefined delimiters, it analyzes the entire corpus to identify natural word boundaries. For example, in a collection containing both "StarWars" and "star_wars", it learns that the transition from lowercase to uppercase and the underscore both indicate word boundaries. This data-driven approach handles mixed naming conventions elegantly, from CamelCase to snake_case to arbitrary-separators.
 
-The final stage generates n-grams - overlapping sequences of tokens that
-capture more context than individual words alone. This helps identify
-meaningful phrases and patterns, even when the original filename uses
-unconventional formatting or lacks clear word boundaries. The result is a
-robust feature extraction system that works across a wide range of naming
-styles.
+The final stage generates n-grams - overlapping sequences of tokens that capture local context. While individual tokens like "star" or "wars" might be ambiguous, n-grams preserve meaningful phrases like "star wars" and "720p bluray". The system uses Bloom filters to efficiently track which n-grams appear in each file, enabling fast similarity comparisons without excessive memory usage.
+
+This pipeline's strength lies in its ability to learn from the data itself rather than relying on predetermined rules. It handles multilingual content naturally - working equally well with English, Japanese, or mixed-language filenames. The resulting features capture both obvious patterns like common words and subtle signals like consistent formatting choices, providing rich input for the classification system.
 
 ### 3. VLC Integration
 
