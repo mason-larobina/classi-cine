@@ -84,6 +84,10 @@ struct Args {
     #[clap(long, default_value = "60")]
     vlc_timeout: u64,
 
+    /// File size bias - positive values prefer larger files, negative prefer smaller files, 0 disables
+    #[clap(long, default_value = "0")]
+    file_size_bias: f64,
+
     #[arg(
         long,
         value_delimiter = ',',
@@ -123,9 +127,17 @@ impl App {
         // Initialize playlist
         let playlist = M3uPlaylist::open(args.playlist.clone())?;
 
-        // Create default classifiers
+        // Create classifiers
         let mut classifiers: Vec<Box<dyn Classifier>> = Vec::new();
-        classifiers.push(Box::new(FileSizeClassifier::new(2.0, false)));
+        
+        // Add file size classifier if bias is non-zero
+        if args.file_size_bias != 0.0 {
+            classifiers.push(Box::new(FileSizeClassifier::new(
+                2.0,
+                args.file_size_bias < 0.0,
+            )));
+        }
+        
         classifiers.push(Box::new(DirSizeClassifier::new(2.0, false)));
 
         // Create naive bayes classifier separately
