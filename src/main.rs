@@ -87,26 +87,22 @@ struct Args {
     /// Bias scoring based on file sizes
     ///
     /// Values:
-    ///   0       - Classifier disabled
-    ///   > 1.0   - Prefer larger files (e.g. 1.01)
-    ///   < -1.0  - Prefer smaller files (e.g. -1.01)
+    ///        0 - Classifier disabled,
+    ///   > +1.0 - Prefer larger files (e.g. 1.01),
+    ///   < -1.0 - Prefer smaller files (e.g. -1.01)
     ///
     /// The magnitude controls strength:
-    ///   Close to 1: Subtle preference (1.001)
-    ///   Further from 1: Stronger preference (1.1)
+    ///   Close to 1: Strong preference (1.001),
+    ///   Further from 1: Subtle preference (1.1)
     #[clap(long, default_value = "0")]
     file_size_bias: f64,
 
     /// Bias scoring based on number of files in directories
     ///
     /// Values:
-    ///   0       - Classifier disabled  
-    ///   > 1.0   - Prefer files from populated dirs (e.g. 1.01)
-    ///   < -1.0  - Prefer files from sparse dirs (e.g. -1.01)
-    ///
-    /// The magnitude controls strength:
-    ///   Close to 1: Subtle preference (1.001)
-    ///   Further from 1: Stronger preference (1.1)
+    ///        0 - Classifier disabled,
+    ///   > +1.0 - Prefer files from large dirs (e.g. 1.01),
+    ///   < -1.0 - Prefer files from small dirs (e.g. -1.01)
     #[clap(long, default_value = "0")]
     dir_size_bias: f64,
 
