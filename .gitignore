@@ -1,9 +1,10 @@
+*.m3u
 *.txt
+.aider*
+.continue*
+.env
 Cargo.lock
 debug/
-target/
-perf.*
 flamegraph.svg
-.continue*
-.aider*
-.env
+perf.*
+target/
