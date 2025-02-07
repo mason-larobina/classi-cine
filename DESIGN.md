@@ -39,10 +39,64 @@ which the user may wish to select the best-of and delete the worst-of.
 
 ### 2. Text Processing Pipeline
 
-TODO:
-- Normalization
-- Tokenization, pair tokenization learning from the corpus in a context free way across conventions and languages
-- N-grams, windows of tokens
+The text processing pipeline transforms raw filenames into meaningful features through three stages:
+
+1. Normalization
+   - Converts text to lowercase for case-insensitive matching
+   - Replaces special characters with spaces while preserving path separators
+   - Collapses multiple spaces/separators into singles
+   - Removes apostrophes and trailing spaces
+   
+   Examples:
+   ```
+   "The.Quick-Brown.Fox.mp4" -> "the quick brown fox mp4"
+   "Action/SciFi!!!Movie's.mkv" -> "action/scifi movies mkv"
+   "Multiple     Spaces.avi" -> "multiple spaces avi"
+   ```
+
+2. Tokenization
+   - Initially splits text into individual characters
+   - Learns common character pairs from the corpus
+   - Iteratively merges frequent pairs into larger tokens
+   - Preserves special tokens like path separators
+   
+   Examples:
+   Initial: "s|c|i|f|i| |m|o|v|i|e"
+   After merges: "sci|fi| |movie"
+   
+   The pair tokenizer adapts to naming conventions in the corpus:
+   ```
+   Training corpus:
+   "scifi movie.mp4"
+   "scifi series.mkv" 
+   "scifi documentary.avi"
+   
+   Learned merges:
+   's'+'c' -> 'sc'
+   'sc'+'i' -> 'sci'
+   'f'+'i' -> 'fi'
+   'm'+'o' -> 'mo'
+   'mo'+'v' -> 'mov'
+   'mov'+'i' -> 'movi'
+   'movi'+'e' -> 'movie'
+   ```
+
+3. N-grams
+   - Generates overlapping windows of tokens
+   - Filters rare n-grams to reduce noise
+   - Creates Bloom filter for efficient matching
+   
+   Example with window size 2:
+   Tokens: ["sci", "fi", "movie"]
+   N-grams: ["sci-fi", "fi-movie"]
+   
+   The Bloom filter enables quick checks for potential n-gram matches without storing the full set.
+
+This pipeline effectively handles:
+- Inconsistent naming conventions
+- Multiple languages and character sets
+- Common abbreviations and patterns
+- Efficient matching at scale
 
 ### 3. VLC Integration
 
