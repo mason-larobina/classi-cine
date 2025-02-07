@@ -279,6 +279,7 @@ impl App {
     }
 
     fn process_classifiers(&mut self) {
+        let classifier_count = self.classifiers.len() + 1;
 
         // Process bounds for each classifier
         for classifier in &mut self.classifiers {
@@ -314,11 +315,9 @@ impl App {
         }
 
         // Sort entries by total score descending
-        debug!("Sorting {} entries", self.entries.len());
         self.entries.sort_by(|a, b| {
             let a_sum = a.scores.iter().sum::<f64>();
             let b_sum = b.scores.iter().sum::<f64>();
-            debug!("Comparing scores: {} vs {}", a_sum, b_sum);
             b_sum.partial_cmp(&a_sum).expect("Invalid score comparison")
         });
     }
