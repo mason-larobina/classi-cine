@@ -363,100 +363,132 @@ impl App {
         });
     }
 
+    // Displays score distributions for all classifiers
+    fn display_score_distributions(&self, current_entry: &Entry) {
+        // Display classifier distributions
+        for (idx, classifier) in self.classifiers.iter().enumerate() {
+            self.plot_distribution(
+                classifier.name(),
+                idx,
+                current_entry.scores[idx],
+            );
+        }
+
+        // Display naive bayes distribution
+        let naive_idx = self.classifiers.len();
+        self.plot_distribution(
+            "naive_bayes",
+            naive_idx,
+            current_entry.scores[naive_idx],
+        );
+    }
+
+    // Plots a single distribution
+    fn plot_distribution(&self, name: &str, idx: usize, current_score: f64) {
+        let mut scores: Vec<(f32, f32)> = self.entries.iter()
+            .enumerate()
+            .map(|(i, e)| (e.scores[idx] as f32, i as f32 / self.entries.len() as f32))
+            .collect();
+        scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        
+        println!("\nScore distribution for {}:", name);
+        
+        let marker = vec![(current_score as f32, 0.0f32), (current_score as f32, 1.0f32)];
+        
+        Chart::new(300, 50, 0.0, 1.0)
+            .lineplot(&Shape::Lines(&scores))
+            .lineplot(&Shape::Lines(&marker))
+            .display();
+    }
+
+    // Gets classification from user via VLC
+    fn get_user_classification(&self, entry: &Entry) -> io::Result<Option<vlc::Classification>> {
+        let path = entry.file.dir.join(&entry.file.file_name);
+        let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
+        
+        // Display score details
+        self.display_score_details(entry);
+
+        // Start VLC and get classification
+        let vlc = vlc::VLCProcessHandle::new(&self.args, &path, file_name);
+        
+        // Wait for VLC to start and verify filename
+        if let Err(e) = vlc.wait_for_status(self.args.vlc_timeout) {
+            error!("VLC startup error {:?}", e);
+            return Ok(None);
+        }
+
+        match vlc.get_classification() {
+            Ok(classification) => {
+                if matches!(classification, vlc::Classification::Skipped) {
+                    error!("Classification skipped for {:?}", path);
+                    Ok(None)
+                } else {
+                    Ok(Some(classification))
+                }
+            }
+            Err(e) => {
+                error!("Classification error: {:?}", e);
+                Ok(None)
+            }
+        }
+    }
+
+    // Displays detailed scores for each classifier
+    fn display_score_details(&self, entry: &Entry) {
+        let score_details: Vec<String> = self.classifiers.iter()
+            .enumerate()
+            .map(|(i, c)| format!("{}: {:.3}", c.name(), entry.scores[i]))
+            .chain(std::iter::once(format!("naive_bayes: {:.3}", entry.scores.last().unwrap())))
+            .collect();
+        
+        let path = entry.file.dir.join(&entry.file.file_name);
+        info!("Top candidate: {:?}\nScores: {}", path, score_details.join(", "));
+    }
+
+    // Handles the classification result
+    fn handle_classification(&mut self, classification: vlc::Classification) -> io::Result<()> {
+        let entry = self.entries.remove(0);
+        let path = entry.file.dir.join(&entry.file.file_name);
+
+        match classification {
+            vlc::Classification::Positive => {
+                self.playlist.add_positive(&path)?;
+                self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
+                info!("{:?} (POSITIVE)", path);
+            }
+            vlc::Classification::Negative => {
+                self.playlist.add_negative(&path)?;
+                self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
+                info!("{:?} (NEGATIVE)", path);
+            }
+            vlc::Classification::Skipped => unreachable!(), // Handled in get_user_classification
+        }
+        Ok(())
+    }
+
+    // Main entry point remains simple and high-level
     fn run(&mut self) -> io::Result<()> {
         self.init_thread_priority();
         self.collect_files();
         self.process_tokens_and_ngrams()?;
+        self.classification_loop()?;
+        Ok(())
+    }
 
-        // Main classification loop
+    // Handles the main classification loop
+    fn classification_loop(&mut self) -> io::Result<()> {
         while !self.entries.is_empty() {
             self.process_classifiers();
-
-            // Get highest scoring entry
+            
             if let Some(entry) = self.entries.first() {
-                let path = entry.file.dir.join(&entry.file.file_name);
-                let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
-
-                // Plot score distributions for each classifier
-                for (idx, classifier) in self.classifiers.iter().enumerate() {
-                    let mut scores: Vec<(f32, f32)> = self.entries.iter()
-                        .enumerate()
-                        .map(|(i, e)| (i as f32 / self.entries.len() as f32, e.scores[idx] as f32))
-                        .collect();
-                    scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-                    
-                    println!("\nScore distribution for {}:", classifier.name());
-                    
-                    // Create horizontal line data for the current entry's score
-                    let marker = vec![(0.0f32, entry.scores[idx] as f32), (1.0f32, entry.scores[idx] as f32)];
-                    
-                    Chart::new(300, 50, 0.0, 1.0)
-                        .lineplot(&Shape::Lines(&scores))
-                        .lineplot(&Shape::Lines(&marker))
-                        .display();
-                }
-
-                // Also plot naive bayes scores
-                let naive_idx = self.classifiers.len();
-                let mut scores: Vec<(f32, f32)> = self.entries.iter()
-                    .enumerate()
-                    .map(|(i, e)| (i as f32 / self.entries.len() as f32, e.scores[naive_idx] as f32))
-                    .collect();
-                scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                self.display_score_distributions(entry);
                 
-                println!("\nScore distribution for naive_bayes:");
-                
-                // Create horizontal line data for the current entry's score
-                let marker = vec![(0.0f32, entry.scores[naive_idx] as f32), (1.0f32, entry.scores[naive_idx] as f32)];
-                
-                Chart::new(300, 50, 0.0, 1.0)
-                    .lineplot(&Shape::Lines(&scores))
-                    .lineplot(&Shape::Lines(&marker))
-                    .display();
-
-                // Build score string with classifier names
-                let score_details: Vec<String> = self.classifiers.iter()
-                    .enumerate()
-                    .map(|(i, c)| format!("{}: {:.3}", c.name(), entry.scores[i]))
-                    .chain(std::iter::once(format!("naive_bayes: {:.3}", entry.scores.last().unwrap())))
-                    .collect();
-                info!("Top candidate: {:?}\nScores: {}", path, score_details.join(", "));
-                
-                // Start VLC and get classification
-                let vlc = vlc::VLCProcessHandle::new(&self.args, &path, file_name);
-                
-                // Wait for VLC to start and verify filename
-                if let Err(e) = vlc.wait_for_status(self.args.vlc_timeout) {
-                    error!("VLC startup error {:?}", e);
-                    continue;
-                }
-
-                // Get classification from user
-                match vlc.get_classification() {
-                    Ok(vlc::Classification::Positive) => {
-                        let entry = self.entries.remove(0);
-                        self.playlist.add_positive(&path)?;
-                        self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
-                        info!("{:?} (POSITIVE)", path);
-                    }
-                    Ok(vlc::Classification::Negative) => {
-                        let entry = self.entries.remove(0);
-                        self.playlist.add_negative(&path)?;
-                        self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
-                        info!("{:?} (NEGATIVE)", path);
-                    }
-                    Ok(vlc::Classification::Skipped) => {
-                        error!("Classification skipped for {:?}", path);
-                        continue;
-                    }
-                    Err(e) => {
-                        error!("Classification error: {:?}", e);
-                        continue;
-                    }
+                if let Some(classification) = self.get_user_classification(entry)? {
+                    self.handle_classification(classification)?;
                 }
             }
         }
-        
         Ok(())
     }
 }
