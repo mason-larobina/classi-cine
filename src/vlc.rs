@@ -40,16 +40,23 @@ pub struct Meta {
     filename: String,
 }
 
+#[derive(Debug)]
+pub enum Classification {
+    Positive,
+    Negative,
+    Skipped,
+}
+
 pub struct VLCProcessHandle {
     handle: Option<Child>,
     status_url: String,
+    file_name: Option<String>,
 }
 
 impl VLCProcessHandle {
-    pub fn new(args: &crate::Args, path: &Path) -> Self {
+    pub fn new(args: &crate::Args, path: &Path, file_name: Option<String>) -> Self {
         let mut command = Command::new("vlc");
-        command
-            .args([
+        command.args([
                 "-I",
                 "http",
                 "--no-random",
@@ -81,6 +88,7 @@ impl VLCProcessHandle {
                 "http://:password@localhost:{}/requests/status.json",
                 args.vlc_port
             ),
+            file_name,
         }
     }
 
@@ -96,12 +104,45 @@ impl VLCProcessHandle {
         for _ in 0..attempts {
             std::thread::sleep(std::time::Duration::from_millis(100)); 
             if let Ok(status) = self.status() {
+                // Verify filename matches if we have one
+                if let Some(ref expected) = self.file_name {
+                    if status.file_name() != Some(expected.clone()) {
+                        error!("Filename mismatch {:?} {:?}, skipping", 
+                               self.file_name, status.file_name());
+                        return Err(Error::FilenameMismatch);
+                    }
+                }
+                
                 if status.file_name().is_some() && status.length > 0.0 && status.position > 0.0 {
                     return Ok(status);
                 }
             }
         }
         Err(Error::Timeout)
+    }
+
+    /// Get classification from user via VLC controls
+    pub fn get_classification(&self) -> Result<Classification, Error> {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+
+            let status = match self.status() {
+                Ok(status) => {
+                    debug!("{:?}", status);
+                    status
+                }
+                Err(e) => {
+                    error!("Status error: {:?}", e);
+                    return Ok(Classification::Skipped);
+                }
+            };
+
+            match status.state() {
+                "stopped" => return Ok(Classification::Positive),
+                "paused" => return Ok(Classification::Negative),
+                _ => {}
+            }
+        }
     }
 }
 

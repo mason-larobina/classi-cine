@@ -374,7 +374,7 @@ impl App {
             // Get highest scoring entry
             if let Some(entry) = self.entries.first() {
                 let path = entry.file.dir.join(&entry.file.file_name);
-                let file_name: Option<String> = Some(entry.file.file_name.to_string_lossy().to_string());
+                let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
                 // Build score string with classifier names
                 let score_details: Vec<String> = self.classifiers.iter()
@@ -384,56 +384,36 @@ impl App {
                     .collect();
                 info!("Top candidate: {:?}\nScores: {}", path, score_details.join(", "));
                 
-                // Start VLC for classification
-                let vlc = vlc::VLCProcessHandle::new(&self.args, &path);
-                match vlc.wait_for_status(self.args.vlc_timeout) {
-                    Ok(status) => {
-                        let found_file_name: Option<String> = status.file_name();
-                        if file_name != found_file_name {
-                            error!(
-                                "Filename mismatch {:?} {:?}, skipping",
-                                file_name, found_file_name
-                            );
-                            continue;
-                        }
-                    }
-                    Err(e) => {
-                        error!("VLC startup error {:?}", e);
-                        continue;
-                    }
+                // Start VLC and get classification
+                let vlc = vlc::VLCProcessHandle::new(&self.args, &path, file_name);
+                
+                // Wait for VLC to start and verify filename
+                if let Err(e) = vlc.wait_for_status(self.args.vlc_timeout) {
+                    error!("VLC startup error {:?}", e);
+                    continue;
                 }
 
-                // Wait for user classification via VLC controls
-                loop {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-
-                    let status = match vlc.status() {
-                        Ok(status) => {
-                            debug!("{:?}", status);
-                            status
-                        }
-                        Err(e) => {
-                            error!("Status error: {:?}", e);
-                            break;
-                        }
-                    };
-
-                    match status.state() {
-                        "stopped" => {
-                            let entry = self.entries.remove(0);
-                            self.playlist.add_positive(&path)?;
-                            self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
-                            info!("{:?} (POSITIVE)", path);
-                            break;
-                        }
-                        "paused" => {
-                            let entry = self.entries.remove(0);
-                            self.playlist.add_negative(&path)?;
-                            self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
-                            info!("{:?} (NEGATIVE)", path);
-                            break;
-                        }
-                        _ => {}
+                // Get classification from user
+                match vlc.get_classification() {
+                    Ok(vlc::Classification::Positive) => {
+                        let entry = self.entries.remove(0);
+                        self.playlist.add_positive(&path)?;
+                        self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
+                        info!("{:?} (POSITIVE)", path);
+                    }
+                    Ok(vlc::Classification::Negative) => {
+                        let entry = self.entries.remove(0);
+                        self.playlist.add_negative(&path)?;
+                        self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
+                        info!("{:?} (NEGATIVE)", path);
+                    }
+                    Ok(vlc::Classification::Skipped) => {
+                        error!("Classification skipped for {:?}", path);
+                        continue;
+                    }
+                    Err(e) => {
+                        error!("Classification error: {:?}", e);
+                        continue;
                     }
                 }
             }
