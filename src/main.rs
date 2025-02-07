@@ -379,31 +379,39 @@ impl App {
 
                 // Plot score distributions for each classifier
                 for (idx, classifier) in self.classifiers.iter().enumerate() {
-                    let mut scores: Vec<(f64, f64)> = self.entries.iter()
+                    let mut scores: Vec<(f32, f32)> = self.entries.iter()
                         .enumerate()
-                        .map(|(i, e)| (i as f64 / self.entries.len() as f64, e.scores[idx]))
+                        .map(|(i, e)| (i as f32 / self.entries.len() as f32, e.scores[idx] as f32))
                         .collect();
                     scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
                     
                     println!("\nScore distribution for {}:", classifier.name());
+                    
+                    // Create horizontal line data for the current entry's score
+                    let marker = vec![(0.0f32, entry.scores[idx] as f32), (1.0f32, entry.scores[idx] as f32)];
+                    
                     Chart::new(120, 30, 0.0, 1.0)
                         .lineplot(&Shape::Lines(&scores))
-                        .line(0.0, entry.scores[idx], 1.0, entry.scores[idx], '*')
+                        .lineplot(&Shape::Lines(&marker))
                         .display();
                 }
 
                 // Also plot naive bayes scores
                 let naive_idx = self.classifiers.len();
-                let mut scores: Vec<(f64, f64)> = self.entries.iter()
+                let mut scores: Vec<(f32, f32)> = self.entries.iter()
                     .enumerate()
-                    .map(|(i, e)| (i as f64 / self.entries.len() as f64, e.scores[naive_idx]))
+                    .map(|(i, e)| (i as f32 / self.entries.len() as f32, e.scores[naive_idx] as f32))
                     .collect();
                 scores.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
                 
                 println!("\nScore distribution for naive_bayes:");
+                
+                // Create horizontal line data for the current entry's score
+                let marker = vec![(0.0f32, entry.scores[naive_idx] as f32), (1.0f32, entry.scores[naive_idx] as f32)];
+                
                 Chart::new(120, 30, 0.0, 1.0)
                     .lineplot(&Shape::Lines(&scores))
-                    .line(0.0, entry.scores[naive_idx], 1.0, entry.scores[naive_idx], '*')
+                    .lineplot(&Shape::Lines(&marker))
                     .display();
 
                 // Build score string with classifier names
