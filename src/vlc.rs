@@ -123,8 +123,7 @@ impl VLCProcessHandle {
                         return Err(Error::FilenameMismatch);
                     }
                 }
-                
-                if status.file_name().is_some() && status.length > 0.0 && status.position > 0.0 {
+                if status.file_name().is_some() && status.length > 0.0 {
                     return Ok(status);
                 }
             }
