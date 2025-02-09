@@ -130,13 +130,38 @@ struct App {
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
-    classifiers: Vec<Box<dyn Classifier>>,
+    file_size_classifier: Option<FileSizeClassifier>,
+    dir_size_classifier: Option<DirSizeClassifier>, 
     naive_bayes: NaiveBayesClassifier,
     playlist: M3uPlaylist,
     visualizer: viz::ScoreVisualizer,
 }
 
 impl App {
+    fn classifiers(&mut self) -> Vec<&mut dyn Classifier> {
+        let mut classifiers = Vec::new();
+        if let Some(ref mut c) = self.file_size_classifier {
+            classifiers.push(c as &mut dyn Classifier);
+        }
+        if let Some(ref mut c) = self.dir_size_classifier {
+            classifiers.push(c as &mut dyn Classifier);
+        }
+        classifiers.push(&mut self.naive_bayes as &mut dyn Classifier);
+        classifiers
+    }
+
+    fn classifiers_ref(&self) -> Vec<&dyn Classifier> {
+        let mut classifiers = Vec::new();
+        if let Some(ref c) = self.file_size_classifier {
+            classifiers.push(c as &dyn Classifier);
+        }
+        if let Some(ref c) = self.dir_size_classifier {
+            classifiers.push(c as &dyn Classifier);
+        }
+        classifiers.push(&self.naive_bayes as &dyn Classifier);
+        classifiers
+    }
+
     fn new() -> io::Result<Self> {
         let args = Args::parse();
         if std::env::var("RUST_LOG").is_err() {
@@ -151,35 +176,33 @@ impl App {
         // Initialize visualizer
         let visualizer = viz::ScoreVisualizer::default();
 
-        // Create classifiers
-        let mut classifiers: Vec<Box<dyn Classifier>> = Vec::new();
-        
-        // Add file size classifier if bias is non-zero
-        if args.file_size_bias != 0.0 {
+        // Initialize optional classifiers based on args
+        let file_size_classifier = if args.file_size_bias != 0.0 {
             let log_base = args.file_size_bias.abs();
             assert!(log_base > 1.0);
             let reverse = args.file_size_bias < 0.0;
-            classifiers.push(Box::new(FileSizeClassifier::new(log_base, reverse)));
-        }
+            Some(FileSizeClassifier::new(log_base, reverse))
+        } else {
+            None
+        };
 
-        // Add directory size classifier if bias is non-zero
-        if args.dir_size_bias != 0.0 {
+        let dir_size_classifier = if args.dir_size_bias != 0.0 {
             let log_base = args.dir_size_bias.abs();
             assert!(log_base > 1.0);
             let reverse = args.dir_size_bias < 0.0;
-            classifiers.push(Box::new(DirSizeClassifier::new(log_base, reverse)));
-        }
-
-        // Create naive bayes classifier separately
-        let naive_bayes = NaiveBayesClassifier::new(false);
+            Some(DirSizeClassifier::new(log_base, reverse))
+        } else {
+            None
+        };
 
         Ok(Self {
             args,
             entries: Vec::new(),
             tokenizer: None,
             frequent_ngrams: None,
-            classifiers,
-            naive_bayes,
+            file_size_classifier,
+            dir_size_classifier,
+            naive_bayes: NaiveBayesClassifier::new(false),
             playlist,
             visualizer,
         })
@@ -326,24 +349,19 @@ impl App {
     }
 
     fn process_classifiers(&mut self) {
-        let classifier_count = self.classifiers.len() + 1;
+        let classifiers = self.classifiers();
+        let classifier_count = classifiers.len();
 
         // Process bounds for each classifier
-        for classifier in &mut self.classifiers {
+        for classifier in classifiers {
             classifier.process_entries(&self.entries);
         }
-        self.naive_bayes.process_entries(&self.entries);
 
         // Calculate raw scores for each classifier
-        for (idx, classifier) in self.classifiers.iter().enumerate() {
+        for (idx, classifier) in self.classifiers_ref().iter().enumerate() {
             for entry in &mut self.entries {
                 entry.scores[idx] = classifier.calculate_score(entry);
             }
-        }
-
-        // Calculate naive bayes scores
-        for entry in &mut self.entries {
-            entry.scores[classifier_count - 1] = self.naive_bayes.calculate_score(entry);
         }
 
         // Normalize each column of scores
@@ -404,10 +422,9 @@ impl App {
 
     // Displays detailed scores for each classifier
     fn display_score_details(&self, entry: &Entry) {
-        let score_details: Vec<String> = self.classifiers.iter()
+        let score_details: Vec<String> = self.classifiers_ref().iter()
             .enumerate()
             .map(|(i, c)| format!("{}: {:.3}", c.name(), entry.scores[i]))
-            .chain(std::iter::once(format!("naive_bayes: {:.3}", entry.scores.last().unwrap())))
             .collect();
         
         let path = entry.file.dir.join(&entry.file.file_name);
