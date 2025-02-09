@@ -254,6 +254,11 @@ impl App {
                 scores: scores.into_boxed_slice(),
             };
 
+            // Update dir size classifier if present
+            if let Some(ref mut dir_classifier) = self.dir_size_classifier {
+                dir_classifier.add_entry(&entry);
+            }
+
             self.entries.push(entry);
         }
 
@@ -359,12 +364,7 @@ impl App {
         let mut temp_entries = Vec::new();
         std::mem::swap(&mut self.entries, &mut temp_entries);
 
-        let mut classifiers = self.classifiers();
-
-        // Process all entries for each classifier
-        for classifier in classifiers.iter_mut() {
-            classifier.process_entries(&temp_entries);
-        }
+        let classifiers = self.classifiers_ref();
 
         // Calculate raw scores for each classifier
         for (idx, classifier) in classifiers.iter().enumerate() {
@@ -447,6 +447,11 @@ impl App {
     fn handle_classification(&mut self, classification: vlc::Classification) -> io::Result<()> {
         let entry = self.entries.remove(0);
         let path = entry.file.dir.join(&entry.file.file_name);
+
+        // Update dir size classifier
+        if let Some(ref mut dir_classifier) = self.dir_size_classifier {
+            dir_classifier.remove_entry(&entry);
+        }
 
         match classification {
             vlc::Classification::Positive => {

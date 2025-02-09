@@ -12,10 +12,6 @@ pub trait Classifier {
     /// Returns the name of this classifier.
     fn name(&self) -> &'static str;
 
-    /// Called when the list of entries changes (typically after classification and removal of an
-    /// entry). Classifiers may choose to do work once when first called or each time it is called.
-    fn process_entries(&mut self, entries: &[Entry]);
-
     /// Calculate score for an entry.
     fn calculate_score(&self, entry: &Entry) -> f64;
 }
@@ -186,19 +182,25 @@ impl DirSizeClassifier {
             dir_counts: std::collections::HashMap::new(),
         }
     }
+
+    pub fn add_entry(&mut self, entry: &Entry) {
+        *self.dir_counts.entry(entry.file.dir.clone()).or_default() += 1;
+    }
+
+    pub fn remove_entry(&mut self, entry: &Entry) {
+        if let std::collections::hash_map::Entry::Occupied(mut e) = self.dir_counts.entry(entry.file.dir.clone()) {
+            let count = e.get_mut();
+            *count -= 1;
+            if *count == 0 {
+                e.remove();
+            }
+        }
+    }
 }
 
 impl Classifier for DirSizeClassifier {
     fn name(&self) -> &'static str {
         "dir_size"
-    }
-
-    fn process_entries(&mut self, entries: &[Entry]) {
-        // Count files per directory
-        self.dir_counts.clear();
-        for item in entries {
-            *self.dir_counts.entry(item.file.dir.clone()).or_default() += 1;
-        }
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
