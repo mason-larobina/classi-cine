@@ -9,6 +9,7 @@ mod playlist;
 mod tokenize;
 mod tokens;
 mod vlc;
+mod viz;
 mod walk;
 
 use crate::ngrams::{Ngram, Ngrams};
@@ -132,6 +133,7 @@ struct App {
     classifiers: Vec<Box<dyn Classifier>>,
     naive_bayes: NaiveBayesClassifier,
     playlist: M3uPlaylist,
+    visualizer: viz::ScoreVisualizer,
 }
 
 impl App {
@@ -145,6 +147,9 @@ impl App {
 
         // Initialize playlist
         let playlist = M3uPlaylist::open(args.playlist.clone())?;
+        
+        // Initialize visualizer
+        let visualizer = viz::ScoreVisualizer::default();
 
         // Create classifiers
         let mut classifiers: Vec<Box<dyn Classifier>> = Vec::new();
@@ -176,6 +181,7 @@ impl App {
             classifiers,
             naive_bayes,
             playlist,
+            visualizer,
         })
     }
 
@@ -481,7 +487,15 @@ impl App {
             self.process_classifiers();
             
             if let Some(entry) = self.entries.first() {
-                self.display_score_distributions(entry);
+                // Get classifier names
+                let classifier_names: Vec<&str> = self.classifiers.iter()
+                    .map(|c| c.name())
+                    .chain(std::iter::once("naive_bayes"))
+                    .collect();
+
+                // Display visualizations
+                self.visualizer.display_distributions(&self.entries, entry, &classifier_names);
+                self.visualizer.display_score_details(entry, &classifier_names);
                 
                 if let Some(classification) = self.get_user_classification(entry)? {
                     self.handle_classification(classification)?;
