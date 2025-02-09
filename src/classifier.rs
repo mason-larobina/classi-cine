@@ -75,10 +75,6 @@ impl Classifier for NaiveBayesClassifier {
         "naive_bayes"
     }
 
-    fn process_entries(&mut self, _entries: &[Entry]) {
-        // Training happens with the train_positive and train_negative functions.
-    }
-
     fn calculate_score(&self, item: &Entry) -> f64 {
         let ngrams = item.ngrams.as_ref().unwrap();
 
@@ -142,10 +138,6 @@ impl Classifier for FileSizeClassifier {
         "file_size"
     }
 
-    fn process_entries(&mut self, _entries: &[Entry]) {
-        // Static
-    }
-
     fn calculate_score(&self, item: &Entry) -> f64 {
         let size = item.file.size;
         if size == 0 {
@@ -171,7 +163,7 @@ pub struct DirSizeClassifier {
     /// Whether to reverse the scoring (more files = lower score)
     reverse: bool,
     /// Map of directory to file count
-    dir_counts: std::collections::HashMap<Arc<PathBuf>, usize>,
+    dir_counts: HashMap<Arc<PathBuf>, usize>,
 }
 
 impl DirSizeClassifier {
@@ -179,7 +171,7 @@ impl DirSizeClassifier {
         Self {
             log_base,
             reverse,
-            dir_counts: std::collections::HashMap::new(),
+            dir_counts: HashMap::new(),
         }
     }
 
