@@ -369,43 +369,6 @@ impl App {
         });
     }
 
-    // Displays score distributions for all classifiers
-    fn display_score_distributions(&self, current_entry: &Entry) {
-        // Display classifier distributions
-        for (idx, classifier) in self.classifiers.iter().enumerate() {
-            self.plot_distribution(
-                classifier.name(),
-                idx,
-                current_entry.scores[idx],
-            );
-        }
-
-        // Display naive bayes distribution
-        let naive_idx = self.classifiers.len();
-        self.plot_distribution(
-            "naive_bayes",
-            naive_idx,
-            current_entry.scores[naive_idx],
-        );
-    }
-
-    // Plots a single distribution
-    fn plot_distribution(&self, name: &str, idx: usize, current_score: f64) {
-        let scores: Vec<(f32, f32)> = self.entries.iter()
-            .enumerate()
-            .map(|(i, e)| (i as f32, e.scores[idx] as f32))
-            .collect();
-        
-        println!("\nScore distribution for {}:", name);
-        
-        let marker = vec![(0f32, current_score as f32), (self.entries.len() as f32, current_score as f32)];
-        
-        Chart::new(300, 50, 0.0, self.entries.len() as f32)
-            .lineplot(&Shape::Lines(&scores))
-            .lineplot(&Shape::Lines(&marker))
-            .display();
-    }
-
     // Gets classification from user via VLC
     fn get_user_classification(&self, entry: &Entry) -> io::Result<Option<vlc::Classification>> {
         let path = entry.file.dir.join(&entry.file.file_name);
