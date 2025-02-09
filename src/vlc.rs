@@ -1,6 +1,7 @@
 use crate::Error;
 use log::*;
 use serde::Deserialize;
+use rand::{distributions::Alphanumeric, Rng};
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -52,6 +53,15 @@ pub struct VLCProcessHandle {
     handle: Option<Child>,
     status_url: String,
     file_name: Option<String>,
+    password: String,
+}
+
+fn generate_password() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(16)
+        .map(char::from)
+        .collect()
 }
 
 impl VLCProcessHandle {
@@ -66,6 +76,7 @@ impl VLCProcessHandle {
         // Drop the listener so VLC can use the port
         drop(listener);
 
+        let password = generate_password();
         let mut command = Command::new("vlc");
         command
             .args([
@@ -78,7 +89,7 @@ impl VLCProcessHandle {
                 "--http-host",
                 "localhost",
                 "--http-password",
-                "password",
+                &password,
                 "--http-port",
             ])
             .arg(format!("{}", port))
@@ -96,8 +107,9 @@ impl VLCProcessHandle {
 
         VLCProcessHandle {
             handle: Some(child),
-            status_url: format!("http://:password@localhost:{}/requests/status.json", port),
+            status_url: format!("http://:{password}@localhost:{port}/requests/status.json"),
             file_name,
+            password,
         }
     }
 
