@@ -138,19 +138,7 @@ struct App {
 }
 
 impl App {
-    fn classifiers(&mut self) -> Vec<&mut dyn Classifier> {
-        let mut classifiers = Vec::new();
-        if let Some(ref mut c) = self.file_size_classifier {
-            classifiers.push(c as &mut dyn Classifier);
-        }
-        if let Some(ref mut c) = self.dir_size_classifier {
-            classifiers.push(c as &mut dyn Classifier);
-        }
-        classifiers.push(&mut self.naive_bayes as &mut dyn Classifier);
-        classifiers
-    }
-
-    fn classifiers_ref(&self) -> Vec<&dyn Classifier> {
+    fn classifiers(&self) -> Vec<&dyn Classifier> {
         let mut classifiers = Vec::new();
         if let Some(ref c) = self.file_size_classifier {
             classifiers.push(c as &dyn Classifier);
@@ -364,7 +352,7 @@ impl App {
         let mut temp_entries = Vec::new();
         std::mem::swap(&mut self.entries, &mut temp_entries);
 
-        let classifiers = self.classifiers_ref();
+        let classifiers = self.classifiers();
 
         // Calculate raw scores for each classifier
         for (idx, classifier) in classifiers.iter().enumerate() {
@@ -434,7 +422,7 @@ impl App {
 
     // Displays detailed scores for each classifier
     fn display_score_details(&self, entry: &Entry) {
-        let score_details: Vec<String> = self.classifiers_ref().iter()
+        let score_details: Vec<String> = self.classifiers().iter()
             .enumerate()
             .map(|(i, c)| format!("{}: {:.3}", c.name(), entry.scores[i]))
             .collect();
@@ -485,7 +473,7 @@ impl App {
             
             if let Some(entry) = self.entries.first() {
                 // Get classifier names
-                let classifier_names: Vec<&str> = self.classifiers_ref().iter()
+                let classifier_names: Vec<&str> = self.classifiers().iter()
                     .map(|c| c.name())
                     .collect();
 
