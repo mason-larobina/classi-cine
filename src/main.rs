@@ -226,6 +226,8 @@ impl App {
             walk.walk_dir(dir);
         }
 
+        let classifiers_len = self.classifiers().len();
+
         let rx = walk.into_rx();
         while let Ok(file) = rx.recv() {
             debug!("{:?}", file);
@@ -239,13 +241,17 @@ impl App {
             }
 
             let norm = normalize::normalize(&file_path);
+
+            let mut scores = vec![0.0; classifiers_len];
+            scores.shrink_to_fit();
+
             // Initialize entry with scores array sized for all classifiers plus naive bayes
             let entry = Entry {
                 file,
                 norm,
                 tokens: None,
                 ngrams: None,
-                scores: vec![0.0; self.classifiers.len() + 1].into_boxed_slice(),
+                scores: scores.into_boxed_slice(),
             };
 
             self.entries.push(entry);
@@ -349,11 +355,10 @@ impl App {
     }
 
     fn process_classifiers(&mut self) {
-        let classifiers = self.classifiers();
-        let classifier_count = classifiers.len();
+        let classifier_count = self.classifiers_ref().len();
 
         // Process bounds for each classifier
-        for classifier in classifiers {
+        for classifier in self.classifiers() {
             classifier.process_entries(&self.entries);
         }
 
@@ -468,9 +473,8 @@ impl App {
             
             if let Some(entry) = self.entries.first() {
                 // Get classifier names
-                let classifier_names: Vec<&str> = self.classifiers.iter()
+                let classifier_names: Vec<&str> = self.classifiers_ref().iter()
                     .map(|c| c.name())
-                    .chain(std::iter::once("naive_bayes"))
                     .collect();
 
                 // Display visualizations
