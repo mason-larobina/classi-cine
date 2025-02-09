@@ -79,9 +79,6 @@ struct Args {
     #[clap(long, default_value_t = 9111)]
     port: u16,
 
-    #[clap(long, default_value = "9010")]
-    vlc_port: u16,
-
     /// Timeout in seconds for VLC startup
     #[clap(long, default_value = "60")]
     vlc_timeout: u64,
