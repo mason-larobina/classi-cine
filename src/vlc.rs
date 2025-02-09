@@ -1,6 +1,7 @@
 use crate::Error;
 use log::*;
 use serde::Deserialize;
+use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
@@ -55,6 +56,16 @@ pub struct VLCProcessHandle {
 
 impl VLCProcessHandle {
     pub fn new(args: &crate::Args, path: &Path, file_name: Option<String>) -> Self {
+        // Find an available port
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .expect("Failed to bind to address");
+        let port = listener.local_addr()
+            .expect("Failed to get local address")
+            .port();
+        
+        // Drop the listener so VLC can use the port
+        drop(listener);
+
         let mut command = Command::new("vlc");
         command.args([
                 "-I",
@@ -69,7 +80,7 @@ impl VLCProcessHandle {
                 "password",
                 "--http-port",
             ])
-            .arg(format!("{}", args.vlc_port))
+            .arg(format!("{}", port))
             .arg(path)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -86,7 +97,7 @@ impl VLCProcessHandle {
             handle: Some(child),
             status_url: format!(
                 "http://:password@localhost:{}/requests/status.json",
-                args.vlc_port
+                port
             ),
             file_name,
         }
