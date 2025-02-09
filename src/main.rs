@@ -355,26 +355,26 @@ impl App {
     }
 
     fn process_classifiers(&mut self) {
-        let classifier_count = self.classifiers_ref().len();
-        
         // Create temporary vector to swap with entries
         let mut temp_entries = Vec::new();
         std::mem::swap(&mut self.entries, &mut temp_entries);
 
-        // Process bounds for each classifier
-        for classifier in self.classifiers() {
+        let mut classifiers = self.classifiers();
+
+        // Process all entries for each classifier
+        for classifier in classifiers.iter_mut() {
             classifier.process_entries(&temp_entries);
         }
 
         // Calculate raw scores for each classifier
-        for (idx, classifier) in self.classifiers_ref().iter().enumerate() {
+        for (idx, classifier) in classifiers.iter().enumerate() {
             for entry in &mut temp_entries {
                 entry.scores[idx] = classifier.calculate_score(entry);
             }
         }
 
         // Normalize each column of scores
-        for col in 0..classifier_count {
+        for col in 0..classifiers.len() {
             let col_scores: Vec<f64> = temp_entries.iter().map(|e| e.scores[col]).collect();
             if let (Some(min), Some(max)) = (
                 col_scores.iter().copied().reduce(f64::min),
