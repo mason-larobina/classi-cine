@@ -130,10 +130,6 @@ pub struct FileSizeClassifier {
     log_base: f64,
     /// Whether to reverse the scoring (larger files = lower score)
     reverse: bool,
-    /// Minimum log size seen
-    min_log_size: f64,
-    /// Maximum log size seen
-    max_log_size: f64,
 }
 
 impl FileSizeClassifier {
@@ -141,8 +137,6 @@ impl FileSizeClassifier {
         Self {
             log_base,
             reverse,
-            min_log_size: f64::MAX,
-            max_log_size: f64::MIN,
         }
     }
 }
@@ -152,17 +146,8 @@ impl Classifier for FileSizeClassifier {
         "file_size"
     }
 
-    fn process_entries(&mut self, entries: &[Entry]) {
-        for item in entries {
-            let size = item.file.size;
-            let log_score = if size == 0 {
-                0.0
-            } else {
-                (size as f64).log(self.log_base)
-            };
-            self.min_log_size = self.min_log_size.min(log_score);
-            self.max_log_size = self.max_log_size.max(log_score);
-        }
+    fn process_entries(&mut self, _entries: &[Entry]) {
+        // Static
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
@@ -189,10 +174,6 @@ pub struct DirSizeClassifier {
     log_base: f64,
     /// Whether to reverse the scoring (more files = lower score)
     reverse: bool,
-    /// Minimum log count seen
-    min_log_count: f64,
-    /// Maximum log count seen
-    max_log_count: f64,
     /// Map of directory to file count
     dir_counts: std::collections::HashMap<Arc<PathBuf>, usize>,
 }
@@ -202,8 +183,6 @@ impl DirSizeClassifier {
         Self {
             log_base,
             reverse,
-            min_log_count: f64::MAX,
-            max_log_count: f64::MIN,
             dir_counts: std::collections::HashMap::new(),
         }
     }
@@ -219,13 +198,6 @@ impl Classifier for DirSizeClassifier {
         self.dir_counts.clear();
         for item in entries {
             *self.dir_counts.entry(item.file.dir.clone()).or_default() += 1;
-        }
-
-        // Calculate bounds from directory counts
-        for count in self.dir_counts.values() {
-            let log_score = (*count as f64).log(self.log_base);
-            self.min_log_count = self.min_log_count.min(log_score);
-            self.max_log_count = self.max_log_count.max(log_score);
         }
     }
 
