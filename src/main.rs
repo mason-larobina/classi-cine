@@ -356,28 +356,32 @@ impl App {
 
     fn process_classifiers(&mut self) {
         let classifier_count = self.classifiers_ref().len();
+        
+        // Create temporary vector to swap with entries
+        let mut temp_entries = Vec::new();
+        std::mem::swap(&mut self.entries, &mut temp_entries);
 
         // Process bounds for each classifier
         for classifier in self.classifiers() {
-            classifier.process_entries(&self.entries);
+            classifier.process_entries(&temp_entries);
         }
 
         // Calculate raw scores for each classifier
         for (idx, classifier) in self.classifiers_ref().iter().enumerate() {
-            for entry in &mut self.entries {
+            for entry in &mut temp_entries {
                 entry.scores[idx] = classifier.calculate_score(entry);
             }
         }
 
         // Normalize each column of scores
         for col in 0..classifier_count {
-            let col_scores: Vec<f64> = self.entries.iter().map(|e| e.scores[col]).collect();
+            let col_scores: Vec<f64> = temp_entries.iter().map(|e| e.scores[col]).collect();
             if let (Some(min), Some(max)) = (
                 col_scores.iter().copied().reduce(f64::min),
                 col_scores.iter().copied().reduce(f64::max),
             ) {
                 if (max - min).abs() > f64::EPSILON {
-                    for (entry, &raw_score) in self.entries.iter_mut().zip(&col_scores) {
+                    for (entry, &raw_score) in temp_entries.iter_mut().zip(&col_scores) {
                         entry.scores[col] = (raw_score - min) / (max - min);
                     }
                 }
@@ -385,11 +389,14 @@ impl App {
         }
 
         // Sort entries by total score descending
-        self.entries.sort_by(|a, b| {
+        temp_entries.sort_by(|a, b| {
             let a_sum = a.scores.iter().sum::<f64>();
             let b_sum = b.scores.iter().sum::<f64>();
             b_sum.partial_cmp(&a_sum).expect("Invalid score comparison")
         });
+
+        // Swap back the processed entries
+        std::mem::swap(&mut self.entries, &mut temp_entries);
     }
 
     // Gets classification from user via VLC
