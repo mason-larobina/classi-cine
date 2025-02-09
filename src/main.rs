@@ -8,8 +8,8 @@ mod normalize;
 mod playlist;
 mod tokenize;
 mod tokens;
-mod vlc;
 mod viz;
+mod vlc;
 mod walk;
 
 use crate::ngrams::{Ngram, Ngrams};
@@ -26,8 +26,8 @@ use log::*;
 use rayon::prelude::*;
 use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
 use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, Write};
 use std::path::Component;
@@ -128,7 +128,7 @@ struct App {
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
     file_size_classifier: Option<FileSizeClassifier>,
-    dir_size_classifier: Option<DirSizeClassifier>, 
+    dir_size_classifier: Option<DirSizeClassifier>,
     naive_bayes: NaiveBayesClassifier,
     playlist: M3uPlaylist,
     visualizer: viz::ScoreVisualizer,
@@ -157,7 +157,7 @@ impl App {
 
         // Initialize playlist
         let playlist = M3uPlaylist::open(args.playlist.clone())?;
-        
+
         // Initialize visualizer
         let visualizer = viz::ScoreVisualizer::default();
 
@@ -218,7 +218,7 @@ impl App {
             debug!("{:?}", file);
 
             let file_path = file.dir.join(&file.file_name);
-            
+
             // Skip if already classified
             if classified.contains(&file_path) {
                 debug!("Skipping already classified file: {:?}", file_path);
@@ -388,13 +388,13 @@ impl App {
     fn get_user_classification(&self, entry: &Entry) -> io::Result<Option<vlc::Classification>> {
         let path = entry.file.dir.join(&entry.file.file_name);
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
-        
+
         // Display score details
         self.display_score_details(entry);
 
         // Start VLC and get classification
         let vlc = vlc::VLCProcessHandle::new(&self.args, &path, file_name);
-        
+
         // Wait for VLC to start and verify filename
         if let Err(e) = vlc.wait_for_status(self.args.vlc_timeout) {
             error!("VLC startup error {:?}", e);
@@ -419,13 +419,19 @@ impl App {
 
     // Displays detailed scores for each classifier
     fn display_score_details(&self, entry: &Entry) {
-        let score_details: Vec<String> = self.classifiers().iter()
+        let score_details: Vec<String> = self
+            .classifiers()
+            .iter()
             .enumerate()
             .map(|(i, c)| format!("{}: {:.3}", c.name(), entry.scores[i]))
             .collect();
-        
+
         let path = entry.file.dir.join(&entry.file.file_name);
-        info!("Top candidate: {:?}\nScores: {}", path, score_details.join(", "));
+        info!(
+            "Top candidate: {:?}\nScores: {}",
+            path,
+            score_details.join(", ")
+        );
     }
 
     // Handles the classification result
@@ -441,12 +447,14 @@ impl App {
         match classification {
             vlc::Classification::Positive => {
                 self.playlist.add_positive(&path)?;
-                self.naive_bayes.train_positive(entry.ngrams.as_ref().unwrap());
+                self.naive_bayes
+                    .train_positive(entry.ngrams.as_ref().unwrap());
                 info!("{:?} (POSITIVE)", path);
             }
             vlc::Classification::Negative => {
                 self.playlist.add_negative(&path)?;
-                self.naive_bayes.train_negative(entry.ngrams.as_ref().unwrap());
+                self.naive_bayes
+                    .train_negative(entry.ngrams.as_ref().unwrap());
                 info!("{:?} (NEGATIVE)", path);
             }
             vlc::Classification::Skipped => unreachable!(), // Handled in get_user_classification
@@ -467,17 +475,18 @@ impl App {
     fn classification_loop(&mut self) -> io::Result<()> {
         while !self.entries.is_empty() {
             self.process_classifiers();
-            
+
             if let Some(entry) = self.entries.first() {
                 // Get classifier names
-                let classifier_names: Vec<&str> = self.classifiers().iter()
-                    .map(|c| c.name())
-                    .collect();
+                let classifier_names: Vec<&str> =
+                    self.classifiers().iter().map(|c| c.name()).collect();
 
                 // Display visualizations
-                self.visualizer.display_distributions(&self.entries, entry, &classifier_names);
-                self.visualizer.display_score_details(entry, &classifier_names);
-                
+                self.visualizer
+                    .display_distributions(&self.entries, entry, &classifier_names);
+                self.visualizer
+                    .display_score_details(entry, &classifier_names);
+
                 if let Some(classification) = self.get_user_classification(entry)? {
                     self.handle_classification(classification)?;
                 }
@@ -491,6 +500,4 @@ fn main() -> io::Result<()> {
     let mut app = App::new()?;
     app.run()?;
     Ok(())
-
-
 }

@@ -8,7 +8,6 @@ const NEGATIVE_PREFIX: &str = "#NEGATIVE:";
 
 /// Trait for types that can load/save playlist classifications
 pub trait Playlist {
-
     /// Add a positive classification
     fn add_positive(&mut self, path: &Path) -> io::Result<()>;
 
@@ -78,7 +77,6 @@ impl M3uPlaylist {
 }
 
 impl Playlist for M3uPlaylist {
-
     fn add_positive(&mut self, path: &Path) -> io::Result<()> {
         self.positives.insert(path.to_path_buf());
 

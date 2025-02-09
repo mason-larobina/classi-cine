@@ -126,10 +126,7 @@ pub struct FileSizeClassifier {
 
 impl FileSizeClassifier {
     pub fn new(log_base: f64, reverse: bool) -> Self {
-        Self {
-            log_base,
-            reverse,
-        }
+        Self { log_base, reverse }
     }
 }
 
@@ -180,7 +177,9 @@ impl DirSizeClassifier {
     }
 
     pub fn remove_entry(&mut self, entry: &Entry) {
-        if let std::collections::hash_map::Entry::Occupied(mut e) = self.dir_counts.entry(entry.file.dir.clone()) {
+        if let std::collections::hash_map::Entry::Occupied(mut e) =
+            self.dir_counts.entry(entry.file.dir.clone())
+        {
             let count = e.get_mut();
             *count -= 1;
             if *count == 0 {

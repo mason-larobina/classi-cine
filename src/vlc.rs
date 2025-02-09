@@ -57,17 +57,18 @@ pub struct VLCProcessHandle {
 impl VLCProcessHandle {
     pub fn new(args: &crate::Args, path: &Path, file_name: Option<String>) -> Self {
         // Find an available port
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .expect("Failed to bind to address");
-        let port = listener.local_addr()
+        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to address");
+        let port = listener
+            .local_addr()
             .expect("Failed to get local address")
             .port();
-        
+
         // Drop the listener so VLC can use the port
         drop(listener);
 
         let mut command = Command::new("vlc");
-        command.args([
+        command
+            .args([
                 "-I",
                 "http",
                 "--no-random",
@@ -95,10 +96,7 @@ impl VLCProcessHandle {
 
         VLCProcessHandle {
             handle: Some(child),
-            status_url: format!(
-                "http://:password@localhost:{}/requests/status.json",
-                port
-            ),
+            status_url: format!("http://:password@localhost:{}/requests/status.json", port),
             file_name,
         }
     }
@@ -113,13 +111,16 @@ impl VLCProcessHandle {
     pub fn wait_for_status(&self, timeout_secs: u64) -> Result<Status, Error> {
         let attempts = (timeout_secs * 1000) / 100; // Convert to 100ms intervals
         for _ in 0..attempts {
-            std::thread::sleep(std::time::Duration::from_millis(100)); 
+            std::thread::sleep(std::time::Duration::from_millis(100));
             if let Ok(status) = self.status() {
                 // Verify filename matches if we have one
                 if let Some(ref expected) = self.file_name {
                     if status.file_name() != Some(expected.clone()) {
-                        error!("Filename mismatch {:?} {:?}, skipping", 
-                               self.file_name, status.file_name());
+                        error!(
+                            "Filename mismatch {:?} {:?}, skipping",
+                            self.file_name,
+                            status.file_name()
+                        );
                         return Err(Error::FilenameMismatch);
                     }
                 }
