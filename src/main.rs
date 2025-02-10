@@ -448,19 +448,29 @@ impl App {
             tuples.push((window, ngram, score));
         }
 
-        // Sort tuples by absolute score to show most influential ngrams
-        tuples.sort_by(|a, b| b.2.abs().partial_cmp(&a.2.abs()).unwrap());
+        // Group ngrams by rounded score
+        let mut score_groups: BTreeMap<i32, Vec<(Vec<Token>, Ngram, f64)>> = BTreeMap::new();
+        for tuple in tuples {
+            // Round score to 2 decimal places for grouping
+            let score_key = (tuple.2 * 100.0).round() as i32;
+            score_groups.entry(score_key).or_default().push(tuple);
+        }
 
-        // Display top 10 ngrams and their scores
-        info!("Top ngrams by influence:");
-        for (tokens, _ngram, score) in tuples.iter().take(20) {
+        // Display top score groups with their ngrams
+        info!("Top ngram groups by score:");
+        for (score_key, group) in score_groups.iter().rev().take(5) {
+            let score = *score_key as f64 / 100.0;
+            info!("Score {:.2}:", score);
+            
             if let Some(tokenizer) = &self.tokenizer {
                 let token_map = tokenizer.token_map();
-                let token_strs: Vec<&str> = tokens
-                    .iter()
-                    .map(|t| token_map.get_str(*t).unwrap())
-                    .collect();
-                info!("  {:.3}: {:?}", score, token_strs);
+                for (tokens, _ngram, _) in group {
+                    let token_strs: Vec<&str> = tokens
+                        .iter()
+                        .map(|t| token_map.get_str(*t).unwrap())
+                        .collect();
+                    info!("  {:?}", token_strs);
+                }
             }
         }
 
