@@ -12,7 +12,7 @@ impl Default for ScoreVisualizer {
     fn default() -> Self {
         // Get terminal width or use fallback
         let width = terminal_size()
-            .map(|(Width(w), _)| w as u32)
+            .map(|(Width(w), _)| w as u32 * 2 - 16)
             .unwrap_or(80);
         
         Self {
@@ -36,22 +36,6 @@ impl ScoreVisualizer {
         for (idx, name) in classifier_names.iter().enumerate() {
             self.plot_distribution(name, entries, idx, current_entry.scores[idx]);
         }
-    }
-
-    pub fn display_score_details(&self, entry: &Entry, classifier_names: &[&str]) {
-        let score_details: Vec<String> = entry
-            .scores
-            .iter()
-            .enumerate()
-            .map(|(i, score)| format!("{}: {:.3}", classifier_names[i], score))
-            .collect();
-
-        let path = entry.file.dir.join(&entry.file.file_name);
-        println!(
-            "Top candidate: {:?}\nScores: {}",
-            path,
-            score_details.join(", ")
-        );
     }
 
     fn plot_distribution(&self, name: &str, entries: &[Entry], idx: usize, current_score: f64) {

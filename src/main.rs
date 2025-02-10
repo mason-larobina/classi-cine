@@ -389,9 +389,6 @@ impl App {
         let path = entry.file.dir.join(&entry.file.file_name);
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
-        // Display score details
-        //self.display_score_details(entry);
-
         // Start VLC and get classification
         let vlc = vlc::VLCProcessHandle::new(&self.args, &path, file_name);
 
