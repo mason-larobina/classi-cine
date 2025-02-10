@@ -1,5 +1,6 @@
 use crate::Entry;
 use log::*;
+use terminal_size::{terminal_size, Width};
 use textplots::{Chart, Plot, Shape};
 
 pub struct ScoreVisualizer {
@@ -9,8 +10,13 @@ pub struct ScoreVisualizer {
 
 impl Default for ScoreVisualizer {
     fn default() -> Self {
+        // Get terminal width or use fallback
+        let width = terminal_size()
+            .map(|(Width(w), _)| w as u32)
+            .unwrap_or(80);
+        
         Self {
-            width: 300,
+            width,
             height: 50,
         }
     }
