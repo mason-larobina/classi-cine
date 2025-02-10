@@ -373,11 +373,11 @@ impl App {
             }
         }
 
-        // Sort entries by total score descending
+        // Sort entries by total score ascending
         temp_entries.sort_by(|a, b| {
             let a_sum = a.scores.iter().sum::<f64>();
             let b_sum = b.scores.iter().sum::<f64>();
-            b_sum.partial_cmp(&a_sum).expect("Invalid score comparison")
+            a_sum.partial_cmp(&b_sum).expect("Invalid score comparison")
         });
 
         // Swap back the processed entries
@@ -476,18 +476,18 @@ impl App {
         while !self.entries.is_empty() {
             self.process_classifiers();
 
-            if let Some(entry) = self.entries.first() {
+            if let Some(entry) = self.entries.pop() {
                 // Get classifier names
                 let classifier_names: Vec<&str> =
                     self.classifiers().iter().map(|c| c.name()).collect();
 
                 // Display visualizations
                 self.visualizer
-                    .display_distributions(&self.entries, entry, &classifier_names);
+                    .display_distributions(&self.entries, &entry, &classifier_names);
                 self.visualizer
-                    .display_score_details(entry, &classifier_names);
+                    .display_score_details(&entry, &classifier_names);
 
-                if let Some(classification) = self.get_user_classification(entry)? {
+                if let Some(classification) = self.get_user_classification(&entry)? {
                     self.handle_classification(classification)?;
                 }
             }
