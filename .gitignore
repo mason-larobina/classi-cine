@@ -1,5 +1,4 @@
 *.m3u
-*.txt
 .aider*
 .continue*
 .env
