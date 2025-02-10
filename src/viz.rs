@@ -41,7 +41,7 @@ impl ScoreVisualizer {
             .collect();
 
         let path = entry.file.dir.join(&entry.file.file_name);
-        info!(
+        println!(
             "Top candidate: {:?}\nScores: {}",
             path,
             score_details.join(", ")

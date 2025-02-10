@@ -423,10 +423,9 @@ impl App {
         let token_map = self.tokenizer.as_ref().unwrap().token_map();
         
         // Display filename and normalized form
-        info!("File: {:?}", path);
-        info!("Normalized: {:?}", entry.norm);
+        println!("File: {:?}", path);
         let token_strs = entry.tokens.as_ref().unwrap().debug_strs(token_map);
-        info!("Tokens: {:?}", token_strs);
+        println!("Tokens: {:?}", token_strs);
 
         let mut ngram_tokens: Vec<Vec<Token>> = Vec::new();
         {
@@ -452,32 +451,15 @@ impl App {
         tuples.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
 
         // Display top 50 ngrams by absolute score
-        info!("Top ngrams by absolute score:");
+        println!("Top ngrams by absolute score:");
         for (tokens, score) in tuples.iter().take(50) {
             let token_strs: Vec<&str> = tokens
                 .iter()
                 .map(|t| token_map.get_str(*t).unwrap())
                 .collect();
-            info!("  {:.3}: {:?}", score, token_strs);
+            print!("{:?}: {:.3}, ", token_strs, score);
         }
-
-        // Display top score groups with their ngrams
-        info!("Top ngram groups by score:");
-        for (score_key, group) in score_groups.iter().rev().take(5) {
-            let score = *score_key as f64 / 100.0;
-            info!("Score {:.2}:", score);
-            
-            if let Some(tokenizer) = &self.tokenizer {
-                let token_map = tokenizer.token_map();
-                for (tokens, _ngram, _) in group {
-                    let token_strs: Vec<&str> = tokens
-                        .iter()
-                        .map(|t| token_map.get_str(*t).unwrap())
-                        .collect();
-                    info!("  {:?}", token_strs);
-                }
-            }
-        }
+        println!();
 
         // Display classifier scores
         let score_details: Vec<String> = self
