@@ -453,9 +453,20 @@ impl App {
             tuples.push((ngram_tokens[i].clone(), ngrams[i], scores[i]));
         }
 
-        // TODO: Sort tuples by score, debug print the top 10 ngram tokens with the score 
-        // AI!
+        // Sort tuples by absolute score to show most influential ngrams
+        tuples.sort_by(|a, b| b.2.abs().partial_cmp(&a.2.abs()).unwrap());
 
+        // Display top 10 ngrams and their scores
+        info!("Top ngrams by influence:");
+        for (tokens, _ngram, score) in tuples.iter().take(10) {
+            if let Some(tokenizer) = &self.tokenizer {
+                let token_strs: Vec<&str> = tokens
+                    .iter()
+                    .map(|t| tokenizer.token_map().get_str(*t).unwrap())
+                    .collect();
+                info!("  {:.3}: {}", score, token_strs.join(" "));
+            }
+        }
 
         //    let mut ngram_scores = Vec::new();
         //    for ngram in ngrams.iter() {
