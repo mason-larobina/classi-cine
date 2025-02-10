@@ -424,7 +424,7 @@ impl App {
         
         // Display filename and normalized form
         info!("File: {:?}", path);
-        info!("Normalized: {}", entry.norm);
+        info!("Normalized: {:?}", entry.norm);
         let token_strs = entry.tokens.as_ref().unwrap().debug_strs(token_map);
         info!("Tokens: {:?}", token_strs);
 
@@ -445,16 +445,10 @@ impl App {
         for window in ngram_tokens.into_iter() {
             let ngram = Ngram::new(&window);
             let score = self.naive_bayes.ngram_score(ngram);
-            tuples.push((window, ngram, score));
+            tuples.push((window, score));
         }
 
-        // Group ngrams by rounded score
-        let mut score_groups: BTreeMap<i32, Vec<(Vec<Token>, Ngram, f64)>> = BTreeMap::new();
-        for tuple in tuples {
-            // Round score to 2 decimal places for grouping
-            let score_key = (tuple.2 * 100.0).round() as i32;
-            score_groups.entry(score_key).or_default().push(tuple);
-        }
+        // TODO: sort tuples by abs score decending, then debug print the first 50 to stdout. AI!
 
         // Display top score groups with their ngrams
         info!("Top ngram groups by score:");
