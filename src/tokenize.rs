@@ -281,9 +281,11 @@ mod tests {
 
     #[test]
     fn test_pair_tokenizer_basic() {
-        let pt = PairTokenizer::new(std::iter::once("hello world"));
+        // Use repeated input to exceed the minimum frequency threshold
+        let training = vec!["hello world"; 10];
+        let pt = PairTokenizer::new(training.iter().map(|s| *s));
         let tokens = pt.tokenize("hello world");
-        // Checking if the round trip matches (assuming to_string is valid)
+        // Checking if the round trip matches
         assert_eq!(
             tokens.debug_strs(&pt.token_map),
             vec!["hello", " ", "world"]
