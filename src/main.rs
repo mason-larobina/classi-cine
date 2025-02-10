@@ -277,7 +277,7 @@ impl App {
         ));
         let tokenizer = self.tokenizer.as_ref().unwrap();
 
-        info!("tokenizer tokens {:?}", tokenizer.count());
+        info!("tokenizer tokens {:?}", tokenizer.token_map().count());
 
         // Process all paths to find frequent ngrams
         let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
@@ -390,7 +390,7 @@ impl App {
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
         // Display score details
-        self.display_score_details(entry);
+        //self.display_score_details(entry);
 
         // Start VLC and get classification
         let vlc = vlc::VLCProcessHandle::new(&self.args, &path, file_name);
@@ -428,29 +428,52 @@ impl App {
         // Display tokens if available
         if let Some(tokens) = &entry.tokens {
             if let Some(tokenizer) = &self.tokenizer {
-                info!("Tokens: {}", tokens.debug_strs(tokenizer).join(" "));
+                let token_strs = tokens.debug_strs(tokenizer.token_map());
+                info!("Tokens: {:?}", token_strs);
             }
         }
-        
-        // Display top scoring ngrams if available
-        if let Some(ngrams) = &entry.ngrams {
-            let mut ngram_scores = Vec::new();
-            for ngram in ngrams.iter() {
-                let score = self.naive_bayes.ngram_score(ngram);
-                ngram_scores.push((score, ngram));
-            }
-            
-            // Sort by absolute score to show most influential ngrams
-            ngram_scores.sort_by(|a, b| b.0.abs().partial_cmp(&a.0.abs()).unwrap());
-            
-            // Display top 5 ngrams and their scores
-            info!("Top ngrams by influence:");
-            for (score, ngram) in ngram_scores.iter().take(5) {
-                if let Some(tokens) = &entry.tokens {
-                    info!("  {:.3}: {}", score, ngram.debug_str(tokens));
-                }
-            }
+
+        let mut ngram_tokens: Vec<Vec<Token>> = Vec::new();
+        let mut ngrams = Ngrams::default();
+        ngrams.windows(
+            entry.tokens.as_ref().unwrap(),
+            5,
+            self.frequent_ngrams.as_ref(),
+            Some(&mut ngram_tokens),
+        );
+        let ngrams: Vec<Ngram> = ngrams.iter().cloned().collect();
+
+        let mut scores = Vec::new();
+        for ngram in ngrams.iter() {
+            scores.push(self.naive_bayes.ngram_score(ngram));
         }
+
+        let mut tuples = Vec::new();
+        for i in 0..ngrams.len() {
+            tuples.push((ngram_tokens[i].clone(), ngrams[i], scores[i]));
+        }
+
+        // TODO: Sort tuples by score, debug print the top 10 ngram tokens with the score 
+        // AI!
+
+
+        //    let mut ngram_scores = Vec::new();
+        //    for ngram in ngrams.iter() {
+        //        let score = self.naive_bayes.ngram_score(ngram);
+        //        ngram_scores.push((score, ngram));
+        //    }
+        //    
+        //    // Sort by absolute score to show most influential ngrams
+        //    ngram_scores.sort_by(|a, b| b.0.abs().partial_cmp(&a.0.abs()).unwrap());
+        //    
+        //    // Display top 5 ngrams and their scores
+        //    info!("Top ngrams by influence:");
+        //    for (score, ngram) in ngram_scores.iter().take(5) {
+        //        if let Some(tokens) = &entry.tokens {
+        //            info!("  {:.3}: {}", score, ngram.debug_str(tokens));
+        //        }
+        //    }
+        //}
 
         // Display classifier scores
         let score_details: Vec<String> = self
