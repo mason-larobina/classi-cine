@@ -12,7 +12,8 @@ user feedback through VLC's playback controls to build smart playlists.
 
 ## Overview
 
-Classi-cine helps organize video libraries by learning from both content patterns and your feedback. It combines multiple classification approaches:
+Classi-cine helps organize video libraries by learning from both content
+patterns and your feedback. It combines multiple classification approaches:
 
 - **Smart Multi-Classifier System:**
   - Byte pair encoding tokenization learns frequent character sequences
@@ -35,10 +36,9 @@ Classi-cine helps organize video libraries by learning from both content pattern
 
 ## Technical Details
 
-- Uses Bloom filters and parallel processing for efficient tokenization
+- Uses probabilistic filters and parallel processing for fast and efficient tokenization
 - Adaptive tokenization learns from your library's naming patterns
 - Sharded data structures for multi-core processing
-- Probabilistic filtering for fast token matching
 
 ## Installation
 
