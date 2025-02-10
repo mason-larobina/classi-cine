@@ -35,11 +35,10 @@ filename patterns and your existing file organization.
   - Optional directory density analysis
   - Combines multiple signals for better recommendations
 
-- **Efficient Text Processing:**
-  - Handles inconsistent naming conventions
-  - Works with multiple languages and character sets
-  - Recognizes common abbreviations and patterns
-  - Adapts to your library's naming style
+- **Text Processing:**
+  - Byte pair encoding tokenization learns frequent character sequences
+  - Naive Bayes classification of filename tokens
+  - Language and character set agnostic
 
 - **Seamless VLC Integration:**
   - Uses familiar VLC controls for feedback
