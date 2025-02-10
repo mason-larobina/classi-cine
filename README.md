@@ -30,15 +30,12 @@ filename patterns and your existing file organization.
 ## Key Features
 
 - **Smart Multi-Classifier System:**
-  - Analyzes filename patterns, common words, and character sequences
-  - Optional file size classification (prefer larger/smaller files)
-  - Optional directory density analysis
-  - Combines multiple signals for better recommendations
-
-- **Text Processing:**
   - Byte pair encoding tokenization learns frequent character sequences
-  - Naive Bayes classification of filename tokens
+  - Naive Bayes classification of filename tokens and token sequences
   - Language and character set agnostic
+  - Optional file size classification (prefer larger/smaller files)
+  - Optional directory size classifier (prefer files in large/smaller directories)
+  - Combines multiple signals for better recommendations
 
 - **Seamless VLC Integration:**
   - Uses familiar VLC controls for feedback
