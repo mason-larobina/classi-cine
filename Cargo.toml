@@ -1,13 +1,13 @@
 [package]
 name = "classi-cine"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 repository = "https://github.com/mason-larobina/classi-cine"
 readme = "README.md"
 authors = ["Mason Larobina <mason.larobina@pm.me>"]
-description = "A filename based interactive video tagging tool."
+description = "A tool that builds smart video playlists by learning your preferences through Bayesian classification."
 license = "MIT"
-keywords = ["bayes", "classification", "tokenization", "inference", "vlc"]
+keywords = ["bayes", "classification", "tokenization", "vlc", "playlist"]
 categories = ["command-line-utilities"]
 
 [profile.perf]
