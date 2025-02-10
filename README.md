@@ -12,22 +12,7 @@ user feedback through VLC's playback controls to build smart playlists.
 
 ## Overview
 
-Classi-cine helps solve common challenges in managing video libraries:
-- Organizing videos with inconsistent file names and locations
-- Quick preview and classification of content
-- Learning from user preferences over time
-
-The system employs multiple classification approaches:
-- Naive Bayes classification of filename features (words, tokens, ngrams)
-- File size analysis (Optional)
-- Directory size/density patterns (Optional)
-
-This multi-classifier approach allows the system to learn from both content patterns
-and file organization structures. For example, you could use this as a video 
-recommendation engine for local video files, with the system learning from both 
-filename patterns and your existing file organization.
-
-## Key Features
+Classi-cine helps organize video libraries by learning from both content patterns and your feedback. It combines multiple classification approaches:
 
 - **Smart Multi-Classifier System:**
   - Byte pair encoding tokenization learns frequent character sequences
@@ -35,7 +20,6 @@ filename patterns and your existing file organization.
   - Language and character set agnostic
   - Optional file size classification (prefer larger/smaller files)
   - Optional directory size classifier (prefer files in large/smaller directories)
-  - Combines multiple signals for better recommendations
 
 - **Seamless VLC Integration:**
   - Uses familiar VLC controls for feedback
