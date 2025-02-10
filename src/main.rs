@@ -418,7 +418,7 @@ impl App {
     fn display_entry_details(&self, entry: &Entry) {
         let path = entry.file.dir.join(&entry.file.file_name);
         let token_map = self.tokenizer.as_ref().unwrap().token_map();
-        
+
         // Display filename and normalized form
         println!("File: {:?}", path);
         let token_strs = entry.tokens.as_ref().unwrap().debug_strs(token_map);
@@ -470,7 +470,11 @@ impl App {
     }
 
     // Handles the classification result
-    fn handle_classification(&mut self, entry: Entry, classification: vlc::Classification) -> io::Result<()> {
+    fn handle_classification(
+        &mut self,
+        entry: Entry,
+        classification: vlc::Classification,
+    ) -> io::Result<()> {
         let path = entry.file.dir.join(&entry.file.file_name);
 
         // Update dir size classifier

@@ -14,11 +14,8 @@ impl Default for ScoreVisualizer {
         let width = terminal_size()
             .map(|(Width(w), _)| w as u32 * 2 - 16)
             .unwrap_or(80);
-        
-        Self {
-            width,
-            height: 50,
-        }
+
+        Self { width, height: 50 }
     }
 }
 

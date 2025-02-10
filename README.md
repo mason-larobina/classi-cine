@@ -16,19 +16,23 @@ Classi-cine helps organize video libraries by learning from both content
 patterns and your feedback. It combines multiple classification approaches:
 
 - **Smart Multi-Classifier System:**
+
   - Byte pair encoding tokenization learns frequent character sequences
   - Naive Bayes classification of filename tokens and token sequences
   - Language and character set agnostic
   - Optional file size classification (prefer larger/smaller files)
-  - Optional directory size classifier (prefer files in large/smaller directories)
+  - Optional directory size classifier (prefer files in large/smaller
+    directories)
 
 - **Seamless VLC Integration:**
+
   - Uses familiar VLC controls for feedback
   - Stop video (s key) = positive classification
   - Pause video (space) = negative classification
   - Immediate playlist updates
 
 - **Universal Playlist Format:**
+
   - Stores results in standard M3U format
   - Compatible with most media players
   - Preserves classification history
@@ -36,7 +40,8 @@ patterns and your feedback. It combines multiple classification approaches:
 
 ## Technical Details
 
-- Uses probabilistic filters and parallel processing for fast and efficient tokenization
+- Uses probabilistic filters and parallel processing for fast and efficient
+  tokenization
 - Adaptive tokenization learns from your library's naming patterns
 - Sharded data structures for multi-core processing
 
