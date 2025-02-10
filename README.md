@@ -55,7 +55,7 @@ filename patterns and your existing file organization.
 
 ## Technical Details
 
-- Uses Bloom filters and parallel processing for efficient large-scale analysis
+- Uses Bloom filters and parallel processing for efficient tokenization
 - Adaptive tokenization learns from your library's naming patterns
 - Sharded data structures for multi-core processing
 - Probabilistic filtering for fast token matching
