@@ -448,7 +448,18 @@ impl App {
             tuples.push((window, score));
         }
 
-        // TODO: sort tuples by abs score decending, then debug print the first 50 to stdout. AI!
+        // Sort tuples by absolute score descending
+        tuples.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
+
+        // Display top 50 ngrams by absolute score
+        info!("Top ngrams by absolute score:");
+        for (tokens, score) in tuples.iter().take(50) {
+            let token_strs: Vec<&str> = tokens
+                .iter()
+                .map(|t| token_map.get_str(*t).unwrap())
+                .collect();
+            info!("  {:.3}: {:?}", score, token_strs);
+        }
 
         // Display top score groups with their ngrams
         info!("Top ngram groups by score:");
