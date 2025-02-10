@@ -4,7 +4,30 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Copy, Clone)]
-pub struct Ngram(u64);
+pub struct Ngram(pub(crate) u64);
+
+impl Ngram {
+    pub fn debug_str(&self, tokens: &Tokens) -> String {
+        let slice = tokens.as_slice();
+        let mut result = String::new();
+        let mut hasher = DefaultHasher::new();
+        
+        // Try different window sizes to find matching hash
+        for n in 1..=5 {
+            for window in slice.windows(n) {
+                window.hash(&mut hasher);
+                if hasher.finish() == self.0 {
+                    return window.iter()
+                        .map(|t| t.0.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                }
+                hasher = DefaultHasher::new();
+            }
+        }
+        result
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct Ngrams(Vec<Ngram>);

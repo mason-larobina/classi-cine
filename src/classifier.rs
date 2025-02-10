@@ -31,6 +31,12 @@ pub struct NaiveBayesClassifier {
 }
 
 impl NaiveBayesClassifier {
+    pub fn ngram_score(&self, ngram: &Ngram) -> f64 {
+        let pos_prob = self.log_probability(ngram, true);
+        let neg_prob = self.log_probability(ngram, false);
+        pos_prob - neg_prob
+    }
+
     pub fn new(reverse: bool) -> Self {
         Self {
             positive_counts: HashMap::new(),

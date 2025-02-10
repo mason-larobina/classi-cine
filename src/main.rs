@@ -417,8 +417,42 @@ impl App {
         }
     }
 
-    // Displays detailed scores for each classifier
-    fn display_score_details(&self, entry: &Entry) {
+    // Displays detailed entry information including filename, tokens, and ngrams
+    fn display_entry_details(&self, entry: &Entry) {
+        let path = entry.file.dir.join(&entry.file.file_name);
+        
+        // Display filename and normalized form
+        info!("File: {:?}", path);
+        info!("Normalized: {}", entry.norm);
+        
+        // Display tokens if available
+        if let Some(tokens) = &entry.tokens {
+            if let Some(tokenizer) = &self.tokenizer {
+                info!("Tokens: {}", tokens.debug_strs(tokenizer).join(" "));
+            }
+        }
+        
+        // Display top scoring ngrams if available
+        if let Some(ngrams) = &entry.ngrams {
+            let mut ngram_scores = Vec::new();
+            for ngram in ngrams.iter() {
+                let score = self.naive_bayes.ngram_score(ngram);
+                ngram_scores.push((score, ngram));
+            }
+            
+            // Sort by absolute score to show most influential ngrams
+            ngram_scores.sort_by(|a, b| b.0.abs().partial_cmp(&a.0.abs()).unwrap());
+            
+            // Display top 5 ngrams and their scores
+            info!("Top ngrams by influence:");
+            for (score, ngram) in ngram_scores.iter().take(5) {
+                if let Some(tokens) = &entry.tokens {
+                    info!("  {:.3}: {}", score, ngram.debug_str(tokens));
+                }
+            }
+        }
+
+        // Display classifier scores
         let score_details: Vec<String> = self
             .classifiers()
             .iter()
@@ -426,12 +460,7 @@ impl App {
             .map(|(i, c)| format!("{}: {:.3}", c.name(), entry.scores[i]))
             .collect();
 
-        let path = entry.file.dir.join(&entry.file.file_name);
-        info!(
-            "Top candidate: {:?}\nScores: {}",
-            path,
-            score_details.join(", ")
-        );
+        info!("Classifier scores: {}", score_details.join(", "));
     }
 
     // Handles the classification result
@@ -481,11 +510,12 @@ impl App {
                 let classifier_names: Vec<&str> =
                     self.classifiers().iter().map(|c| c.name()).collect();
 
+                // Display detailed information about the entry
+                self.display_entry_details(&entry);
+
                 // Display visualizations
                 self.visualizer
                     .display_distributions(&self.entries, &entry, &classifier_names);
-                self.visualizer
-                    .display_score_details(&entry, &classifier_names);
 
                 if let Some(classification) = self.get_user_classification(&entry)? {
                     self.handle_classification(classification)?;
