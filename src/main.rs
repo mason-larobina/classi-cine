@@ -486,8 +486,7 @@ impl App {
     }
 
     // Handles the classification result
-    fn handle_classification(&mut self, classification: vlc::Classification) -> io::Result<()> {
-        let entry = self.entries.remove(0);
+    fn handle_classification(&mut self, entry: Entry, classification: vlc::Classification) -> io::Result<()> {
         let path = entry.file.dir.join(&entry.file.file_name);
 
         // Update dir size classifier
@@ -540,7 +539,7 @@ impl App {
                     .display_distributions(&self.entries, &entry, &classifier_names);
 
                 if let Some(classification) = self.get_user_classification(&entry)? {
-                    self.handle_classification(classification)?;
+                    self.handle_classification(entry, classification)?;
                 }
             }
         }
