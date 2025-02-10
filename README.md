@@ -10,6 +10,13 @@
 intelligent video organization. It uses file path characteristics along with
 user feedback through VLC's playback controls to build smart playlists.
 
+## Overview
+
+Classi-cine helps solve common challenges in managing video libraries:
+- Organizing videos with inconsistent file names and locations
+- Quick preview and classification of content
+- Learning from user preferences over time
+
 The system employs multiple classification approaches:
 - Naive Bayes classification of filename features (words, tokens, ngrams)
 - File size analysis (Optional)
@@ -22,16 +29,36 @@ filename patterns and your existing file organization.
 
 ## Key Features
 
-- **Multi-Classifier System:** Combines file size, directory patterns, and filename token analysis
-  for more accurate recommendations
-- **Interactive Training:** Pause (Shortcut: space) to mark as positive or
-  stop (Shortcut: s) to mark as negative
-- **Smart Re-ranking:** Multiple classifiers collaborate to re-rank videos based on
-  combined scores and user feedback
-- **M3U Playlist Integration:** Classifications are stored in standard M3U format
-  for compatibility with media players
-- **Efficient Processing:** Uses Bloom filters and parallel processing for
-  handling large video collections
+- **Smart Multi-Classifier System:**
+  - Analyzes filename patterns, common words, and character sequences
+  - Optional file size classification (prefer larger/smaller files)
+  - Optional directory density analysis
+  - Combines multiple signals for better recommendations
+
+- **Efficient Text Processing:**
+  - Handles inconsistent naming conventions
+  - Works with multiple languages and character sets
+  - Recognizes common abbreviations and patterns
+  - Adapts to your library's naming style
+
+- **Seamless VLC Integration:**
+  - Uses familiar VLC controls for feedback
+  - Stop video (s key) = positive classification
+  - Pause video (space) = negative classification
+  - Immediate playlist updates
+
+- **Universal Playlist Format:**
+  - Stores results in standard M3U format
+  - Compatible with most media players
+  - Preserves classification history
+  - Incremental saves for long sessions
+
+## Technical Details
+
+- Uses Bloom filters and parallel processing for efficient large-scale analysis
+- Adaptive tokenization learns from your library's naming patterns
+- Sharded data structures for multi-core processing
+- Probabilistic filtering for fast token matching
 
 ## Installation
 
@@ -77,26 +104,6 @@ Options:
       --video-exts <VIDEO_EXTS>  [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
   -h, --help                     Print help
 ```
-
-## How it works
-
-1. **File Discovery:** Recursively locates video files in specified directories,
-   filtering out previously classified entries
-2. **Text Processing Pipeline:**
-   - Normalizes filenames for consistent processing
-   - Builds efficient tokenizer from all paths
-   - Generates and identifies frequent n-grams
-   - Uses Bloom filters for fast feature lookup
-3. **Multi-Classifier Processing:**
-   - Initializes file size, directory size, and Naive Bayes classifiers
-   - Processes entries to establish scoring bounds
-   - Normalizes and combines scores from all classifiers
-4. **Interactive Classification:**
-   - Presents highest scoring candidates first
-   - Launches VLC with HTTP interface
-   - Captures user feedback through playback controls
-   - Updates all classifiers and playlist data
-   - Continuously re-ranks remaining entries
 
 ## Contributing
 
