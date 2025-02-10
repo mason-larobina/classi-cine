@@ -526,7 +526,7 @@ impl App {
         while !self.entries.is_empty() {
             self.process_classifiers();
 
-            if let Some(entry) = self.entries.pop() {
+            if let Some(entry) = self.entries.last().clone() {
                 // Get classifier names
                 let classifier_names: Vec<&str> =
                     self.classifiers().iter().map(|c| c.name()).collect();
@@ -538,6 +538,7 @@ impl App {
                 self.visualizer
                     .display_distributions(&self.entries, &entry, &classifier_names);
 
+                let entry = self.entries.pop().unwrap();
                 if let Some(classification) = self.get_user_classification(&entry)? {
                     self.handle_classification(entry, classification)?;
                 }
