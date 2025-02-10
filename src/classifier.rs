@@ -31,7 +31,7 @@ pub struct NaiveBayesClassifier {
 }
 
 impl NaiveBayesClassifier {
-    pub fn ngram_score(&self, ngram: &Ngram) -> f64 {
+    pub fn ngram_score(&self, ngram: Ngram) -> f64 {
         let pos_prob = self.log_probability(ngram, true);
         let neg_prob = self.log_probability(ngram, false);
         pos_prob - neg_prob
@@ -62,7 +62,7 @@ impl NaiveBayesClassifier {
     }
 
     /// Returns log probability with Laplace smoothing
-    fn log_probability(&self, ngram: &Ngram, positive: bool) -> f64 {
+    fn log_probability(&self, ngram: Ngram, positive: bool) -> f64 {
         let (counts, total) = if positive {
             (&self.positive_counts, self.positive_total)
         } else {
@@ -70,7 +70,7 @@ impl NaiveBayesClassifier {
         };
 
         // Laplace smoothing in log space
-        let count = counts.get(ngram).copied().unwrap_or(0) as f64;
+        let count = counts.get(&ngram).copied().unwrap_or(0) as f64;
         let vocab_size = self.positive_counts.len() + self.negative_counts.len();
         ((1.0 + count) / (1.0 + (total as f64) + (vocab_size as f64))).ln()
     }
@@ -104,8 +104,8 @@ impl Classifier for NaiveBayesClassifier {
 
         // Add log likelihoods: log P(ngrams|class)
         for ngram in ngrams.iter() {
-            log_positive += self.log_probability(ngram, true);
-            log_negative += self.log_probability(ngram, false);
+            log_positive += self.log_probability(*ngram, true);
+            log_negative += self.log_probability(*ngram, false);
         }
 
         // Return difference of log probabilities

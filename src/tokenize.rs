@@ -248,8 +248,8 @@ impl PairTokenizer {
         tokens
     }
 
-    pub fn count(&self) -> usize {
-        self.token_map.count()
+    pub fn token_map(&self) -> &TokenMap {
+        &self.token_map
     }
 }
 
