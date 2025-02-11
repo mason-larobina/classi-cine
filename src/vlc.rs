@@ -56,7 +56,7 @@ pub struct VLCProcessHandle {
 }
 
 impl VLCProcessHandle {
-    pub fn new(args: &crate::VlcArgs, path: &Path, file_name: Option<String>) -> Self {
+    pub fn new(args: &crate::VlcArgs, path: &Path, file_name: Option<String>) -> Result<Self, Error> {
         // Find an available port
         let listener = TcpListener::bind("127.0.0.1:0").map_err(Error::InvalidPort)?;
         let port = listener
@@ -100,11 +100,11 @@ impl VLCProcessHandle {
 
         let child = command.spawn().map_err(Error::ProcessFailed)?;
 
-        VLCProcessHandle {
+        Ok(VLCProcessHandle {
             handle: Some(child),
             status_url: format!("http://:{password}@localhost:{port}/requests/status.json"),
             file_name,
-        }
+        })
     }
 
     pub fn status(&self) -> Result<Status, Error> {
@@ -116,7 +116,7 @@ impl VLCProcessHandle {
 
     pub fn wait_for_status(&self, timeout_secs: u64, poll_interval: u64) -> Result<Status, Error> {
         let attempts = (timeout_secs * 1000) / poll_interval;
-        for attempt in 0..attempts {
+        for _attempt in 0..attempts {
             std::thread::sleep(std::time::Duration::from_millis(poll_interval));
             
             match self.status() {
