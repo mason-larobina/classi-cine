@@ -58,10 +58,10 @@ pub struct VLCProcessHandle {
 impl VLCProcessHandle {
     pub fn new(args: &crate::VlcArgs, path: &Path, file_name: Option<String>) -> Self {
         // Find an available port
-        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to address");
+        let listener = TcpListener::bind("127.0.0.1:0").map_err(Error::InvalidPort)?;
         let port = listener
             .local_addr()
-            .expect("Failed to get local address")
+            .map_err(Error::InvalidPort)?
             .port();
         // Drop the listener so VLC can use the port
         drop(listener);
@@ -98,7 +98,7 @@ impl VLCProcessHandle {
 
         debug!("Spawn {:?}", command);
 
-        let child = command.spawn().expect("Failed to start VLC process");
+        let child = command.spawn().map_err(Error::ProcessFailed)?;
 
         VLCProcessHandle {
             handle: Some(child),
@@ -114,10 +114,10 @@ impl VLCProcessHandle {
         Ok(serde_json::from_str(&text)?)
     }
 
-    pub fn wait_for_status(&self, timeout_secs: u64) -> Result<Status, Error> {
-        let attempts = (timeout_secs * 1000) / 100; // Convert to 100ms intervals
-        for _ in 0..attempts {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+    pub fn wait_for_status(&self, timeout_secs: u64, poll_interval: u64) -> Result<Status, Error> {
+        let attempts = (timeout_secs * 1000) / poll_interval;
+        for attempt in 0..attempts {
+            std::thread::sleep(std::time::Duration::from_millis(poll_interval));
             
             match self.status() {
                 Ok(status) => {
@@ -126,11 +126,10 @@ impl VLCProcessHandle {
                         // If we have an expected filename, verify it matches
                         if let Some(ref expected) = self.file_name {
                             if vlc_filename != *expected {
-                                error!(
-                                    "Filename mismatch - expected: {:?}, got: {:?}",
-                                    expected, vlc_filename
-                                );
-                                return Err(Error::FilenameMismatch);
+                                return Err(Error::FilenameMismatch {
+                                    expected: expected.clone(),
+                                    got: vlc_filename,
+                                });
                             }
                         }
                         return Ok(status);
@@ -141,7 +140,10 @@ impl VLCProcessHandle {
                 }
             }
         }
-        Err(Error::Timeout)
+        Err(Error::Timeout(format!(
+            "VLC did not respond with valid status after {} seconds",
+            timeout_secs
+        )))
     }
 
     /// Get classification from user via VLC controls
@@ -149,7 +151,7 @@ impl VLCProcessHandle {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(100));
 
-            let status = match self.status() {
+            let status = match self.status().map_err(|e| Error::VLCNotResponding(e.to_string())) {
                 Ok(status) => {
                     debug!("{:?}", status);
                     status

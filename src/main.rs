@@ -40,11 +40,42 @@ use textplots::{Chart, Plot, Shape};
 use thread_priority::*;
 
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     Reqwest(reqwest::Error),
     SerdeJson(serde_json::Error),
-    Timeout,
-    FilenameMismatch,
+    Timeout(String),
+    FilenameMismatch { expected: String, got: String },
+    ProcessFailed(std::io::Error),
+    InvalidPort(std::io::Error),
+    VLCNotResponding(String),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Reqwest(e) => write!(f, "HTTP request failed: {}", e),
+            Error::SerdeJson(e) => write!(f, "JSON parsing failed: {}", e),
+            Error::Timeout(msg) => write!(f, "Operation timed out: {}", msg),
+            Error::FilenameMismatch { expected, got } => {
+                write!(f, "Filename mismatch - expected: {}, got: {}", expected, got)
+            }
+            Error::ProcessFailed(e) => write!(f, "VLC process failed: {}", e),
+            Error::InvalidPort(e) => write!(f, "Failed to bind to port: {}", e),
+            Error::VLCNotResponding(msg) => write!(f, "VLC not responding: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Reqwest(e) => Some(e),
+            Error::SerdeJson(e) => Some(e),
+            Error::ProcessFailed(e) => Some(e),
+            Error::InvalidPort(e) => Some(e),
+            _ => None,
+        }
+    }
 }
 
 impl From<reqwest::Error> for Error {
@@ -108,6 +139,9 @@ struct VlcArgs {
     /// Timeout in seconds for VLC startup
     #[clap(long, default_value_t = 60)]
     vlc_timeout: u64,
+    /// Polling interval in milliseconds for VLC status checks
+    #[clap(long, default_value_t = 100)]
+    vlc_poll_interval: u64,
 }
 
 #[derive(Parser, Debug, Clone)]
