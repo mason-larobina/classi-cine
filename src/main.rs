@@ -72,8 +72,18 @@ struct Args {
     log_level: String,
 }
 
-#[derive(Debug, Clone)]
-struct ClassifyArgs {
+#[derive(Subcommand, Debug, Clone)]
+enum Command {
+    /// Interactive classification mode
+    Recommend(RecommendArgs),
+    /// List positively classified files
+    Positive,
+    /// List negatively classified files
+    Negative,
+}
+
+#[derive(Parser, Debug, Clone)]
+struct RecommendArgs {
     /// Directories to scan for video files
     dirs: Vec<PathBuf>,
     /// Fullscreen VLC playback
@@ -90,17 +100,8 @@ struct ClassifyArgs {
     video_exts: Vec<String>,
 }
 
-#[derive(Subcommand, Debug, Clone)]
-enum Command {
-    /// Interactive classification mode
-    Classify(ClassifyArgs),
-    /// List positively classified files
-    Positive,
-    /// List negatively classified files
-    Negative,
-}
 
-impl ClassifyArgs {
+impl RecommendArgs {
     fn default() -> Self {
         Self {
             dirs: vec![PathBuf::from(".")],
@@ -117,15 +118,6 @@ impl ClassifyArgs {
     }
 }
 
-impl Args {
-    fn classify_args(&self) -> &ClassifyArgs {
-        match &self.command {
-            Command::Classify(args) => args,
-            _ => panic!("Not in classify mode"),
-        }
-    }
-}
-
 #[derive(Debug)]
 struct Entry {
     file: walk::File,
@@ -137,6 +129,7 @@ struct Entry {
 
 struct App {
     args: Args,
+    recommend_args: RecommendArgs,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
@@ -148,38 +141,26 @@ struct App {
 }
 
 impl App {
-    fn classifiers(&self) -> Vec<&dyn Classifier> {
-        let mut classifiers = Vec::new();
-        if let Some(ref c) = self.file_size_classifier {
-            classifiers.push(c as &dyn Classifier);
-        }
-        if let Some(ref c) = self.dir_size_classifier {
-            classifiers.push(c as &dyn Classifier);
-        }
-        classifiers.push(&self.naive_bayes as &dyn Classifier);
-        classifiers
-    }
-
-    fn new(args: Args, playlist: M3uPlaylist) -> io::Result<Self> {
+    fn new(args: Args, recommend_args: RecommendArgs, playlist: M3uPlaylist) -> io::Result<Self> {
         info!("{:#?}", args);
 
         // Initialize visualizer
         let visualizer = viz::ScoreVisualizer::default();
 
         // Initialize optional classifiers based on args
-        let file_size_classifier = if args.file_size_bias != 0.0 {
-            let log_base = args.file_size_bias.abs();
+        let file_size_classifier = if recommend_args.file_size_bias != 0.0 {
+            let log_base = recommend_args.file_size_bias.abs();
             assert!(log_base > 1.0);
-            let reverse = args.file_size_bias < 0.0;
+            let reverse = recommend_args.file_size_bias < 0.0;
             Some(FileSizeClassifier::new(log_base, reverse))
         } else {
             None
         };
 
-        let dir_size_classifier = if args.dir_size_bias != 0.0 {
-            let log_base = args.dir_size_bias.abs();
+        let dir_size_classifier = if recommend_args.dir_size_bias != 0.0 {
+            let log_base = recommend_args.dir_size_bias.abs();
             assert!(log_base > 1.0);
-            let reverse = args.dir_size_bias < 0.0;
+            let reverse = recommend_args.dir_size_bias < 0.0;
             Some(DirSizeClassifier::new(log_base, reverse))
         } else {
             None
@@ -187,6 +168,7 @@ impl App {
 
         Ok(Self {
             args,
+            recommend_args,
             entries: Vec::new(),
             tokenizer: None,
             frequent_ngrams: None,
@@ -204,6 +186,18 @@ impl App {
         });
     }
 
+    fn classifiers(&self) -> Vec<&dyn Classifier> {
+        let mut classifiers = Vec::new();
+        if let Some(ref c) = self.file_size_classifier {
+            classifiers.push(c as &dyn Classifier);
+        }
+        if let Some(ref c) = self.dir_size_classifier {
+            classifiers.push(c as &dyn Classifier);
+        }
+        classifiers.push(&self.naive_bayes as &dyn Classifier);
+        classifiers
+    }
+
     fn collect_files(&mut self) {
         // Create set of already classified paths
         let mut classified = HashSet::new();
@@ -211,8 +205,8 @@ impl App {
         classified.extend(self.playlist.negatives().iter().cloned());
         //info!("Classified {:?}", classified);
 
-        let walk = Walk::new(self.args.video_exts.iter().map(String::as_ref));
-        for dir in &self.args.dirs {
+        let walk = Walk::new(self.recommend_args.video_exts.iter().map(String::as_ref));
+        for dir in &self.recommend_args.dirs {
             walk.walk_dir(dir);
         }
 
@@ -395,10 +389,10 @@ impl App {
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
         // Start VLC and get classification
-        let vlc = vlc::VLCProcessHandle::new(&self.args, &path, file_name);
+        let vlc = vlc::VLCProcessHandle::new(&self.recommend_args, &path, file_name);
 
         // Wait for VLC to start and verify filename
-        if let Err(e) = vlc.wait_for_status(self.args.vlc_timeout) {
+        if let Err(e) = vlc.wait_for_status(self.recommend_args.vlc_timeout) {
             error!("VLC startup error {:?}", e);
             return Ok(None);
         }
@@ -551,8 +545,8 @@ fn main() -> io::Result<()> {
     let playlist = M3uPlaylist::open(args.playlist.clone())?;
 
     match args.command {
-        Command::Classify(_) => {
-            let mut app = App::new(args, playlist)?;
+        Command::Recommend(ref recommend_args) => {
+            let mut app = App::new(args.clone(), recommend_args.clone(), playlist)?;
             app.run()?;
         }
         Command::Positive => {
