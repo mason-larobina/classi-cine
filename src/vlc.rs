@@ -53,6 +53,7 @@ pub struct VLCProcessHandle {
     handle: Option<Child>,
     status_url: String,
     file_name: Option<String>,
+    args: crate::VlcArgs,
 }
 
 impl VLCProcessHandle {
@@ -104,6 +105,7 @@ impl VLCProcessHandle {
             handle: Some(child),
             status_url: format!("http://:{password}@localhost:{port}/requests/status.json"),
             file_name,
+            args: args.clone(),
         })
     }
 
@@ -114,10 +116,10 @@ impl VLCProcessHandle {
         Ok(serde_json::from_str(&text)?)
     }
 
-    pub fn wait_for_status(&self, timeout_secs: u64, poll_interval: u64) -> Result<Status, Error> {
-        let attempts = (timeout_secs * 1000) / poll_interval;
+    pub fn wait_for_status(&self) -> Result<Status, Error> {
+        let attempts = (self.args.vlc_timeout * 1000) / self.args.vlc_poll_interval;
         for _attempt in 0..attempts {
-            std::thread::sleep(std::time::Duration::from_millis(poll_interval));
+            std::thread::sleep(std::time::Duration::from_millis(self.args.vlc_poll_interval));
             
             match self.status() {
                 Ok(status) => {

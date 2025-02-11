@@ -439,7 +439,7 @@ impl App {
             .expect("failed to start vlc process");
 
         // Wait for VLC to start and verify filename
-        if let Err(e) = vlc.wait_for_status(self.build_args.vlc.vlc_timeout, self.build_args.vlc.vlc_poll_interval) {
+        if let Err(e) = vlc.wait_for_status() {
             error!("VLC startup error {:?}", e);
             return Ok(None);
         }
