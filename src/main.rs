@@ -94,34 +94,81 @@ enum Command {
 struct BuildArgs {
     /// Directories to scan for video files
     dirs: Vec<PathBuf>,
-    /// Fullscreen VLC playback
-    fullscreen: bool,
-    /// VLC HTTP interface port
-    port: u16,
-    /// Timeout in seconds for VLC startup
-    vlc_timeout: u64,
-    /// Bias scoring based on file sizes
-    file_size_bias: f64,
-    /// Bias scoring based on directory sizes
-    dir_size_bias: f64,
     /// Video file extensions to scan for
     video_exts: Vec<String>,
+    #[command(flatten)]
+    vlc: VlcArgs,
+    #[command(flatten)]
+    file_size: FileSizeArgs,
+    #[command(flatten)]
+    dir_size: DirSizeArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+struct VlcArgs {
+    /// Fullscreen VLC playback
+    #[clap(long)]
+    fullscreen: bool,
+    /// VLC HTTP interface port
+    #[clap(long, default_value_t = 9111)]
+    port: u16,
+    /// Timeout in seconds for VLC startup
+    #[clap(long, default_value_t = 60)]
+    vlc_timeout: u64,
+}
+
+#[derive(Parser, Debug, Clone)]
+struct FileSizeArgs {
+    /// Bias scoring based on file sizes
+    #[clap(long, default_value_t = 0.0)]
+    file_size_bias: f64,
+}
+
+#[derive(Parser, Debug, Clone)]
+struct DirSizeArgs {
+    /// Bias scoring based on directory sizes
+    #[clap(long, default_value_t = 0.0)]
+    dir_size_bias: f64,
 }
 
 
-impl BuildArgs {
+impl Default for BuildArgs {
     fn default() -> Self {
         Self {
             dirs: vec![PathBuf::from(".")],
-            fullscreen: false,
-            port: 9111,
-            vlc_timeout: 60,
-            file_size_bias: 0.0,
-            dir_size_bias: 0.0,
             video_exts: "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
                 .split(',')
                 .map(String::from)
                 .collect(),
+            vlc: VlcArgs::default(),
+            file_size: FileSizeArgs::default(),
+            dir_size: DirSizeArgs::default(),
+        }
+    }
+}
+
+impl Default for VlcArgs {
+    fn default() -> Self {
+        Self {
+            fullscreen: false,
+            port: 9111,
+            vlc_timeout: 60,
+        }
+    }
+}
+
+impl Default for FileSizeArgs {
+    fn default() -> Self {
+        Self {
+            file_size_bias: 0.0,
+        }
+    }
+}
+
+impl Default for DirSizeArgs {
+    fn default() -> Self {
+        Self {
+            dir_size_bias: 0.0,
         }
     }
 }
@@ -156,19 +203,19 @@ impl App {
         let visualizer = viz::ScoreVisualizer::default();
 
         // Initialize optional classifiers based on args
-        let file_size_classifier = if build_args.file_size_bias != 0.0 {
-            let log_base = build_args.file_size_bias.abs();
+        let file_size_classifier = if build_args.file_size.file_size_bias != 0.0 {
+            let log_base = build_args.file_size.file_size_bias.abs();
             assert!(log_base > 1.0);
-            let reverse = build_args.file_size_bias < 0.0;
+            let reverse = build_args.file_size.file_size_bias < 0.0;
             Some(FileSizeClassifier::new(log_base, reverse))
         } else {
             None
         };
 
-        let dir_size_classifier = if build_args.dir_size_bias != 0.0 {
-            let log_base = build_args.dir_size_bias.abs();
+        let dir_size_classifier = if build_args.dir_size.dir_size_bias != 0.0 {
+            let log_base = build_args.dir_size.dir_size_bias.abs();
             assert!(log_base > 1.0);
-            let reverse = build_args.dir_size_bias < 0.0;
+            let reverse = build_args.dir_size.dir_size_bias < 0.0;
             Some(DirSizeClassifier::new(log_base, reverse))
         } else {
             None
@@ -397,7 +444,7 @@ impl App {
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
         // Start VLC and get classification
-        let vlc = vlc::VLCProcessHandle::new(&self.build_args, &path, file_name);
+        let vlc = vlc::VLCProcessHandle::new(&self.build_args.vlc, &path, file_name);
 
         // Wait for VLC to start and verify filename
         if let Err(e) = vlc.wait_for_status(self.build_args.vlc_timeout) {
