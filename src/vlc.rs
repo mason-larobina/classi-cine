@@ -118,22 +118,26 @@ impl VLCProcessHandle {
         let attempts = (timeout_secs * 1000) / 100; // Convert to 100ms intervals
         for _ in 0..attempts {
             std::thread::sleep(std::time::Duration::from_millis(100));
-            if let Ok(status) = self.status() {
-                // TODO: Improve this flow, wait_for_status should retry until a filename is
-                // present, if filename is present then check the filename matches. AI!
-                // Verify filename matches if we have one
-                if let Some(ref expected) = self.file_name {
-                    if status.file_name() != Some(expected.clone()) {
-                        error!(
-                            "Filename mismatch {:?} {:?}, skipping",
-                            self.file_name,
-                            status.file_name()
-                        );
-                        return Err(Error::FilenameMismatch);
+            
+            match self.status() {
+                Ok(status) => {
+                    // Wait until we get a filename from VLC
+                    if let Some(vlc_filename) = status.file_name() {
+                        // If we have an expected filename, verify it matches
+                        if let Some(ref expected) = self.file_name {
+                            if vlc_filename != *expected {
+                                error!(
+                                    "Filename mismatch - expected: {:?}, got: {:?}",
+                                    expected, vlc_filename
+                                );
+                                return Err(Error::FilenameMismatch);
+                            }
+                        }
+                        return Ok(status);
                     }
                 }
-                if status.file_name().is_some() {
-                    return Ok(status);
+                Err(e) => {
+                    debug!("Status check failed: {:?}", e);
                 }
             }
         }
