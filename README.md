@@ -75,19 +75,17 @@ $ cargo install --path=.
 ## Usage
 
 ```bash
-Usage: classi-cine [OPTIONS] <PLAYLIST> [DIRS]...
+Usage: classi-cine [OPTIONS] <COMMAND>
 
-Arguments:
-  <PLAYLIST>  M3U playlist file for storing classifications
-  [DIRS]...   Directories to scan for video files (defaults to current directory) [default: .]
+Commands:
+  build          Build playlist through interactive classification
+  list-positive  List positively classified files
+  list-negative  List negatively classified files
+  help           Print this message or the help of the given subcommand(s)
 
 Options:
-      --log-level <LOG_LEVEL>    [default: info]
-  -f, --fullscreen               Fullscreen VLC playback
-      --port <PORT>              [default: 9111]
-      --vlc-port <VLC_PORT>      [default: 9010]
-      --video-exts <VIDEO_EXTS>  [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
-  -h, --help                     Print help
+      --log-level <LOG_LEVEL>  [default: info]
+  -h, --help                   Print help
 ```
 
 ## Contributing
