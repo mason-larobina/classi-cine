@@ -144,7 +144,7 @@ impl VLCProcessHandle {
         }
         Err(Error::Timeout(format!(
             "VLC did not respond with valid status after {} seconds",
-            timeout_secs
+            self.args.vlc_timeout 
         )))
     }
 
