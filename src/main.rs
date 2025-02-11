@@ -65,52 +65,65 @@ struct Args {
     /// M3U playlist file for storing classifications
     playlist: PathBuf,
 
-    /// Directories to scan for video files (defaults to current directory)
-    #[arg(default_value = ".")]
-    dirs: Vec<PathBuf>,
+    #[command(subcommand)]
+    command: Command,
 
     #[clap(long, default_value = "info")]
     log_level: String,
+}
 
-    /// Fullscreen VLC playback.
-    #[clap(short, long)]
+#[derive(Debug, Clone)]
+struct ClassifyArgs {
+    /// Directories to scan for video files
+    dirs: Vec<PathBuf>,
+    /// Fullscreen VLC playback
     fullscreen: bool,
-
-    #[clap(long, default_value_t = 9111)]
+    /// VLC HTTP interface port
     port: u16,
-
     /// Timeout in seconds for VLC startup
-    #[clap(long, default_value = "60")]
     vlc_timeout: u64,
-
     /// Bias scoring based on file sizes
-    ///
-    /// Values:
-    ///        0 - Classifier disabled,
-    ///   > +1.0 - Prefer larger files (e.g. 1.01),
-    ///   < -1.0 - Prefer smaller files (e.g. -1.01)
-    ///
-    /// The magnitude controls strength:
-    ///   Close to 1: Strong preference (1.001),
-    ///   Further from 1: Subtle preference (1.1)
-    #[clap(long, default_value = "0")]
     file_size_bias: f64,
-
-    /// Bias scoring based on number of files in directories
-    ///
-    /// Values:
-    ///        0 - Classifier disabled,
-    ///   > +1.0 - Prefer files from large dirs (e.g. 1.01),
-    ///   < -1.0 - Prefer files from small dirs (e.g. -1.01)
-    #[clap(long, default_value = "0")]
+    /// Bias scoring based on directory sizes
     dir_size_bias: f64,
-
-    #[arg(
-        long,
-        value_delimiter = ',',
-        default_value = "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
-    )]
+    /// Video file extensions to scan for
     video_exts: Vec<String>,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum Command {
+    /// Interactive classification mode
+    Classify(ClassifyArgs),
+    /// List positively classified files
+    Positive,
+    /// List negatively classified files
+    Negative,
+}
+
+impl ClassifyArgs {
+    fn default() -> Self {
+        Self {
+            dirs: vec![PathBuf::from(".")],
+            fullscreen: false,
+            port: 9111,
+            vlc_timeout: 60,
+            file_size_bias: 0.0,
+            dir_size_bias: 0.0,
+            video_exts: "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
+                .split(',')
+                .map(String::from)
+                .collect(),
+        }
+    }
+}
+
+impl Args {
+    fn classify_args(&self) -> &ClassifyArgs {
+        match &self.command {
+            Command::Classify(args) => args,
+            _ => panic!("Not in classify mode"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -537,7 +550,29 @@ impl App {
 }
 
 fn main() -> io::Result<()> {
-    let mut app = App::new()?;
-    app.run()?;
+    let args = Args::parse();
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", &args.log_level);
+    }
+    env_logger::init();
+    
+    let playlist = M3uPlaylist::open(args.playlist.clone())?;
+
+    match args.command {
+        Command::Classify(_) => {
+            let mut app = App::new(args)?;
+            app.run()?;
+        }
+        Command::Positive => {
+            for path in playlist.positives() {
+                println!("{}", path.display());
+            }
+        }
+        Command::Negative => {
+            for path in playlist.negatives() {
+                println!("{}", path.display());
+            }
+        }
+    }
     Ok(())
 }
