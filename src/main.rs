@@ -435,7 +435,8 @@ impl App {
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
         // Start VLC and get classification
-        let vlc = vlc::VLCProcessHandle::new(&self.build_args.vlc, &path, file_name)?;
+        let vlc = vlc::VLCProcessHandle::new(&self.build_args.vlc, &path, file_name)
+            .expect("failed to start vlc process");
 
         // Wait for VLC to start and verify filename
         if let Err(e) = vlc.wait_for_status(self.build_args.vlc.vlc_timeout, self.build_args.vlc.vlc_poll_interval) {
