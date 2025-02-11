@@ -119,6 +119,8 @@ impl VLCProcessHandle {
         for _ in 0..attempts {
             std::thread::sleep(std::time::Duration::from_millis(100));
             if let Ok(status) = self.status() {
+                // TODO: Improve this flow, wait_for_status should retry until a filename is
+                // present, if filename is present then check the filename matches. AI!
                 // Verify filename matches if we have one
                 if let Some(ref expected) = self.file_name {
                     if status.file_name() != Some(expected.clone()) {
