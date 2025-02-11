@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 mod bloom;
 mod classifier;
 mod ngrams;
@@ -15,28 +12,13 @@ mod walk;
 use crate::ngrams::{Ngram, Ngrams};
 use crate::playlist::{M3uPlaylist, Playlist};
 use crate::tokenize::PairTokenizer;
-use crate::tokens::{Pair, Token, TokenMap, Tokens};
+use crate::tokens::{Token, Tokens};
 use crate::walk::Walk;
-use ahash::AHashSet;
-use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use classifier::{Classifier, DirSizeClassifier, FileSizeClassifier, NaiveBayesClassifier};
-use humansize::{format_size, BINARY};
 use log::*;
-use rayon::prelude::*;
-use rayon::ThreadPool;
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::collections::{BTreeMap, HashMap};
-use std::fs::{File, OpenOptions};
-use std::io::{self, BufRead, Write};
-use std::path::Component;
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
-use std::sync::{Mutex, MutexGuard};
-use std::time::{Duration, SystemTime};
-use textplots::{Chart, Plot, Shape};
+use std::path::PathBuf;
 use thread_priority::*;
 
 #[derive(Debug)]
@@ -178,7 +160,6 @@ struct Entry {
 }
 
 struct App {
-    args: Args,
     build_args: BuildArgs,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
@@ -191,7 +172,7 @@ struct App {
 }
 
 impl App {
-    fn new(args: Args, build_args: BuildArgs, playlist: M3uPlaylist) -> io::Result<Self> {
+    fn new(args: Args, build_args: BuildArgs, playlist: M3uPlaylist) -> Self {
         info!("{:#?}", args);
 
         // Initialize visualizer
@@ -216,8 +197,7 @@ impl App {
             None
         };
 
-        Ok(Self {
-            args,
+        Self {
             build_args,
             entries: Vec::new(),
             tokenizer: None,
@@ -227,7 +207,7 @@ impl App {
             naive_bayes: NaiveBayesClassifier::new(false),
             playlist,
             visualizer,
-        })
+        }
     }
 
     fn init_thread_priority(&self) {
@@ -299,7 +279,7 @@ impl App {
         info!("Collected {} unclassified entries", self.entries.len());
     }
 
-    fn process_tokens_and_ngrams(&mut self) -> io::Result<()> {
+    fn process_tokens_and_ngrams(&mut self) {
         // Collect all paths that need tokenization
         let mut paths = HashSet::new();
 
@@ -389,8 +369,6 @@ impl App {
             temp_ngrams.windows(&tokens, 5, None, None);
             self.naive_bayes.train_negative(&temp_ngrams);
         }
-
-        Ok(())
     }
 
     fn process_classifiers(&mut self) {
@@ -434,7 +412,7 @@ impl App {
     }
 
     // Gets classification from user via VLC
-    fn get_user_classification(&self, entry: &Entry) -> io::Result<Option<vlc::Classification>> {
+    fn get_user_classification(&self, entry: &Entry) -> Option<vlc::Classification> {
         let path = entry.file.dir.join(&entry.file.file_name);
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
@@ -445,21 +423,21 @@ impl App {
         // Wait for VLC to start and verify filename
         if let Err(e) = vlc.wait_for_status() {
             error!("VLC startup error {:?}", e);
-            return Ok(None);
+            return None;
         }
 
         match vlc.get_classification() {
             Ok(classification) => {
                 if matches!(classification, vlc::Classification::Skipped) {
                     error!("Classification skipped for {:?}", path);
-                    Ok(None)
+                    None
                 } else {
-                    Ok(Some(classification))
+                    Some(classification)
                 }
             }
             Err(e) => {
                 error!("Classification error: {:?}", e);
-                Ok(None)
+                None
             }
         }
     }
@@ -524,7 +502,7 @@ impl App {
         &mut self,
         entry: Entry,
         classification: vlc::Classification,
-    ) -> io::Result<()> {
+    ) -> std::io::Result<()> {
         let path = entry.file.dir.join(&entry.file.file_name);
 
         // Update dir size classifier
@@ -551,16 +529,16 @@ impl App {
     }
 
     // Main entry point remains simple and high-level
-    fn run(&mut self) -> io::Result<()> {
+    fn run(&mut self) -> std::io::Result<()> {
         self.init_thread_priority();
         self.collect_files();
-        self.process_tokens_and_ngrams()?;
+        self.process_tokens_and_ngrams();
         self.classification_loop()?;
         Ok(())
     }
 
     // Handles the main classification loop
-    fn classification_loop(&mut self) -> io::Result<()> {
+    fn classification_loop(&mut self) -> std::io::Result<()> {
         while !self.entries.is_empty() {
             self.process_classifiers();
 
@@ -577,7 +555,7 @@ impl App {
                     .display_distributions(&self.entries, &entry, &classifier_names);
 
                 let entry = self.entries.pop().unwrap();
-                if let Some(classification) = self.get_user_classification(&entry)? {
+                if let Some(classification) = self.get_user_classification(&entry) {
                     self.handle_classification(entry, classification)?;
                 }
             }
@@ -586,7 +564,7 @@ impl App {
     }
 }
 
-fn main() -> io::Result<()> {
+fn main() -> std::io::Result<()> {
     let args = Args::parse();
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", &args.log_level);
@@ -596,7 +574,7 @@ fn main() -> io::Result<()> {
     match args.command {
         Command::Build(ref build_args) => {
             let playlist = M3uPlaylist::open(&build_args.playlist)?;
-            let mut app = App::new(args.clone(), build_args.clone(), playlist)?;
+            let mut app = App::new(args.clone(), build_args.clone(), playlist);
             app.run()?;
         }
         Command::ListPositive(list_args) => {

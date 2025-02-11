@@ -5,8 +5,6 @@ use log::*;
 use rayon::prelude::*;
 use std::collections::hash_map::Entry;
 use std::hash::{Hash, Hasher};
-use std::io::Write;
-use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 trait PairUpdater {

@@ -1,35 +1,13 @@
 use crate::bloom::{Bloom, IntoMask};
-use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
+use std::hash::Hash;
 
 /// A token representing a unique string in the vocabulary
 #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Token(pub(crate) u32);
 
-impl Token {
-    /// Creates a new token with the given ID
-    pub fn new(id: u32) -> Self {
-        Token(id)
-    }
-
-    /// Returns the token's numeric ID
-    pub fn id(&self) -> u32 {
-        self.0
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Pair(pub Token, pub Token);
-
-impl Pair {
-    pub(crate) fn to_string(&self, map: &TokenMap) -> String {
-        let mut s = String::new();
-        s.push_str(map.get_str(self.0).unwrap());
-        s.push_str(map.get_str(self.1).unwrap());
-        s
-    }
-}
 
 impl IntoMask for Pair {
     fn into_mask(&self) -> u128 {

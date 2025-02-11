@@ -1,5 +1,4 @@
 use crate::Entry;
-use log::*;
 use terminal_size::{terminal_size, Width};
 use textplots::{Chart, Plot, Shape};
 
@@ -14,16 +13,11 @@ impl Default for ScoreVisualizer {
         let width = terminal_size()
             .map(|(Width(w), _)| w as u32 * 2 - 16)
             .unwrap_or(80);
-
         Self { width, height: 50 }
     }
 }
 
 impl ScoreVisualizer {
-    pub fn new(width: u32, height: u32) -> Self {
-        Self { width, height }
-    }
-
     pub fn display_distributions(
         &self,
         entries: &[Entry],

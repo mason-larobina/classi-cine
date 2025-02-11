@@ -1,10 +1,8 @@
 use crate::ngrams::{Ngram, Ngrams};
-use crate::normalize;
-use crate::tokens::Tokens;
 use crate::Entry;
 use log::*;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Trait for types that can classify files/content
