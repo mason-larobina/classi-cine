@@ -56,7 +56,7 @@ pub struct VLCProcessHandle {
 }
 
 impl VLCProcessHandle {
-    pub fn new(args: &crate::RecommendArgs, path: &Path, file_name: Option<String>) -> Self {
+    pub fn new(args: &crate::BuildArgs, path: &Path, file_name: Option<String>) -> Self {
         // Find an available port
         let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to address");
         let port = listener

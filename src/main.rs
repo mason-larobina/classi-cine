@@ -62,9 +62,6 @@ impl From<serde_json::Error> for Error {
 #[derive(Parser, Debug, Clone)]
 #[command(name = "classi-cine")]
 struct Args {
-    /// M3U playlist file for storing classifications
-    playlist: PathBuf,
-
     #[command(subcommand)]
     command: Command,
 
@@ -74,16 +71,27 @@ struct Args {
 
 #[derive(Subcommand, Debug, Clone)]
 enum Command {
-    /// Interactive classification mode
-    Recommend(RecommendArgs),
+    /// Build playlist through interactive classification
+    Build {
+        /// M3U playlist file for storing classifications
+        playlist: PathBuf,
+        #[command(flatten)]
+        args: BuildArgs,
+    },
     /// List positively classified files
-    Positive,
+    Positive {
+        /// M3U playlist file
+        playlist: PathBuf,
+    },
     /// List negatively classified files
-    Negative,
+    Negative {
+        /// M3U playlist file
+        playlist: PathBuf,
+    },
 }
 
 #[derive(Parser, Debug, Clone)]
-struct RecommendArgs {
+struct BuildArgs {
     /// Directories to scan for video files
     dirs: Vec<PathBuf>,
     /// Fullscreen VLC playback
@@ -101,7 +109,7 @@ struct RecommendArgs {
 }
 
 
-impl RecommendArgs {
+impl BuildArgs {
     fn default() -> Self {
         Self {
             dirs: vec![PathBuf::from(".")],
@@ -129,7 +137,7 @@ struct Entry {
 
 struct App {
     args: Args,
-    recommend_args: RecommendArgs,
+    build_args: BuildArgs,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
@@ -141,15 +149,15 @@ struct App {
 }
 
 impl App {
-    fn new(args: Args, recommend_args: RecommendArgs, playlist: M3uPlaylist) -> io::Result<Self> {
+    fn new(args: Args, build_args: BuildArgs, playlist: M3uPlaylist) -> io::Result<Self> {
         info!("{:#?}", args);
 
         // Initialize visualizer
         let visualizer = viz::ScoreVisualizer::default();
 
         // Initialize optional classifiers based on args
-        let file_size_classifier = if recommend_args.file_size_bias != 0.0 {
-            let log_base = recommend_args.file_size_bias.abs();
+        let file_size_classifier = if build_args.file_size_bias != 0.0 {
+            let log_base = build_args.file_size_bias.abs();
             assert!(log_base > 1.0);
             let reverse = recommend_args.file_size_bias < 0.0;
             Some(FileSizeClassifier::new(log_base, reverse))
@@ -157,10 +165,10 @@ impl App {
             None
         };
 
-        let dir_size_classifier = if recommend_args.dir_size_bias != 0.0 {
-            let log_base = recommend_args.dir_size_bias.abs();
+        let dir_size_classifier = if build_args.dir_size_bias != 0.0 {
+            let log_base = build_args.dir_size_bias.abs();
             assert!(log_base > 1.0);
-            let reverse = recommend_args.dir_size_bias < 0.0;
+            let reverse = build_args.dir_size_bias < 0.0;
             Some(DirSizeClassifier::new(log_base, reverse))
         } else {
             None
@@ -168,7 +176,7 @@ impl App {
 
         Ok(Self {
             args,
-            recommend_args,
+            build_args,
             entries: Vec::new(),
             tokenizer: None,
             frequent_ngrams: None,
@@ -205,8 +213,8 @@ impl App {
         classified.extend(self.playlist.negatives().iter().cloned());
         //info!("Classified {:?}", classified);
 
-        let walk = Walk::new(self.recommend_args.video_exts.iter().map(String::as_ref));
-        for dir in &self.recommend_args.dirs {
+        let walk = Walk::new(self.build_args.video_exts.iter().map(String::as_ref));
+        for dir in &self.build_args.dirs {
             walk.walk_dir(dir);
         }
 
@@ -389,10 +397,10 @@ impl App {
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
         // Start VLC and get classification
-        let vlc = vlc::VLCProcessHandle::new(&self.recommend_args, &path, file_name);
+        let vlc = vlc::VLCProcessHandle::new(&self.build_args, &path, file_name);
 
         // Wait for VLC to start and verify filename
-        if let Err(e) = vlc.wait_for_status(self.recommend_args.vlc_timeout) {
+        if let Err(e) = vlc.wait_for_status(self.build_args.vlc_timeout) {
             error!("VLC startup error {:?}", e);
             return Ok(None);
         }
@@ -545,16 +553,19 @@ fn main() -> io::Result<()> {
     let playlist = M3uPlaylist::open(args.playlist.clone())?;
 
     match args.command {
-        Command::Recommend(ref recommend_args) => {
-            let mut app = App::new(args.clone(), recommend_args.clone(), playlist)?;
+        Command::Build { playlist: p, args: build_args } => {
+            let playlist = M3uPlaylist::open(p)?;
+            let mut app = App::new(args.clone(), build_args, playlist)?;
             app.run()?;
         }
-        Command::Positive => {
+        Command::Positive { playlist } => {
+            let playlist = M3uPlaylist::open(playlist)?;
             for path in playlist.positives() {
                 println!("{}", path.display());
             }
         }
-        Command::Negative => {
+        Command::Negative { playlist } => {
+            let playlist = M3uPlaylist::open(playlist)?;
             for path in playlist.negatives() {
                 println!("{}", path.display());
             }
