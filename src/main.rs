@@ -160,16 +160,8 @@ impl App {
         classifiers
     }
 
-    fn new() -> io::Result<Self> {
-        let args = Args::parse();
-        if std::env::var("RUST_LOG").is_err() {
-            std::env::set_var("RUST_LOG", &args.log_level);
-        }
-        env_logger::init();
+    fn new(args: Args, playlist: M3uPlaylist) -> io::Result<Self> {
         info!("{:#?}", args);
-
-        // Initialize playlist
-        let playlist = M3uPlaylist::open(args.playlist.clone())?;
 
         // Initialize visualizer
         let visualizer = viz::ScoreVisualizer::default();
@@ -560,7 +552,7 @@ fn main() -> io::Result<()> {
 
     match args.command {
         Command::Classify(_) => {
-            let mut app = App::new(args)?;
+            let mut app = App::new(args, playlist)?;
             app.run()?;
         }
         Command::Positive => {
