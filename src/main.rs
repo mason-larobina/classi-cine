@@ -159,7 +159,7 @@ impl App {
         let file_size_classifier = if build_args.file_size_bias != 0.0 {
             let log_base = build_args.file_size_bias.abs();
             assert!(log_base > 1.0);
-            let reverse = recommend_args.file_size_bias < 0.0;
+            let reverse = build_args.file_size_bias < 0.0;
             Some(FileSizeClassifier::new(log_base, reverse))
         } else {
             None
@@ -550,7 +550,6 @@ fn main() -> io::Result<()> {
     }
     env_logger::init();
     
-    let playlist = M3uPlaylist::open(args.playlist.clone())?;
 
     match args.command {
         Command::Build { playlist: p, args: build_args } => {
