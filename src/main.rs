@@ -72,29 +72,25 @@ struct Args {
 #[derive(Subcommand, Debug, Clone)]
 enum Command {
     /// Build playlist through interactive classification
-    Build {
-        /// M3U playlist file for storing classifications
-        playlist: PathBuf,
-        #[command(flatten)]
-        args: BuildArgs,
-    },
+    Build(BuildArgs),
     /// List positively classified files
-    Positive {
-        /// M3U playlist file
-        playlist: PathBuf,
-    },
+    ListPositive(ListArgs),
     /// List negatively classified files
-    Negative {
-        /// M3U playlist file
-        playlist: PathBuf,
-    },
+    ListNegative(ListArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
 struct BuildArgs {
+    /// M3U playlist file for storing classifications
+    playlist: PathBuf,
     /// Directories to scan for video files
     dirs: Vec<PathBuf>,
     /// Video file extensions to scan for
+    #[arg(
+       long,
+       value_delimiter = ',',
+       default_value = "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
+    )]
     video_exts: Vec<String>,
     #[command(flatten)]
     vlc: VlcArgs,
@@ -109,9 +105,6 @@ struct VlcArgs {
     /// Fullscreen VLC playback
     #[clap(long)]
     fullscreen: bool,
-    /// VLC HTTP interface port
-    #[clap(long, default_value_t = 9111)]
-    port: u16,
     /// Timeout in seconds for VLC startup
     #[clap(long, default_value_t = 60)]
     vlc_timeout: u64,
@@ -131,46 +124,10 @@ struct DirSizeArgs {
     dir_size_bias: f64,
 }
 
-
-impl Default for BuildArgs {
-    fn default() -> Self {
-        Self {
-            dirs: vec![PathBuf::from(".")],
-            video_exts: "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
-                .split(',')
-                .map(String::from)
-                .collect(),
-            vlc: VlcArgs::default(),
-            file_size: FileSizeArgs::default(),
-            dir_size: DirSizeArgs::default(),
-        }
-    }
-}
-
-impl Default for VlcArgs {
-    fn default() -> Self {
-        Self {
-            fullscreen: false,
-            port: 9111,
-            vlc_timeout: 60,
-        }
-    }
-}
-
-impl Default for FileSizeArgs {
-    fn default() -> Self {
-        Self {
-            file_size_bias: 0.0,
-        }
-    }
-}
-
-impl Default for DirSizeArgs {
-    fn default() -> Self {
-        Self {
-            dir_size_bias: 0.0,
-        }
-    }
+#[derive(Parser, Debug, Clone)]
+struct ListArgs {
+    /// M3U playlist file
+    playlist: PathBuf,
 }
 
 #[derive(Debug)]
@@ -447,7 +404,7 @@ impl App {
         let vlc = vlc::VLCProcessHandle::new(&self.build_args.vlc, &path, file_name);
 
         // Wait for VLC to start and verify filename
-        if let Err(e) = vlc.wait_for_status(self.build_args.vlc_timeout) {
+        if let Err(e) = vlc.wait_for_status(self.build_args.vlc.vlc_timeout) {
             error!("VLC startup error {:?}", e);
             return Ok(None);
         }
@@ -596,22 +553,21 @@ fn main() -> io::Result<()> {
         std::env::set_var("RUST_LOG", &args.log_level);
     }
     env_logger::init();
-    
 
     match args.command {
-        Command::Build { playlist: p, args: build_args } => {
-            let playlist = M3uPlaylist::open(p)?;
-            let mut app = App::new(args.clone(), build_args, playlist)?;
+        Command::Build(ref build_args) => {
+            let playlist = M3uPlaylist::open(&build_args.playlist)?;
+            let mut app = App::new(args.clone(), build_args.clone(), playlist)?;
             app.run()?;
         }
-        Command::Positive { playlist } => {
-            let playlist = M3uPlaylist::open(playlist)?;
+        Command::ListPositive(list_args) => {
+            let playlist = M3uPlaylist::open(&list_args.playlist)?;
             for path in playlist.positives() {
                 println!("{}", path.display());
             }
         }
-        Command::Negative { playlist } => {
-            let playlist = M3uPlaylist::open(playlist)?;
+        Command::ListNegative(list_args) => {
+            let playlist = M3uPlaylist::open(&list_args.playlist)?;
             for path in playlist.negatives() {
                 println!("{}", path.display());
             }

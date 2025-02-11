@@ -29,9 +29,9 @@ pub struct M3uPlaylist {
 }
 
 impl M3uPlaylist {
-    pub fn open(path: PathBuf) -> io::Result<Self> {
+    pub fn open(path: &Path) -> io::Result<Self> {
         let mut playlist = Self {
-            path: path.clone(),
+            path: path.to_path_buf(),
             positives: HashSet::new(),
             negatives: HashSet::new(),
         };
