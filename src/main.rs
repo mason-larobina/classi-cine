@@ -57,7 +57,11 @@ impl std::fmt::Display for Error {
             Error::SerdeJson(e) => write!(f, "JSON parsing failed: {}", e),
             Error::Timeout(msg) => write!(f, "Operation timed out: {}", msg),
             Error::FilenameMismatch { expected, got } => {
-                write!(f, "Filename mismatch - expected: {}, got: {}", expected, got)
+                write!(
+                    f,
+                    "Filename mismatch - expected: {}, got: {}",
+                    expected, got
+                )
             }
             Error::ProcessFailed(e) => write!(f, "VLC process failed: {}", e),
             Error::InvalidPort(e) => write!(f, "Failed to bind to port: {}", e),
@@ -118,9 +122,9 @@ struct BuildArgs {
     dirs: Vec<PathBuf>,
     /// Video file extensions to scan for
     #[arg(
-       long,
-       value_delimiter = ',',
-       default_value = "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
+        long,
+        value_delimiter = ',',
+        default_value = "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
     )]
     video_exts: Vec<String>,
     #[command(flatten)]

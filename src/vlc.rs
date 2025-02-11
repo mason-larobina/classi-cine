@@ -57,13 +57,14 @@ pub struct VLCProcessHandle {
 }
 
 impl VLCProcessHandle {
-    pub fn new(args: &crate::VlcArgs, path: &Path, file_name: Option<String>) -> Result<Self, Error> {
+    pub fn new(
+        args: &crate::VlcArgs,
+        path: &Path,
+        file_name: Option<String>,
+    ) -> Result<Self, Error> {
         // Find an available port
         let listener = TcpListener::bind("127.0.0.1:0").map_err(Error::InvalidPort)?;
-        let port = listener
-            .local_addr()
-            .map_err(Error::InvalidPort)?
-            .port();
+        let port = listener.local_addr().map_err(Error::InvalidPort)?.port();
         // Drop the listener so VLC can use the port
         drop(listener);
 
@@ -119,8 +120,10 @@ impl VLCProcessHandle {
     pub fn wait_for_status(&self) -> Result<Status, Error> {
         let attempts = (self.args.vlc_timeout * 1000) / self.args.vlc_poll_interval;
         for _attempt in 0..attempts {
-            std::thread::sleep(std::time::Duration::from_millis(self.args.vlc_poll_interval));
-            
+            std::thread::sleep(std::time::Duration::from_millis(
+                self.args.vlc_poll_interval,
+            ));
+
             match self.status() {
                 Ok(status) => {
                     // Wait until we get a filename from VLC
@@ -144,7 +147,7 @@ impl VLCProcessHandle {
         }
         Err(Error::Timeout(format!(
             "VLC did not respond with valid status after {} seconds",
-            self.args.vlc_timeout 
+            self.args.vlc_timeout
         )))
     }
 
@@ -153,7 +156,10 @@ impl VLCProcessHandle {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(100));
 
-            let status = match self.status().map_err(|e| Error::VLCNotResponding(e.to_string())) {
+            let status = match self
+                .status()
+                .map_err(|e| Error::VLCNotResponding(e.to_string()))
+            {
                 Ok(status) => {
                     debug!("{:?}", status);
                     status
