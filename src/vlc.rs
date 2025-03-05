@@ -63,8 +63,8 @@ impl VLCProcessHandle {
         file_name: Option<String>,
     ) -> Result<Self, Error> {
         // Find an available port
-        let listener = TcpListener::bind("127.0.0.1:0").map_err(Error::InvalidPort)?;
-        let port = listener.local_addr().map_err(Error::InvalidPort)?.port();
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
         // Drop the listener so VLC can use the port
         drop(listener);
 
@@ -100,7 +100,7 @@ impl VLCProcessHandle {
 
         debug!("Spawn {:?}", command);
 
-        let child = command.spawn().map_err(Error::ProcessFailed)?;
+        let child = command.spawn().map_err(|e| Error::ProcessFailed(e))?;
 
         Ok(VLCProcessHandle {
             handle: Some(child),
@@ -119,8 +119,7 @@ impl VLCProcessHandle {
         
         debug!("Response: {}", text);
         
-        serde_json::from_str(&text)
-            .map_err(|e| Error::SerdeJson(e))
+        Ok(serde_json::from_str(&text)?)
     }
 
     pub fn wait_for_status(&self) -> Result<Status, Error> {

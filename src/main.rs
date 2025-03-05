@@ -21,72 +21,42 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use thread_priority::*;
 
-#[derive(Debug)]
+use thiserror::Error;
+
+#[derive(Debug, Error)]
 pub enum Error {
-    Reqwest(reqwest::Error),
-    SerdeJson(serde_json::Error),
-    Io(std::io::Error),
+    #[error("HTTP request failed: {0}")]
+    #[from]
+    Reqwest(#[source] reqwest::Error),
+    
+    #[error("JSON parsing failed: {0}")]
+    #[from]
+    SerdeJson(#[source] serde_json::Error),
+    
+    #[error("I/O error: {0}")]
+    #[from]
+    Io(#[source] std::io::Error),
+    
+    #[error("Operation timed out: {0}")]
     Timeout(String),
+    
+    #[error("Filename mismatch - expected: {expected}, got: {got}")]
     FilenameMismatch { expected: String, got: String },
-    ProcessFailed(std::io::Error),
-    InvalidPort(std::io::Error),
+    
+    #[error("VLC process failed: {0}")]
+    ProcessFailed(#[source] std::io::Error),
+    
+    #[error("Failed to bind to port: {0}")]
+    InvalidPort(#[source] std::io::Error),
+    
+    #[error("VLC not responding: {0}")]
     VLCNotResponding(String),
+    
+    #[error("Playlist error: {0}")]
     PlaylistError(String),
+    
+    #[error("File walk error: {0}")]
     WalkError(String),
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::Reqwest(e) => write!(f, "HTTP request failed: {}", e),
-            Error::SerdeJson(e) => write!(f, "JSON parsing failed: {}", e),
-            Error::Io(e) => write!(f, "I/O error: {}", e),
-            Error::Timeout(msg) => write!(f, "Operation timed out: {}", msg),
-            Error::FilenameMismatch { expected, got } => {
-                write!(
-                    f,
-                    "Filename mismatch - expected: {}, got: {}",
-                    expected, got
-                )
-            }
-            Error::ProcessFailed(e) => write!(f, "VLC process failed: {}", e),
-            Error::InvalidPort(e) => write!(f, "Failed to bind to port: {}", e),
-            Error::VLCNotResponding(msg) => write!(f, "VLC not responding: {}", msg),
-            Error::PlaylistError(msg) => write!(f, "Playlist error: {}", msg),
-            Error::WalkError(msg) => write!(f, "File walk error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::Reqwest(e) => Some(e),
-            Error::SerdeJson(e) => Some(e),
-            Error::Io(e) => Some(e),
-            Error::ProcessFailed(e) => Some(e),
-            Error::InvalidPort(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<reqwest::Error> for Error {
-    fn from(e: reqwest::Error) -> Self {
-        Error::Reqwest(e)
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(e: serde_json::Error) -> Self {
-        Error::SerdeJson(e)
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Error::Io(e)
-    }
 }
 
 #[derive(Parser, Debug, Clone)]

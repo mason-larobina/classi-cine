@@ -68,7 +68,7 @@ impl M3uPlaylist {
             // Verify M3U header in existing file
             let first_line = lines.next().ok_or_else(|| {
                 Error::PlaylistError("Empty playlist file".to_string())
-            })?.map_err(|e| Error::Io(e))?;
+            })?.map_err(Error::from)?;
             
             if first_line.trim() != M3U_HEADER {
                 return Err(Error::PlaylistError(
