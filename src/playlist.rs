@@ -1,3 +1,4 @@
+use crate::Error;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
@@ -10,10 +11,10 @@ const NEGATIVE_PREFIX: &str = "#NEGATIVE:";
 /// Trait for types that can load/save playlist classifications
 pub trait Playlist {
     /// Add a positive classification
-    fn add_positive(&mut self, path: &Path) -> io::Result<()>;
+    fn add_positive(&mut self, path: &Path) -> Result<(), Error>;
 
     /// Add a negative classification
-    fn add_negative(&mut self, path: &Path) -> io::Result<()>;
+    fn add_negative(&mut self, path: &Path) -> Result<(), Error>;
 
     /// Get positive classifications
     fn positives(&self) -> &HashSet<PathBuf>;
@@ -47,7 +48,7 @@ impl M3uPlaylist {
         }
     }
 
-    pub fn open(path: &Path) -> io::Result<Self> {
+    pub fn open(path: &Path) -> Result<Self, Error> {
         let mut playlist = Self {
             path: path.to_path_buf(),
             positives: HashSet::new(),
@@ -66,18 +67,18 @@ impl M3uPlaylist {
 
             // Verify M3U header in existing file
             let first_line = lines.next().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "Empty playlist file")
-            })??;
+                Error::PlaylistError("Empty playlist file".to_string())
+            })?.map_err(|e| Error::Io(e))?;
+            
             if first_line.trim() != M3U_HEADER {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Existing playlist file missing M3U header",
+                return Err(Error::PlaylistError(
+                    "Existing playlist file missing M3U header".to_string()
                 ));
             }
 
             // Process remaining lines
             for line in lines {
-                let line = line?;
+                let line = line.map_err(Error::from)?;
                 if line.starts_with(NEGATIVE_PREFIX) {
                     // Negative classification (commented out)
                     if let Some(path) = line.strip_prefix(NEGATIVE_PREFIX) {
@@ -99,25 +100,33 @@ impl M3uPlaylist {
 }
 
 impl Playlist for M3uPlaylist {
-    fn add_positive(&mut self, path: &Path) -> io::Result<()> {
+    fn add_positive(&mut self, path: &Path) -> Result<(), Error> {
         self.positives.insert(path.to_path_buf());
 
-        let mut file = OpenOptions::new().append(true).open(&self.path)?;
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&self.path)
+            .map_err(|e| Error::PlaylistError(format!("Failed to open playlist file: {}", e)))?;
         
         // Convert to relative path before writing to file
         let relative_path = self.to_relative_path(path);
-        writeln!(file, "{}", relative_path.display())?;
+        writeln!(file, "{}", relative_path.display())
+            .map_err(|e| Error::PlaylistError(format!("Failed to write to playlist file: {}", e)))?;
         Ok(())
     }
 
-    fn add_negative(&mut self, path: &Path) -> io::Result<()> {
+    fn add_negative(&mut self, path: &Path) -> Result<(), Error> {
         self.negatives.insert(path.to_path_buf());
 
-        let mut file = OpenOptions::new().append(true).open(&self.path)?;
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&self.path)
+            .map_err(|e| Error::PlaylistError(format!("Failed to open playlist file: {}", e)))?;
         
         // Convert to relative path before writing to file
         let relative_path = self.to_relative_path(path);
-        writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())?;
+        writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())
+            .map_err(|e| Error::PlaylistError(format!("Failed to write to playlist file: {}", e)))?;
         Ok(())
     }
 

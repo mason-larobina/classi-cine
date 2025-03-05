@@ -1,3 +1,4 @@
+use crate::Error;
 use log::*;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
@@ -38,10 +39,12 @@ impl Walk {
         }
     }
 
-    pub fn walk_dir(&self, dir: &Path) {
-        let dir = dir.canonicalize().unwrap();
+    pub fn walk_dir(&self, dir: &Path) -> Result<(), Error> {
+        let dir = dir.canonicalize()
+            .map_err(|e| Error::WalkError(format!("Failed to canonicalize path {}: {}", dir.display(), e)))?;
         let dir = Arc::new(dir);
-        Self::inner_walk_dir(Arc::clone(&self.exts), Arc::clone(&self.tx), dir)
+        Self::inner_walk_dir(Arc::clone(&self.exts), Arc::clone(&self.tx), dir);
+        Ok(())
     }
 
     pub fn into_rx(self) -> Receiver<File> {

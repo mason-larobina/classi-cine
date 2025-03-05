@@ -111,10 +111,16 @@ impl VLCProcessHandle {
     }
 
     pub fn status(&self) -> Result<Status, Error> {
-        let response = reqwest::blocking::get(&self.status_url)?;
-        let text = response.text()?;
+        let response = reqwest::blocking::get(&self.status_url)
+            .map_err(|e| Error::VLCNotResponding(format!("Failed to connect to VLC: {}", e)))?;
+        
+        let text = response.text()
+            .map_err(|e| Error::VLCNotResponding(format!("Failed to get response text: {}", e)))?;
+        
         debug!("Response: {}", text);
-        Ok(serde_json::from_str(&text)?)
+        
+        serde_json::from_str(&text)
+            .map_err(|e| Error::SerdeJson(e))
     }
 
     pub fn wait_for_status(&self) -> Result<Status, Error> {

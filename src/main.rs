@@ -25,11 +25,14 @@ use thread_priority::*;
 pub enum Error {
     Reqwest(reqwest::Error),
     SerdeJson(serde_json::Error),
+    Io(std::io::Error),
     Timeout(String),
     FilenameMismatch { expected: String, got: String },
     ProcessFailed(std::io::Error),
     InvalidPort(std::io::Error),
     VLCNotResponding(String),
+    PlaylistError(String),
+    WalkError(String),
 }
 
 impl std::fmt::Display for Error {
@@ -37,6 +40,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::Reqwest(e) => write!(f, "HTTP request failed: {}", e),
             Error::SerdeJson(e) => write!(f, "JSON parsing failed: {}", e),
+            Error::Io(e) => write!(f, "I/O error: {}", e),
             Error::Timeout(msg) => write!(f, "Operation timed out: {}", msg),
             Error::FilenameMismatch { expected, got } => {
                 write!(
@@ -48,6 +52,8 @@ impl std::fmt::Display for Error {
             Error::ProcessFailed(e) => write!(f, "VLC process failed: {}", e),
             Error::InvalidPort(e) => write!(f, "Failed to bind to port: {}", e),
             Error::VLCNotResponding(msg) => write!(f, "VLC not responding: {}", msg),
+            Error::PlaylistError(msg) => write!(f, "Playlist error: {}", msg),
+            Error::WalkError(msg) => write!(f, "File walk error: {}", msg),
         }
     }
 }
@@ -57,6 +63,7 @@ impl std::error::Error for Error {
         match self {
             Error::Reqwest(e) => Some(e),
             Error::SerdeJson(e) => Some(e),
+            Error::Io(e) => Some(e),
             Error::ProcessFailed(e) => Some(e),
             Error::InvalidPort(e) => Some(e),
             _ => None,
@@ -73,6 +80,12 @@ impl From<reqwest::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
         Error::SerdeJson(e)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::Io(e)
     }
 }
 
@@ -237,7 +250,10 @@ impl App {
 
         let walk = Walk::new(self.build_args.video_exts.iter().map(String::as_ref));
         for dir in &self.build_args.dirs {
-            walk.walk_dir(dir);
+            if let Err(e) = walk.walk_dir(dir) {
+                error!("Error walking directory {}: {}", dir.display(), e);
+                continue;
+            }
         }
 
         let classifiers_len = self.classifiers().len();
@@ -502,7 +518,7 @@ impl App {
         &mut self,
         entry: Entry,
         classification: vlc::Classification,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), Error> {
         let path = entry.file.dir.join(&entry.file.file_name);
 
         // Update dir size classifier
@@ -529,7 +545,7 @@ impl App {
     }
 
     // Main entry point remains simple and high-level
-    fn run(&mut self) -> std::io::Result<()> {
+    fn run(&mut self) -> Result<(), Error> {
         self.init_thread_priority();
         self.collect_files();
         self.process_tokens_and_ngrams();
@@ -538,7 +554,7 @@ impl App {
     }
 
     // Handles the main classification loop
-    fn classification_loop(&mut self) -> std::io::Result<()> {
+    fn classification_loop(&mut self) -> Result<(), Error> {
         while !self.entries.is_empty() {
             self.process_classifiers();
 
@@ -564,7 +580,7 @@ impl App {
     }
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), Error> {
     let args = Args::parse();
     if std::env::var("RUST_LOG").is_err() {
         unsafe { std::env::set_var("RUST_LOG", &args.log_level) };
@@ -573,18 +589,24 @@ fn main() -> std::io::Result<()> {
 
     match args.command {
         Command::Build(ref build_args) => {
-            let playlist = M3uPlaylist::open(&build_args.playlist)?;
+            let playlist = M3uPlaylist::open(&build_args.playlist)
+                .map_err(|e| Error::PlaylistError(format!("Failed to open playlist {}: {}", 
+                    build_args.playlist.display(), e)))?;
             let mut app = App::new(args.clone(), build_args.clone(), playlist);
             app.run()?;
         }
         Command::ListPositive(list_args) => {
-            let playlist = M3uPlaylist::open(&list_args.playlist)?;
+            let playlist = M3uPlaylist::open(&list_args.playlist)
+                .map_err(|e| Error::PlaylistError(format!("Failed to open playlist {}: {}", 
+                    list_args.playlist.display(), e)))?;
             for path in playlist.positives() {
                 println!("{}", path.display());
             }
         }
         Command::ListNegative(list_args) => {
-            let playlist = M3uPlaylist::open(&list_args.playlist)?;
+            let playlist = M3uPlaylist::open(&list_args.playlist)
+                .map_err(|e| Error::PlaylistError(format!("Failed to open playlist {}: {}", 
+                    list_args.playlist.display(), e)))?;
             for path in playlist.negatives() {
                 println!("{}", path.display());
             }
