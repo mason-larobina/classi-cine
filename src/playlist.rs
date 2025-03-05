@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use pathdiff::diff_paths;
 
 const M3U_HEADER: &str = "#EXTM3U";
 const NEGATIVE_PREFIX: &str = "#NEGATIVE:";
@@ -29,6 +30,13 @@ pub struct M3uPlaylist {
 }
 
 impl M3uPlaylist {
+    // Helper method to convert absolute paths to relative (relative to playlist directory)
+    fn to_relative_path(&self, path: &Path) -> PathBuf {
+        let playlist_dir = self.path.parent().unwrap_or(Path::new(""));
+        diff_paths(path, playlist_dir)
+            .unwrap_or_else(|| path.to_path_buf())
+    }
+
     pub fn open(path: &Path) -> io::Result<Self> {
         let mut playlist = Self {
             path: path.to_path_buf(),
@@ -81,8 +89,10 @@ impl Playlist for M3uPlaylist {
         self.positives.insert(path.to_path_buf());
 
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
-
-        writeln!(file, "{}", path.display())?;
+        
+        // Convert to relative path before writing to file
+        let relative_path = self.to_relative_path(path);
+        writeln!(file, "{}", relative_path.display())?;
         Ok(())
     }
 
@@ -90,8 +100,10 @@ impl Playlist for M3uPlaylist {
         self.negatives.insert(path.to_path_buf());
 
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
-
-        writeln!(file, "{}{}", NEGATIVE_PREFIX, path.display())?;
+        
+        // Convert to relative path before writing to file
+        let relative_path = self.to_relative_path(path);
+        writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())?;
         Ok(())
     }
 
