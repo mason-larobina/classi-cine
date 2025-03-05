@@ -37,6 +37,16 @@ impl M3uPlaylist {
             .unwrap_or_else(|| path.to_path_buf())
     }
 
+    // Helper method to convert relative paths to absolute (relative to playlist directory)
+    fn to_absolute_path(&self, rel_path: &Path) -> PathBuf {
+        if rel_path.is_absolute() {
+            rel_path.to_path_buf()
+        } else {
+            let playlist_dir = self.path.parent().unwrap_or(Path::new(""));
+            playlist_dir.join(rel_path)
+        }
+    }
+
     pub fn open(path: &Path) -> io::Result<Self> {
         let mut playlist = Self {
             path: path.to_path_buf(),
@@ -71,11 +81,15 @@ impl M3uPlaylist {
                 if line.starts_with(NEGATIVE_PREFIX) {
                     // Negative classification (commented out)
                     if let Some(path) = line.strip_prefix(NEGATIVE_PREFIX) {
-                        playlist.negatives.insert(PathBuf::from(path.trim()));
+                        let rel_path = PathBuf::from(path.trim());
+                        let abs_path = playlist.to_absolute_path(&rel_path);
+                        playlist.negatives.insert(abs_path);
                     }
                 } else if !line.starts_with('#') {
                     // Positive classification (regular entry)
-                    playlist.positives.insert(PathBuf::from(line.trim()));
+                    let rel_path = PathBuf::from(line.trim());
+                    let abs_path = playlist.to_absolute_path(&rel_path);
+                    playlist.positives.insert(abs_path);
                 }
             }
         }
