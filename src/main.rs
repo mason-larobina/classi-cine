@@ -556,24 +556,18 @@ fn main() -> Result<(), Error> {
 
     match args.command {
         Command::Build(ref build_args) => {
-            let playlist = M3uPlaylist::open(&build_args.playlist)
-                .map_err(|e| Error::PlaylistError(format!("Failed to open playlist {}: {}", 
-                    build_args.playlist.display(), e)))?;
+            let playlist = M3uPlaylist::open(&build_args.playlist)?;
             let mut app = App::new(args.clone(), build_args.clone(), playlist);
             app.run()?;
         }
         Command::ListPositive(list_args) => {
-            let playlist = M3uPlaylist::open(&list_args.playlist)
-                .map_err(|e| Error::PlaylistError(format!("Failed to open playlist {}: {}", 
-                    list_args.playlist.display(), e)))?;
+            let playlist = M3uPlaylist::open(&list_args.playlist)?;
             for path in playlist.positives() {
                 println!("{}", path.display());
             }
         }
         Command::ListNegative(list_args) => {
-            let playlist = M3uPlaylist::open(&list_args.playlist)
-                .map_err(|e| Error::PlaylistError(format!("Failed to open playlist {}: {}", 
-                    list_args.playlist.display(), e)))?;
+            let playlist = M3uPlaylist::open(&list_args.playlist)?;
             for path in playlist.negatives() {
                 println!("{}", path.display());
             }

@@ -40,8 +40,7 @@ impl Walk {
     }
 
     pub fn walk_dir(&self, dir: &Path) -> Result<(), Error> {
-        let dir = dir.canonicalize()
-            .map_err(|e| Error::WalkError(format!("Failed to canonicalize path {}: {}", dir.display(), e)))?;
+        let dir = dir.canonicalize()?;
         let dir = Arc::new(dir);
         Self::inner_walk_dir(Arc::clone(&self.exts), Arc::clone(&self.tx), dir);
         Ok(())

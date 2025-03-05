@@ -57,18 +57,18 @@ impl M3uPlaylist {
 
         if !path.exists() {
             // Create new file with M3U header
-            let mut file = File::create(&path).map_err(Error::Io)?;
-            writeln!(file, "{}", M3U_HEADER).map_err(Error::Io)?;
+            let mut file = File::create(&path)?;
+            writeln!(file, "{}", M3U_HEADER)?;
         } else {
             // Load and verify existing file
-            let file = File::open(&path).map_err(Error::Io)?;
+            let file = File::open(&path)?;
             let reader = BufReader::new(file);
             let mut lines = reader.lines();
 
             // Verify M3U header in existing file
             let first_line = lines.next().ok_or_else(|| {
                 Error::PlaylistError("Empty playlist file".to_string())
-            })?.map_err(Error::Io)?;
+            })??;
             
             if first_line.trim() != M3U_HEADER {
                 return Err(Error::PlaylistError(
@@ -78,7 +78,7 @@ impl M3uPlaylist {
 
             // Process remaining lines
             for line in lines {
-                let line = line.map_err(Error::Io)?;
+                let line = line?;
                 if line.starts_with(NEGATIVE_PREFIX) {
                     // Negative classification (commented out)
                     if let Some(path) = line.strip_prefix(NEGATIVE_PREFIX) {
@@ -105,13 +105,11 @@ impl Playlist for M3uPlaylist {
 
         let mut file = OpenOptions::new()
             .append(true)
-            .open(&self.path)
-            .map_err(|e| Error::PlaylistError(format!("Failed to open playlist file: {}", e)))?;
+            .open(&self.path)?;
         
         // Convert to relative path before writing to file
         let relative_path = self.to_relative_path(path);
-        writeln!(file, "{}", relative_path.display())
-            .map_err(|e| Error::PlaylistError(format!("Failed to write to playlist file: {}", e)))?;
+        writeln!(file, "{}", relative_path.display())?;
         Ok(())
     }
 
@@ -120,13 +118,11 @@ impl Playlist for M3uPlaylist {
 
         let mut file = OpenOptions::new()
             .append(true)
-            .open(&self.path)
-            .map_err(|e| Error::PlaylistError(format!("Failed to open playlist file: {}", e)))?;
+            .open(&self.path)?;
         
         // Convert to relative path before writing to file
         let relative_path = self.to_relative_path(path);
-        writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())
-            .map_err(|e| Error::PlaylistError(format!("Failed to write to playlist file: {}", e)))?;
+        writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())?;
         Ok(())
     }
 

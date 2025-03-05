@@ -63,8 +63,8 @@ impl VLCProcessHandle {
         file_name: Option<String>,
     ) -> Result<Self, Error> {
         // Find an available port
-        let listener = TcpListener::bind("127.0.0.1:0").map_err(Error::Io)?;
-        let port = listener.local_addr().map_err(Error::Io)?.port();
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
         // Drop the listener so VLC can use the port
         drop(listener);
 
