@@ -167,17 +167,20 @@ impl PairTokenizer {
         // Continuously find and merge the most frequent pair until no pairs exceed the min_freq threshold.
         loop {
             // Find the pair with the maximum count across all shards.
-            let pair = if let Some((count, pair)) = counts.lock().unwrap().max() {
-                // If the highest frequency is below min_freq, break out of the loop.
-                if count < min_freq {
+            let pair = match counts.lock().unwrap().max() {
+                Some((count, pair)) => {
+                    // If the highest frequency is below min_freq, break out of the loop.
+                    if count < min_freq {
+                        break;
+                    }
+                    // Log and keep track of the pair chosen for merging.
+                    //info!("{:?} {:?}", count, pair.to_string(&token_map));
+                    pair
+                }
+                _ => {
+                    // If no pairs are found, break.
                     break;
                 }
-                // Log and keep track of the pair chosen for merging.
-                //info!("{:?} {:?}", count, pair.to_string(&token_map));
-                pair
-            } else {
-                // If no pairs are found, break.
-                break;
             };
 
             // Merge the chosen pair into a single new token in the token map.

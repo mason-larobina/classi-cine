@@ -567,7 +567,7 @@ impl App {
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", &args.log_level);
+        unsafe { std::env::set_var("RUST_LOG", &args.log_level) };
     }
     env_logger::init();
 
