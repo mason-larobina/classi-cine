@@ -26,16 +26,13 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("HTTP request failed: {0}")]
-    #[from]
-    Reqwest(#[source] reqwest::Error),
+    Reqwest(#[from] #[source] reqwest::Error),
     
     #[error("JSON parsing failed: {0}")]
-    #[from]
-    SerdeJson(#[source] serde_json::Error),
+    SerdeJson(#[from] #[source] serde_json::Error),
     
     #[error("I/O error: {0}")]
-    #[from]
-    Io(#[source] std::io::Error),
+    Io(#[from] #[source] std::io::Error),
     
     #[error("Operation timed out: {0}")]
     Timeout(String),

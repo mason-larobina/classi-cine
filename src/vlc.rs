@@ -63,8 +63,8 @@ impl VLCProcessHandle {
         file_name: Option<String>,
     ) -> Result<Self, Error> {
         // Find an available port
-        let listener = TcpListener::bind("127.0.0.1:0")?;
-        let port = listener.local_addr()?.port();
+        let listener = TcpListener::bind("127.0.0.1:0").map_err(Error::Io)?;
+        let port = listener.local_addr().map_err(Error::Io)?.port();
         // Drop the listener so VLC can use the port
         drop(listener);
 
@@ -119,7 +119,7 @@ impl VLCProcessHandle {
         
         debug!("Response: {}", text);
         
-        Ok(serde_json::from_str(&text)?)
+        Ok(serde_json::from_str(&text).map_err(Error::SerdeJson)?)
     }
 
     pub fn wait_for_status(&self) -> Result<Status, Error> {

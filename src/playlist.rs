@@ -1,7 +1,7 @@
 use crate::Error;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use pathdiff::diff_paths;
 
@@ -57,18 +57,18 @@ impl M3uPlaylist {
 
         if !path.exists() {
             // Create new file with M3U header
-            let mut file = File::create(&path)?;
-            writeln!(file, "{}", M3U_HEADER)?;
+            let mut file = File::create(&path).map_err(Error::Io)?;
+            writeln!(file, "{}", M3U_HEADER).map_err(Error::Io)?;
         } else {
             // Load and verify existing file
-            let file = File::open(&path)?;
+            let file = File::open(&path).map_err(Error::Io)?;
             let reader = BufReader::new(file);
             let mut lines = reader.lines();
 
             // Verify M3U header in existing file
             let first_line = lines.next().ok_or_else(|| {
                 Error::PlaylistError("Empty playlist file".to_string())
-            })?.map_err(Error::from)?;
+            })?.map_err(Error::Io)?;
             
             if first_line.trim() != M3U_HEADER {
                 return Err(Error::PlaylistError(
@@ -78,7 +78,7 @@ impl M3uPlaylist {
 
             // Process remaining lines
             for line in lines {
-                let line = line.map_err(Error::from)?;
+                let line = line.map_err(Error::Io)?;
                 if line.starts_with(NEGATIVE_PREFIX) {
                     // Negative classification (commented out)
                     if let Some(path) = line.strip_prefix(NEGATIVE_PREFIX) {
