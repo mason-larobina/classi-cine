@@ -48,20 +48,36 @@ impl M3uPlaylist {
         }
     }
 
+    // Helper method to ensure path is absolute
+    fn ensure_absolute(&self, path: &Path) -> PathBuf {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            path.to_path_buf().canonicalize().unwrap_or_else(|_| path.to_path_buf())
+        }
+    }
+
     pub fn open(path: &Path) -> Result<Self, Error> {
+        // Make sure we have an absolute path for the playlist file
+        let abs_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            path.to_path_buf().canonicalize().unwrap_or_else(|_| path.to_path_buf())
+        };
+
         let mut playlist = Self {
-            path: path.to_path_buf(),
+            path: abs_path,
             positives: HashSet::new(),
             negatives: HashSet::new(),
         };
 
-        if !path.exists() {
+        if !playlist.path.exists() {
             // Create new file with M3U header
-            let mut file = File::create(&path)?;
+            let mut file = File::create(&playlist.path)?;
             writeln!(file, "{}", M3U_HEADER)?;
         } else {
             // Load and verify existing file
-            let file = File::open(&path)?;
+            let file = File::open(&playlist.path)?;
             let reader = BufReader::new(file);
             let mut lines = reader.lines();
 
@@ -101,27 +117,41 @@ impl M3uPlaylist {
 
 impl Playlist for M3uPlaylist {
     fn add_positive(&mut self, path: &Path) -> Result<(), Error> {
-        self.positives.insert(path.to_path_buf());
+        // Store absolute path in memory for efficient deduplication
+        let abs_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            path.to_path_buf().canonicalize().unwrap_or_else(|_| path.to_path_buf())
+        };
+        
+        self.positives.insert(abs_path.clone());
 
         let mut file = OpenOptions::new()
             .append(true)
             .open(&self.path)?;
         
         // Convert to relative path before writing to file
-        let relative_path = self.to_relative_path(path);
+        let relative_path = self.to_relative_path(&abs_path);
         writeln!(file, "{}", relative_path.display())?;
         Ok(())
     }
 
     fn add_negative(&mut self, path: &Path) -> Result<(), Error> {
-        self.negatives.insert(path.to_path_buf());
+        // Store absolute path in memory for efficient deduplication
+        let abs_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            path.to_path_buf().canonicalize().unwrap_or_else(|_| path.to_path_buf())
+        };
+        
+        self.negatives.insert(abs_path.clone());
 
         let mut file = OpenOptions::new()
             .append(true)
             .open(&self.path)?;
         
         // Convert to relative path before writing to file
-        let relative_path = self.to_relative_path(path);
+        let relative_path = self.to_relative_path(&abs_path);
         writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())?;
         Ok(())
     }
