@@ -26,8 +26,8 @@ pub trait Playlist {
 /// M3U playlist implementation that tracks positive/negative classifications
 pub struct M3uPlaylist {
     path: PathBuf,
-    positives: HashSet<PathBuf>,
-    negatives: HashSet<PathBuf>,
+    positives: HashSet<PathBuf>,  // Stores relative paths
+    negatives: HashSet<PathBuf>,  // Stores relative paths
 }
 
 impl M3uPlaylist {
@@ -48,6 +48,15 @@ impl M3uPlaylist {
         }
     }
 
+    // Helper method to get absolute path for a stored relative path
+    fn get_absolute_path(&self, rel_path: &Path) -> PathBuf {
+        self.to_absolute_path(rel_path)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+    
     pub fn open(path: &Path) -> Result<Self, Error> {
         // Make sure we have an absolute path for the playlist file
         let abs_path = if path.is_absolute() {
@@ -90,14 +99,12 @@ impl M3uPlaylist {
                     // Negative classification (commented out)
                     if let Some(path) = line.strip_prefix(NEGATIVE_PREFIX) {
                         let rel_path = PathBuf::from(path.trim());
-                        let abs_path = playlist.to_absolute_path(&rel_path);
-                        playlist.negatives.insert(abs_path);
+                        playlist.negatives.insert(rel_path);
                     }
                 } else if !line.starts_with('#') {
                     // Positive classification (regular entry)
                     let rel_path = PathBuf::from(line.trim());
-                    let abs_path = playlist.to_absolute_path(&rel_path);
-                    playlist.positives.insert(abs_path);
+                    playlist.positives.insert(rel_path);
                 }
             }
         }
@@ -108,50 +115,40 @@ impl M3uPlaylist {
 
 impl Playlist for M3uPlaylist {
     fn add_positive(&mut self, path: &Path) -> Result<(), Error> {
-        // Store absolute path in memory for efficient deduplication
-        let abs_path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            path.to_path_buf().canonicalize().unwrap_or_else(|_| path.to_path_buf())
-        };
-        
-        self.positives.insert(abs_path.clone());
+        // Convert to relative path and store it
+        let relative_path = self.to_relative_path(path);
+        self.positives.insert(relative_path.clone());
 
         let mut file = OpenOptions::new()
             .append(true)
             .open(&self.path)?;
         
-        // Convert to relative path before writing to file
-        let relative_path = self.to_relative_path(&abs_path);
+        // Write the relative path to file
         writeln!(file, "{}", relative_path.display())?;
         Ok(())
     }
 
     fn add_negative(&mut self, path: &Path) -> Result<(), Error> {
-        // Store absolute path in memory for efficient deduplication
-        let abs_path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            path.to_path_buf().canonicalize().unwrap_or_else(|_| path.to_path_buf())
-        };
-        
-        self.negatives.insert(abs_path.clone());
+        // Convert to relative path and store it
+        let relative_path = self.to_relative_path(path);
+        self.negatives.insert(relative_path.clone());
 
         let mut file = OpenOptions::new()
             .append(true)
             .open(&self.path)?;
         
-        // Convert to relative path before writing to file
-        let relative_path = self.to_relative_path(&abs_path);
+        // Write the relative path to file
         writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())?;
         Ok(())
     }
 
     fn positives(&self) -> &HashSet<PathBuf> {
+        // Return the relative paths directly
         &self.positives
     }
 
     fn negatives(&self) -> &HashSet<PathBuf> {
+        // Return the relative paths directly
         &self.negatives
     }
 }

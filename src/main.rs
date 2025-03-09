@@ -209,10 +209,27 @@ impl App {
     }
 
     fn collect_files(&mut self) {
-        // Create set of already classified paths
+        // Create set of already classified paths (convert relative paths to absolute)
         let mut classified = HashSet::new();
-        classified.extend(self.playlist.positives().iter().cloned());
-        classified.extend(self.playlist.negatives().iter().cloned());
+        let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
+        
+        for rel_path in self.playlist.positives().iter() {
+            let abs_path = if rel_path.is_absolute() {
+                rel_path.clone()
+            } else {
+                playlist_dir.join(rel_path)
+            };
+            classified.insert(abs_path);
+        }
+        
+        for rel_path in self.playlist.negatives().iter() {
+            let abs_path = if rel_path.is_absolute() {
+                rel_path.clone()
+            } else {
+                playlist_dir.join(rel_path)
+            };
+            classified.insert(abs_path);
+        }
         //info!("Classified {:?}", classified);
 
         let walk = Walk::new(self.build_args.video_exts.iter().map(String::as_ref));
@@ -338,16 +355,27 @@ impl App {
         let mut temp_ngrams = Ngrams::default();
 
         // Process positive examples
-        for path in self.playlist.positives() {
-            let norm = normalize::normalize(path);
+        let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
+        for rel_path in self.playlist.positives() {
+            let abs_path = if rel_path.is_absolute() {
+                rel_path.clone()
+            } else {
+                playlist_dir.join(rel_path)
+            };
+            let norm = normalize::normalize(&abs_path);
             let tokens = tokenizer.tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
             self.naive_bayes.train_positive(&temp_ngrams);
         }
 
         // Process negative examples
-        for path in self.playlist.negatives() {
-            let norm = normalize::normalize(path);
+        for rel_path in self.playlist.negatives() {
+            let abs_path = if rel_path.is_absolute() {
+                rel_path.clone()
+            } else {
+                playlist_dir.join(rel_path)
+            };
+            let norm = normalize::normalize(&abs_path);
             let tokens = tokenizer.tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
             self.naive_bayes.train_negative(&temp_ngrams);
@@ -562,14 +590,26 @@ fn main() -> Result<(), Error> {
         }
         Command::ListPositive(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
-            for path in playlist.positives() {
-                println!("{}", path.display());
+            let playlist_dir = playlist.path().parent().unwrap_or(Path::new(""));
+            for rel_path in playlist.positives() {
+                let abs_path = if rel_path.is_absolute() {
+                    rel_path.clone()
+                } else {
+                    playlist_dir.join(rel_path)
+                };
+                println!("{}", abs_path.display());
             }
         }
         Command::ListNegative(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
-            for path in playlist.negatives() {
-                println!("{}", path.display());
+            let playlist_dir = playlist.path().parent().unwrap_or(Path::new(""));
+            for rel_path in playlist.negatives() {
+                let abs_path = if rel_path.is_absolute() {
+                    rel_path.clone()
+                } else {
+                    playlist_dir.join(rel_path)
+                };
+                println!("{}", abs_path.display());
             }
         }
     }
