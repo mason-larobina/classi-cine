@@ -48,15 +48,6 @@ impl M3uPlaylist {
         }
     }
 
-    // Helper method to ensure path is absolute
-    fn ensure_absolute(&self, path: &Path) -> PathBuf {
-        if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            path.to_path_buf().canonicalize().unwrap_or_else(|_| path.to_path_buf())
-        }
-    }
-
     pub fn open(path: &Path) -> Result<Self, Error> {
         // Make sure we have an absolute path for the playlist file
         let abs_path = if path.is_absolute() {
