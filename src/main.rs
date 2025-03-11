@@ -627,31 +627,29 @@ fn main() -> Result<(), Error> {
         Command::ListPositive(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
             let root = playlist.path().parent().unwrap_or(Path::new(""));
-            
-            // Filter for positive entries only
-            for entry in playlist.entries().iter().filter(|e| e.is_positive()) {
-                let path = entry.path();
-                let abs_path = if path.is_absolute() {
-                    path.clone()
-                } else {
-                    root.join(path)
+            for entry in playlist.entries().iter() {
+                if let &PlaylistEntry::Positive(ref path) = entry {
+                    let abs_path = if path.is_absolute() {
+                        path.clone()
+                    } else {
+                        root.join(path)
+                    };
+                    println!("{}", abs_path.display());
                 };
-                println!("{}", abs_path.display());
             }
         }
         Command::ListNegative(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
             let root = playlist.path().parent().unwrap_or(Path::new(""));
-            
-            // Filter for negative entries only
-            for entry in playlist.entries().iter().filter(|e| e.is_negative()) {
-                let path = entry.path();
-                let abs_path = if path.is_absolute() {
-                    path.clone()
-                } else {
-                    root.join(path)
+            for entry in playlist.entries().iter() {
+                if let &PlaylistEntry::Negative(ref path) = entry {
+                    let abs_path = if path.is_absolute() {
+                        path.clone()
+                    } else {
+                        root.join(path)
+                    };
+                    println!("{}", abs_path.display());
                 };
-                println!("{}", abs_path.display());
             }
         }
         Command::Move(move_args) => {

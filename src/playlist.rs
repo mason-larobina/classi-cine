@@ -23,16 +23,6 @@ impl PlaylistEntry {
             PlaylistEntry::Negative(path) => path,
         }
     }
-    
-    /// Returns true if this is a positive entry
-    pub fn is_positive(&self) -> bool {
-        matches!(self, PlaylistEntry::Positive(_))
-    }
-    
-    /// Returns true if this is a negative entry
-    pub fn is_negative(&self) -> bool {
-        matches!(self, PlaylistEntry::Negative(_))
-    }
 }
 
 /// Trait for types that can load/save playlist classifications
