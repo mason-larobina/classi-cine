@@ -4,6 +4,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use pathdiff::diff_paths;
+use log::*;
 
 const M3U_HEADER: &str = "#EXTM3U";
 const NEGATIVE_PREFIX: &str = "#NEGATIVE:";
@@ -32,25 +33,11 @@ pub struct M3uPlaylist {
 
 impl M3uPlaylist {
     // Helper method to convert absolute paths to relative (relative to playlist directory)
-    fn to_relative_path(&self, path: &Path) -> PathBuf {
-        let playlist_dir = self.path.parent().unwrap_or(Path::new(""));
-        diff_paths(path, playlist_dir)
-            .unwrap_or_else(|| path.to_path_buf())
-    }
-
-    // Helper method to convert relative paths to absolute (relative to playlist directory)
-    fn to_absolute_path(&self, rel_path: &Path) -> PathBuf {
-        if rel_path.is_absolute() {
-            rel_path.to_path_buf()
-        } else {
-            let playlist_dir = self.path.parent().unwrap_or(Path::new(""));
-            playlist_dir.join(rel_path)
-        }
-    }
-
-    // Helper method to get absolute path for a stored relative path
-    fn get_absolute_path(&self, rel_path: &Path) -> PathBuf {
-        self.to_absolute_path(rel_path)
+    pub fn to_relative_path(&self, path: &Path) -> PathBuf {
+        let parent = self.path.parent().unwrap();
+        let result = diff_paths(path, parent).unwrap_or_else(|| path.to_path_buf());
+        info!("path {:?} parent {:?}, result {:?}", path, parent, result);
+        result
     }
 
     pub fn path(&self) -> &Path {
@@ -59,14 +46,10 @@ impl M3uPlaylist {
     
     pub fn open(path: &Path) -> Result<Self, Error> {
         // Make sure we have an absolute path for the playlist file
-        let abs_path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            path.to_path_buf().canonicalize().unwrap_or_else(|_| path.to_path_buf())
-        };
+        let path = std::path::absolute(path).unwrap();
 
         let mut playlist = Self {
-            path: abs_path,
+            path,
             positives: HashSet::new(),
             negatives: HashSet::new(),
         };
@@ -115,40 +98,30 @@ impl M3uPlaylist {
 
 impl Playlist for M3uPlaylist {
     fn add_positive(&mut self, path: &Path) -> Result<(), Error> {
-        // Convert to relative path and store it
         let relative_path = self.to_relative_path(path);
         self.positives.insert(relative_path.clone());
-
         let mut file = OpenOptions::new()
             .append(true)
             .open(&self.path)?;
-        
-        // Write the relative path to file
         writeln!(file, "{}", relative_path.display())?;
         Ok(())
     }
 
     fn add_negative(&mut self, path: &Path) -> Result<(), Error> {
-        // Convert to relative path and store it
         let relative_path = self.to_relative_path(path);
         self.negatives.insert(relative_path.clone());
-
         let mut file = OpenOptions::new()
             .append(true)
             .open(&self.path)?;
-        
-        // Write the relative path to file
         writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())?;
         Ok(())
     }
 
     fn positives(&self) -> &HashSet<PathBuf> {
-        // Return the relative paths directly
         &self.positives
     }
 
     fn negatives(&self) -> &HashSet<PathBuf> {
-        // Return the relative paths directly
         &self.negatives
     }
 }

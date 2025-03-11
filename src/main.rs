@@ -18,7 +18,7 @@ use clap::{Parser, Subcommand};
 use classifier::{Classifier, DirSizeClassifier, FileSizeClassifier, NaiveBayesClassifier};
 use log::*;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thread_priority::*;
 
 use thiserror::Error;
@@ -590,24 +590,24 @@ fn main() -> Result<(), Error> {
         }
         Command::ListPositive(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
-            let playlist_dir = playlist.path().parent().unwrap_or(Path::new(""));
+            let root = playlist.path().parent().unwrap_or(Path::new(""));
             for rel_path in playlist.positives() {
                 let abs_path = if rel_path.is_absolute() {
                     rel_path.clone()
                 } else {
-                    playlist_dir.join(rel_path)
+                    root.join(rel_path)
                 };
                 println!("{}", abs_path.display());
             }
         }
         Command::ListNegative(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
-            let playlist_dir = playlist.path().parent().unwrap_or(Path::new(""));
+            let root = playlist.path().parent().unwrap_or(Path::new(""));
             for rel_path in playlist.negatives() {
                 let abs_path = if rel_path.is_absolute() {
                     rel_path.clone()
                 } else {
-                    playlist_dir.join(rel_path)
+                    root.join(rel_path)
                 };
                 println!("{}", abs_path.display());
             }
