@@ -10,7 +10,7 @@ mod vlc;
 mod walk;
 
 use crate::ngrams::{Ngram, Ngrams};
-use crate::playlist::{M3uPlaylist, Playlist};
+use crate::playlist::{M3uPlaylist, Playlist, PlaylistEntry};
 use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
 use crate::walk::Walk;
