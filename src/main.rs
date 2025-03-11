@@ -74,6 +74,16 @@ enum Command {
     ListPositive(ListArgs),
     /// List negatively classified files
     ListNegative(ListArgs),
+    /// Move playlist to a new location and rebase paths
+    Move(MoveArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+struct MoveArgs {
+    /// Original M3U playlist file
+    original: PathBuf,
+    /// New M3U playlist file location
+    new: PathBuf,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -575,6 +585,57 @@ impl App {
     }
 }
 
+fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
+    // Load the original playlist
+    let original_playlist = M3uPlaylist::open(original_path)?;
+    
+    // Create a new playlist at the target location
+    let mut new_playlist = M3uPlaylist::open(new_path)?;
+    
+    // Get the absolute paths of both playlist parent directories
+    let original_dir = original_playlist.path().parent()
+        .unwrap_or(Path::new(""))
+        .to_path_buf();
+    
+    info!("Moving playlist from {} to {}", 
+          original_playlist.path().display(), 
+          new_playlist.path().display());
+    
+    // Process positive entries
+    for rel_path in original_playlist.positives() {
+        // Convert relative path to absolute using original playlist's parent
+        let abs_path = if rel_path.is_absolute() {
+            rel_path.clone()
+        } else {
+            original_dir.join(rel_path)
+        };
+        
+        // Add to new playlist (which will convert to relative path based on new location)
+        new_playlist.add_positive(&abs_path)?;
+        debug!("Moved positive entry: {}", abs_path.display());
+    }
+    
+    // Process negative entries
+    for rel_path in original_playlist.negatives() {
+        // Convert relative path to absolute using original playlist's parent
+        let abs_path = if rel_path.is_absolute() {
+            rel_path.clone()
+        } else {
+            original_dir.join(rel_path)
+        };
+        
+        // Add to new playlist (which will convert to relative path based on new location)
+        new_playlist.add_negative(&abs_path)?;
+        debug!("Moved negative entry: {}", abs_path.display());
+    }
+    
+    println!("Successfully moved playlist from {} to {}", 
+             original_playlist.path().display(), 
+             new_playlist.path().display());
+    
+    Ok(())
+}
+
 fn main() -> Result<(), Error> {
     let args = Args::parse();
     if std::env::var("RUST_LOG").is_err() {
@@ -611,6 +672,9 @@ fn main() -> Result<(), Error> {
                 };
                 println!("{}", abs_path.display());
             }
+        }
+        Command::Move(move_args) => {
+            move_playlist(&move_args.original, &move_args.new)?;
         }
     }
     Ok(())
