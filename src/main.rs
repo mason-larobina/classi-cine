@@ -350,10 +350,10 @@ impl App {
 
         // Train naive bayes classifier on playlist entries
         let mut temp_ngrams = Ngrams::default();
-
-        // Process positive examples
         let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
-        for entry in self.playlist.entries().iter().filter(|e| e.is_positive()) {
+        
+        // Process all examples in a single loop
+        for entry in self.playlist.entries().iter() {
             let path = entry.path();
             let abs_path = if path.is_absolute() {
                 path.clone()
@@ -363,21 +363,12 @@ impl App {
             let norm = normalize::normalize(&abs_path);
             let tokens = tokenizer.tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
-            self.naive_bayes.train_positive(&temp_ngrams);
-        }
-
-        // Process negative examples
-        for entry in self.playlist.entries().iter().filter(|e| e.is_negative()) {
-            let path = entry.path();
-            let abs_path = if path.is_absolute() {
-                path.clone()
-            } else {
-                playlist_dir.join(path)
-            };
-            let norm = normalize::normalize(&abs_path);
-            let tokens = tokenizer.tokenize(&norm);
-            temp_ngrams.windows(&tokens, 5, None, None);
-            self.naive_bayes.train_negative(&temp_ngrams);
+            
+            // Train based on entry type
+            match entry {
+                PlaylistEntry::Positive(_) => self.naive_bayes.train_positive(&temp_ngrams),
+                PlaylistEntry::Negative(_) => self.naive_bayes.train_negative(&temp_ngrams),
+            }
         }
     }
 
