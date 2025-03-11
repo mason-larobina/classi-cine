@@ -9,6 +9,33 @@ use log::*;
 const M3U_HEADER: &str = "#EXTM3U";
 const NEGATIVE_PREFIX: &str = "#NEGATIVE:";
 
+/// Represents a playlist entry type
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlaylistEntry {
+    Positive(PathBuf),
+    Negative(PathBuf),
+}
+
+impl PlaylistEntry {
+    /// Returns the path regardless of entry type
+    pub fn path(&self) -> &PathBuf {
+        match self {
+            PlaylistEntry::Positive(path) => path,
+            PlaylistEntry::Negative(path) => path,
+        }
+    }
+    
+    /// Returns true if this is a positive entry
+    pub fn is_positive(&self) -> bool {
+        matches!(self, PlaylistEntry::Positive(_))
+    }
+    
+    /// Returns true if this is a negative entry
+    pub fn is_negative(&self) -> bool {
+        matches!(self, PlaylistEntry::Negative(_))
+    }
+}
+
 /// Trait for types that can load/save playlist classifications
 pub trait Playlist {
     /// Add a positive classification
@@ -17,31 +44,27 @@ pub trait Playlist {
     /// Add a negative classification
     fn add_negative(&mut self, path: &Path) -> Result<(), Error>;
 
-    /// Get positive classifications
-    fn positives(&self) -> &HashSet<PathBuf>;
-
-    /// Get negative classifications
-    fn negatives(&self) -> &HashSet<PathBuf>;
+    /// Get all entries in order
+    fn entries(&self) -> &[PlaylistEntry];
 }
 
 /// M3U playlist implementation that tracks positive/negative classifications
 pub struct M3uPlaylist {
     path: PathBuf,
-    positives: HashSet<PathBuf>,  // Stores relative paths
-    negatives: HashSet<PathBuf>,  // Stores relative paths
+    entries: Vec<PlaylistEntry>,  // Single vector for all entries in order
 }
 
 impl M3uPlaylist {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+    
     // Helper method to convert absolute paths to relative (relative to playlist directory)
     pub fn to_relative_path(&self, path: &Path) -> PathBuf {
         let parent = self.path.parent().unwrap();
         let result = diff_paths(path, parent).unwrap_or_else(|| path.to_path_buf());
         info!("path {:?} parent {:?}, result {:?}", path, parent, result);
         result
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
     }
     
     pub fn open(path: &Path) -> Result<Self, Error> {
@@ -50,8 +73,7 @@ impl M3uPlaylist {
 
         let mut playlist = Self {
             path,
-            positives: HashSet::new(),
-            negatives: HashSet::new(),
+            entries: Vec::new(),
         };
 
         if !playlist.path.exists() {
@@ -80,14 +102,14 @@ impl M3uPlaylist {
                 let line = line?;
                 if line.starts_with(NEGATIVE_PREFIX) {
                     // Negative classification (commented out)
-                    if let Some(path) = line.strip_prefix(NEGATIVE_PREFIX) {
-                        let rel_path = PathBuf::from(path.trim());
-                        playlist.negatives.insert(rel_path);
+                    if let Some(path_str) = line.strip_prefix(NEGATIVE_PREFIX) {
+                        let rel_path = PathBuf::from(path_str.trim());
+                        playlist.entries.push(PlaylistEntry::Negative(rel_path));
                     }
                 } else if !line.starts_with('#') {
                     // Positive classification (regular entry)
                     let rel_path = PathBuf::from(line.trim());
-                    playlist.positives.insert(rel_path);
+                    playlist.entries.push(PlaylistEntry::Positive(rel_path));
                 }
             }
         }
@@ -99,29 +121,35 @@ impl M3uPlaylist {
 impl Playlist for M3uPlaylist {
     fn add_positive(&mut self, path: &Path) -> Result<(), Error> {
         let relative_path = self.to_relative_path(path);
-        self.positives.insert(relative_path.clone());
+        
+        // Add to in-memory entries (allowing duplicates)
+        self.entries.push(PlaylistEntry::Positive(relative_path.clone()));
+        
+        // Append to file
         let mut file = OpenOptions::new()
             .append(true)
             .open(&self.path)?;
         writeln!(file, "{}", relative_path.display())?;
+        
         Ok(())
     }
 
     fn add_negative(&mut self, path: &Path) -> Result<(), Error> {
         let relative_path = self.to_relative_path(path);
-        self.negatives.insert(relative_path.clone());
+        
+        // Add to in-memory entries (allowing duplicates)
+        self.entries.push(PlaylistEntry::Negative(relative_path.clone()));
+        
+        // Append to file
         let mut file = OpenOptions::new()
             .append(true)
             .open(&self.path)?;
         writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())?;
+        
         Ok(())
     }
 
-    fn positives(&self) -> &HashSet<PathBuf> {
-        &self.positives
-    }
-
-    fn negatives(&self) -> &HashSet<PathBuf> {
-        &self.negatives
+    fn entries(&self) -> &[PlaylistEntry] {
+        &self.entries
     }
 }

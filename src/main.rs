@@ -223,20 +223,13 @@ impl App {
         let mut classified = HashSet::new();
         let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
         
-        for rel_path in self.playlist.positives().iter() {
-            let abs_path = if rel_path.is_absolute() {
-                rel_path.clone()
+        // Add all entries (both positive and negative) to the classified set
+        for entry in self.playlist.entries() {
+            let path = entry.path();
+            let abs_path = if path.is_absolute() {
+                path.clone()
             } else {
-                playlist_dir.join(rel_path)
-            };
-            classified.insert(abs_path);
-        }
-        
-        for rel_path in self.playlist.negatives().iter() {
-            let abs_path = if rel_path.is_absolute() {
-                rel_path.clone()
-            } else {
-                playlist_dir.join(rel_path)
+                playlist_dir.join(path)
             };
             classified.insert(abs_path);
         }
@@ -299,15 +292,9 @@ impl App {
         // Add paths from playlist classifications
         paths.extend(
             self.playlist
-                .positives()
+                .entries()
                 .iter()
-                .map(|p| normalize::normalize(p)),
-        );
-        paths.extend(
-            self.playlist
-                .negatives()
-                .iter()
-                .map(|p| normalize::normalize(p)),
+                .map(|e| normalize::normalize(e.path())),
         );
 
         // Create tokenizer from all paths
@@ -366,11 +353,12 @@ impl App {
 
         // Process positive examples
         let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
-        for rel_path in self.playlist.positives() {
-            let abs_path = if rel_path.is_absolute() {
-                rel_path.clone()
+        for entry in self.playlist.entries().iter().filter(|e| e.is_positive()) {
+            let path = entry.path();
+            let abs_path = if path.is_absolute() {
+                path.clone()
             } else {
-                playlist_dir.join(rel_path)
+                playlist_dir.join(path)
             };
             let norm = normalize::normalize(&abs_path);
             let tokens = tokenizer.tokenize(&norm);
@@ -379,11 +367,12 @@ impl App {
         }
 
         // Process negative examples
-        for rel_path in self.playlist.negatives() {
-            let abs_path = if rel_path.is_absolute() {
-                rel_path.clone()
+        for entry in self.playlist.entries().iter().filter(|e| e.is_negative()) {
+            let path = entry.path();
+            let abs_path = if path.is_absolute() {
+                path.clone()
             } else {
-                playlist_dir.join(rel_path)
+                playlist_dir.join(path)
             };
             let norm = normalize::normalize(&abs_path);
             let tokens = tokenizer.tokenize(&norm);
@@ -601,32 +590,27 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
           original_playlist.path().display(), 
           new_playlist.path().display());
     
-    // Process positive entries
-    for rel_path in original_playlist.positives() {
+    // Process all entries in original order
+    for entry in original_playlist.entries() {
         // Convert relative path to absolute using original playlist's parent
+        let rel_path = entry.path();
         let abs_path = if rel_path.is_absolute() {
             rel_path.clone()
         } else {
             original_dir.join(rel_path)
         };
         
-        // Add to new playlist (which will convert to relative path based on new location)
-        new_playlist.add_positive(&abs_path)?;
-        debug!("Moved positive entry: {}", abs_path.display());
-    }
-    
-    // Process negative entries
-    for rel_path in original_playlist.negatives() {
-        // Convert relative path to absolute using original playlist's parent
-        let abs_path = if rel_path.is_absolute() {
-            rel_path.clone()
-        } else {
-            original_dir.join(rel_path)
-        };
-        
-        // Add to new playlist (which will convert to relative path based on new location)
-        new_playlist.add_negative(&abs_path)?;
-        debug!("Moved negative entry: {}", abs_path.display());
+        // Add to new playlist based on entry type
+        match entry {
+            PlaylistEntry::Positive(_) => {
+                new_playlist.add_positive(&abs_path)?;
+                debug!("Moved positive entry: {}", abs_path.display());
+            },
+            PlaylistEntry::Negative(_) => {
+                new_playlist.add_negative(&abs_path)?;
+                debug!("Moved negative entry: {}", abs_path.display());
+            }
+        }
     }
     
     println!("Successfully moved playlist from {} to {}", 
@@ -652,11 +636,14 @@ fn main() -> Result<(), Error> {
         Command::ListPositive(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
             let root = playlist.path().parent().unwrap_or(Path::new(""));
-            for rel_path in playlist.positives() {
-                let abs_path = if rel_path.is_absolute() {
-                    rel_path.clone()
+            
+            // Filter for positive entries only
+            for entry in playlist.entries().iter().filter(|e| e.is_positive()) {
+                let path = entry.path();
+                let abs_path = if path.is_absolute() {
+                    path.clone()
                 } else {
-                    root.join(rel_path)
+                    root.join(path)
                 };
                 println!("{}", abs_path.display());
             }
@@ -664,11 +651,14 @@ fn main() -> Result<(), Error> {
         Command::ListNegative(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
             let root = playlist.path().parent().unwrap_or(Path::new(""));
-            for rel_path in playlist.negatives() {
-                let abs_path = if rel_path.is_absolute() {
-                    rel_path.clone()
+            
+            // Filter for negative entries only
+            for entry in playlist.entries().iter().filter(|e| e.is_negative()) {
+                let path = entry.path();
+                let abs_path = if path.is_absolute() {
+                    path.clone()
                 } else {
-                    root.join(rel_path)
+                    root.join(path)
                 };
                 println!("{}", abs_path.display());
             }
