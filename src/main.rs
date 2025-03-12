@@ -56,7 +56,7 @@ pub enum Error {
     ProcessFailed(#[source] std::io::Error),
 
     #[error("Failed to bind to port: {0}")]
-    InvalidPort(#[source] std::io::Error),
+    PortBindingFailed(#[source] std::io::Error),
 
     #[error("VLC not responding: {0}")]
     VLCNotResponding(String),
@@ -155,7 +155,7 @@ struct ListArgs {
 #[derive(Debug)]
 struct Entry {
     file: walk::File,
-    norm: String,
+    normalized_path: String,
     tokens: Option<Tokens>,
     ngrams: Option<Ngrams>,
     scores: Box<[f64]>, // One score per classifier
@@ -212,27 +212,27 @@ impl App {
         }
     }
 
-    fn init_thread_priority(&self) {
+    fn set_threads_to_min_priority(&self) {
         rayon::broadcast(|_| {
             set_current_thread_priority(ThreadPriority::Min).unwrap();
         });
     }
 
-    fn classifiers(&self) -> Vec<&dyn Classifier> {
+    fn get_classifiers(&self) -> Vec<&dyn Classifier> {
         let mut classifiers = Vec::new();
-        if let Some(ref c) = self.file_size_classifier {
-            classifiers.push(c as &dyn Classifier);
+        if let Some(ref classifier) = self.file_size_classifier {
+            classifiers.push(classifier as &dyn Classifier);
         }
-        if let Some(ref c) = self.dir_size_classifier {
-            classifiers.push(c as &dyn Classifier);
+        if let Some(ref classifier) = self.dir_size_classifier {
+            classifiers.push(classifier as &dyn Classifier);
         }
         classifiers.push(&self.naive_bayes as &dyn Classifier);
         classifiers
     }
 
-    fn collect_files(&mut self) {
+    fn collect_unclassified_files(&mut self) {
         // Create set of already classified paths (convert relative paths to absolute)
-        let mut classified = HashSet::new();
+        let mut classified_paths = HashSet::new();
         let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
 
         // Add all entries (both positive and negative) to the classified set
@@ -243,9 +243,9 @@ impl App {
             } else {
                 playlist_dir.join(path)
             };
-            classified.insert(abs_path);
+            classified_paths.insert(abs_path);
         }
-        //info!("Classified {:?}", classified);
+        //info!("Classified {:?}", classified_paths);
 
         let walk = Walk::new(self.build_args.video_exts.iter().map(String::as_ref));
         for dir in &self.build_args.dirs {
@@ -255,21 +255,21 @@ impl App {
             }
         }
 
-        let classifiers_len = self.classifiers().len();
+        let classifiers_len = self.get_classifiers().len();
 
-        let rx = walk.into_rx();
-        while let Ok(file) = rx.recv() {
+        let file_receiver = walk.into_rx();
+        while let Ok(file) = file_receiver.recv() {
             debug!("{:?}", file);
 
             let file_path = file.dir.join(&file.file_name);
 
             // Skip if already classified
-            if classified.contains(&file_path) {
+            if classified_paths.contains(&file_path) {
                 debug!("Skipping already classified file: {:?}", file_path);
                 continue;
             }
 
-            let norm = normalize::normalize(&file_path);
+            let normalized_path = normalize::normalize(&file_path);
 
             let mut scores = vec![0.0; classifiers_len];
             scores.shrink_to_fit();
@@ -277,7 +277,7 @@ impl App {
             // Initialize entry with scores array sized for all classifiers plus naive bayes
             let entry = Entry {
                 file,
-                norm,
+                normalized_path,
                 tokens: None,
                 ngrams: None,
                 scores: scores.into_boxed_slice(),
@@ -294,12 +294,12 @@ impl App {
         info!("Collected {} unclassified entries", self.entries.len());
     }
 
-    fn process_tokens_and_ngrams(&mut self) {
+    fn initialize_tokens_and_train_classifiers(&mut self) {
         // Collect all paths that need tokenization
         let mut paths = HashSet::new();
 
         // Add paths from walk results (candidates)
-        paths.extend(self.entries.iter().map(|e| e.norm.to_string()));
+        paths.extend(self.entries.iter().map(|e| e.normalized_path.to_string()));
 
         // Add paths from playlist classifications
         paths.extend(
@@ -326,8 +326,8 @@ impl App {
             let tokens = tokenizer.tokenize(path);
             temp_ngrams.windows(&tokens, 5, None, None);
             for ngram in temp_ngrams.iter() {
-                let e = ngram_counts.entry(*ngram).or_default();
-                *e = e.saturating_add(1);
+                let counter = ngram_counts.entry(*ngram).or_default();
+                *counter = counter.saturating_add(1);
             }
         }
 
@@ -347,17 +347,17 @@ impl App {
         );
 
         // Final pass to store tokens and frequent ngrams for candidates only
-        for e in self.entries.iter_mut() {
-            e.tokens = Some(tokenizer.tokenize(&e.norm));
+        for entry in self.entries.iter_mut() {
+            entry.tokens = Some(tokenizer.tokenize(&entry.normalized_path));
 
             let mut ngrams = Ngrams::default();
             ngrams.windows(
-                e.tokens.as_ref().unwrap(),
+                entry.tokens.as_ref().unwrap(),
                 5,
                 self.frequent_ngrams.as_ref(),
                 None,
             );
-            e.ngrams = Some(ngrams);
+            entry.ngrams = Some(ngrams);
         }
 
         // Train naive bayes classifier on playlist entries
@@ -372,8 +372,8 @@ impl App {
             } else {
                 playlist_dir.join(path)
             };
-            let norm = normalize::normalize(&abs_path);
-            let tokens = tokenizer.tokenize(&norm);
+            let normalized_path = normalize::normalize(&abs_path);
+            let tokens = tokenizer.tokenize(&normalized_path);
             temp_ngrams.windows(&tokens, 5, None, None);
 
             // Train based on entry type
@@ -384,12 +384,12 @@ impl App {
         }
     }
 
-    fn process_classifiers(&mut self) {
+    fn calculate_scores_and_sort_entries(&mut self) {
         // Create temporary vector to swap with entries
         let mut temp_entries = Vec::new();
         std::mem::swap(&mut self.entries, &mut temp_entries);
 
-        let classifiers = self.classifiers();
+        let classifiers = self.get_classifiers();
 
         // Calculate raw scores for each classifier
         for (idx, classifier) in classifiers.iter().enumerate() {
@@ -424,8 +424,8 @@ impl App {
         std::mem::swap(&mut self.entries, &mut temp_entries);
     }
 
-    // Gets classification from user via VLC
-    fn get_user_classification(&self, entry: &Entry) -> Option<vlc::Classification> {
+    // Starts VLC and gets classification from user
+    fn play_file_and_get_classification(&self, entry: &Entry) -> Option<vlc::Classification> {
         let path = entry.file.dir.join(&entry.file.file_name);
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
@@ -478,19 +478,19 @@ impl App {
             ngram_tokens.dedup();
         }
 
-        let mut tuples = Vec::new();
+        let mut ngram_scores = Vec::new();
         for window in ngram_tokens.into_iter() {
             let ngram = Ngram::new(&window);
             let score = self.naive_bayes.ngram_score(ngram);
-            tuples.push((window, score));
+            ngram_scores.push((window, score));
         }
 
         // Sort tuples by absolute score descending
-        tuples.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
+        ngram_scores.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
 
         // Display top 50 ngrams by absolute score
         println!("Top ngrams by absolute score:");
-        for (tokens, score) in tuples.iter().take(50) {
+        for (tokens, score) in ngram_scores.iter().take(50) {
             let token_strs: Vec<&str> = tokens
                 .iter()
                 .map(|t| token_map.get_str(*t).unwrap())
@@ -501,7 +501,7 @@ impl App {
 
         // Display classifier scores
         let score_details: Vec<String> = self
-            .classifiers()
+            .get_classifiers()
             .iter()
             .enumerate()
             .map(|(i, c)| format!("{}: {:.3}", c.name(), entry.scores[i]))
@@ -510,8 +510,8 @@ impl App {
         info!("Classifier scores: {}", score_details.join(", "));
     }
 
-    // Handles the classification result
-    fn handle_classification(
+    // Updates classifiers and playlist with the classification result
+    fn process_classification_result(
         &mut self,
         entry: Entry,
         classification: vlc::Classification,
@@ -536,16 +536,16 @@ impl App {
                     .train_negative(entry.ngrams.as_ref().unwrap());
                 info!("{:?} (NEGATIVE)", path);
             }
-            vlc::Classification::Skipped => unreachable!(), // Handled in get_user_classification
+            vlc::Classification::Skipped => unreachable!(), // Handled in play_file_and_get_classification
         }
         Ok(())
     }
 
     // Main entry point remains simple and high-level
     fn run(&mut self) -> Result<(), Error> {
-        self.init_thread_priority();
-        self.collect_files();
-        self.process_tokens_and_ngrams();
+        self.set_threads_to_min_priority();
+        self.collect_unclassified_files();
+        self.initialize_tokens_and_train_classifiers();
         self.classification_loop()?;
         Ok(())
     }
@@ -553,12 +553,12 @@ impl App {
     // Handles the main classification loop
     fn classification_loop(&mut self) -> Result<(), Error> {
         while !self.entries.is_empty() {
-            self.process_classifiers();
+            self.calculate_scores_and_sort_entries();
 
             if let Some(entry) = self.entries.last().clone() {
                 // Get classifier names
                 let classifier_names: Vec<&str> =
-                    self.classifiers().iter().map(|c| c.name()).collect();
+                    self.get_classifiers().iter().map(|c| c.name()).collect();
 
                 // Display detailed information about the entry
                 self.display_entry_details(&entry);
@@ -568,8 +568,8 @@ impl App {
                     .display_distributions(&self.entries, &entry, &classifier_names);
 
                 let entry = self.entries.pop().unwrap();
-                if let Some(classification) = self.get_user_classification(&entry) {
-                    self.handle_classification(entry, classification)?;
+                if let Some(classification) = self.play_file_and_get_classification(&entry) {
+                    self.process_classification_result(entry, classification)?;
                 }
             }
         }
