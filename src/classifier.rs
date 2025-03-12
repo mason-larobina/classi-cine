@@ -1,5 +1,5 @@
-use crate::ngrams::{Ngram, Ngrams};
 use crate::Entry;
+use crate::ngrams::{Ngram, Ngrams};
 use log::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -112,11 +112,7 @@ impl Classifier for NaiveBayesClassifier {
         let score = log_positive - log_negative;
         assert!(score.is_finite());
 
-        if self.reverse {
-            -score
-        } else {
-            score
-        }
+        if self.reverse { -score } else { score }
     }
 }
 

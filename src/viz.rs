@@ -1,5 +1,5 @@
 use crate::Entry;
-use terminal_size::{terminal_size, Width};
+use terminal_size::{Width, terminal_size};
 use textplots::{Chart, Plot, Shape};
 
 pub struct ScoreVisualizer {

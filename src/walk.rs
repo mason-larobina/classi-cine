@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct File {

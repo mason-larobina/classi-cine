@@ -1,4 +1,4 @@
-use std::path::{Path, MAIN_SEPARATOR};
+use std::path::{MAIN_SEPARATOR, Path};
 
 /// Normalizes a file path by performing the following transformations:
 /// 1. Converts to lowercase

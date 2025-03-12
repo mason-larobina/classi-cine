@@ -151,14 +151,16 @@ impl TokenMap {
 
     pub fn create_token(&mut self, s: &str) -> Token {
         let token = Token(self.str_token.len().try_into().unwrap());
-        assert!(self
-            .str_token
-            .insert(s.to_string(), token.clone())
-            .is_none());
-        assert!(self
-            .token_str
-            .insert(token.clone(), s.to_string())
-            .is_none());
+        assert!(
+            self.str_token
+                .insert(s.to_string(), token.clone())
+                .is_none()
+        );
+        assert!(
+            self.token_str
+                .insert(token.clone(), s.to_string())
+                .is_none()
+        );
         token
     }
 

@@ -26,32 +26,44 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("HTTP request failed: {0}")]
-    Reqwest(#[from] #[source] reqwest::Error),
-    
+    Reqwest(
+        #[from]
+        #[source]
+        reqwest::Error,
+    ),
+
     #[error("JSON parsing failed: {0}")]
-    SerdeJson(#[from] #[source] serde_json::Error),
-    
+    SerdeJson(
+        #[from]
+        #[source]
+        serde_json::Error,
+    ),
+
     #[error("I/O error: {0}")]
-    Io(#[from] #[source] std::io::Error),
-    
+    Io(
+        #[from]
+        #[source]
+        std::io::Error,
+    ),
+
     #[error("Operation timed out: {0}")]
     Timeout(String),
-    
+
     #[error("Filename mismatch - expected: {expected}, got: {got}")]
     FilenameMismatch { expected: String, got: String },
-    
+
     #[error("VLC process failed: {0}")]
     ProcessFailed(#[source] std::io::Error),
-    
+
     #[error("Failed to bind to port: {0}")]
     InvalidPort(#[source] std::io::Error),
-    
+
     #[error("VLC not responding: {0}")]
     VLCNotResponding(String),
-    
+
     #[error("Playlist error: {0}")]
     PlaylistError(String),
-    
+
     #[error("File walk error: {0}")]
     WalkError(String),
 }
@@ -222,7 +234,7 @@ impl App {
         // Create set of already classified paths (convert relative paths to absolute)
         let mut classified = HashSet::new();
         let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
-        
+
         // Add all entries (both positive and negative) to the classified set
         for entry in self.playlist.entries() {
             let path = entry.path();
@@ -351,7 +363,7 @@ impl App {
         // Train naive bayes classifier on playlist entries
         let mut temp_ngrams = Ngrams::default();
         let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
-        
+
         // Process all examples in a single loop
         for entry in self.playlist.entries().iter() {
             let path = entry.path();
@@ -363,7 +375,7 @@ impl App {
             let norm = normalize::normalize(&abs_path);
             let tokens = tokenizer.tokenize(&norm);
             temp_ngrams.windows(&tokens, 5, None, None);
-            
+
             // Train based on entry type
             match entry {
                 PlaylistEntry::Positive(_) => self.naive_bayes.train_positive(&temp_ngrams),
@@ -568,19 +580,23 @@ impl App {
 fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
     // Load the original playlist
     let original_playlist = M3uPlaylist::open(original_path)?;
-    
+
     // Create a new playlist at the target location
     let mut new_playlist = M3uPlaylist::open(new_path)?;
-    
+
     // Get the absolute paths of both playlist parent directories
-    let original_dir = original_playlist.path().parent()
+    let original_dir = original_playlist
+        .path()
+        .parent()
         .unwrap_or(Path::new(""))
         .to_path_buf();
-    
-    info!("Moving playlist from {} to {}", 
-          original_playlist.path().display(), 
-          new_playlist.path().display());
-    
+
+    info!(
+        "Moving playlist from {} to {}",
+        original_playlist.path().display(),
+        new_playlist.path().display()
+    );
+
     // Process all entries in original order
     for entry in original_playlist.entries() {
         // Convert relative path to absolute using original playlist's parent
@@ -590,24 +606,26 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
         } else {
             original_dir.join(rel_path)
         };
-        
+
         // Add to new playlist based on entry type
         match entry {
             PlaylistEntry::Positive(_) => {
                 new_playlist.add_positive(&abs_path)?;
                 debug!("Moved positive entry: {}", abs_path.display());
-            },
+            }
             PlaylistEntry::Negative(_) => {
                 new_playlist.add_negative(&abs_path)?;
                 debug!("Moved negative entry: {}", abs_path.display());
             }
         }
     }
-    
-    println!("Successfully moved playlist from {} to {}", 
-             original_playlist.path().display(), 
-             new_playlist.path().display());
-    
+
+    println!(
+        "Successfully moved playlist from {} to {}",
+        original_playlist.path().display(),
+        new_playlist.path().display()
+    );
+
     Ok(())
 }
 
