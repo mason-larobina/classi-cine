@@ -131,9 +131,12 @@ impl Classifier for NaiveBayesClassifier {
     }
 }
 
-/// Classifies based on file size
+/// Classifies based on file size using logarithmic scaling
+/// 
+/// # Panics
+/// Panics during construction if log_base <= 1.0
 pub struct FileSizeClassifier {
-    /// Base for logarithmic scaling
+    /// Base for logarithmic scaling (must be > 1.0)
     log_base: f64,
     /// Whether to reverse the scoring (larger files = lower score)
     reverse: bool,
@@ -141,6 +144,7 @@ pub struct FileSizeClassifier {
 
 impl FileSizeClassifier {
     pub fn new(log_base: f64, reverse: bool) -> Self {
+        assert!(log_base > 1.0, "Log base must be greater than 1");
         Self { log_base, reverse }
     }
 }
@@ -168,9 +172,12 @@ impl Classifier for FileSizeClassifier {
     }
 }
 
-/// Classifies based on number of files in same directory
+/// Classifies based on number of files in same directory using logarithmic scaling
+/// 
+/// # Panics
+/// Panics during construction if log_base <= 1.0
 pub struct DirSizeClassifier {
-    /// Base for logarithmic scaling
+    /// Base for logarithmic scaling (must be > 1.0)
     log_base: f64,
     /// Whether to reverse the scoring (more files = lower score)
     reverse: bool,
@@ -180,6 +187,7 @@ pub struct DirSizeClassifier {
 
 impl DirSizeClassifier {
     pub fn new(log_base: f64, reverse: bool) -> Self {
+        assert!(log_base > 1.0, "Log base must be greater than 1");
         Self {
             log_base,
             reverse,
