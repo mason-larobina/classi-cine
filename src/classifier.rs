@@ -22,8 +22,12 @@ pub struct NaiveBayesClassifier {
     negative_counts: HashMap<Ngram, u32>,
     /// Total positive examples seen
     positive_total: u32,
+    /// Total positive ngrams seen
+    positive_total_ngrams: u32,
     /// Total negative examples seen
     negative_total: u32,
+    /// Total negative ngrams seen
+    negative_total_ngrams: u32,
     /// Whether to reverse the scoring
     reverse: bool,
     /// Set of all unique ngrams seen in either class
@@ -54,6 +58,7 @@ impl NaiveBayesClassifier {
             *self.positive_counts.entry(*ngram).or_default() += 1;
             self.vocabulary.insert(*ngram);
         }
+        self.positive_total_ngrams += ngrams.len() as u32;
     }
 
     pub fn train_negative(&mut self, ngrams: &Ngrams) {
@@ -62,6 +67,7 @@ impl NaiveBayesClassifier {
             *self.negative_counts.entry(*ngram).or_default() += 1;
             self.vocabulary.insert(*ngram);
         }
+        self.negative_total_ngrams += ngrams.len() as u32;
     }
 
     /// Returns log probability with Laplace smoothing
@@ -75,7 +81,12 @@ impl NaiveBayesClassifier {
         // Laplace smoothing in log space
         let count = counts.get(&ngram).copied().unwrap_or(0) as f64;
         let vocab_size = self.vocabulary.len() as f64;
-        ((1.0 + count) / (1.0 + total as f64 + vocab_size)).ln()
+        let total_ngrams = if positive {
+            self.positive_total_ngrams
+        } else {
+            self.negative_total_ngrams
+        } as f64;
+        ((1.0 + count) / (total_ngrams + vocab_size)).ln()
     }
 }
 
