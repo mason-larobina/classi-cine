@@ -18,20 +18,23 @@ pub trait Classifier {
 pub struct NaiveBayesClassifier {
     /// Ngram counts for positive examples
     positive_counts: HashMap<Ngram, u32>,
+    /// Total positive examples seen
+    positive_total: u64,
+    /// Total positive ngrams seen
+    positive_total_ngrams: u64,
+
     /// Ngram counts for negative examples
     negative_counts: HashMap<Ngram, u32>,
-    /// Total positive examples seen
-    positive_total: u32,
-    /// Total positive ngrams seen
-    positive_total_ngrams: u32,
     /// Total negative examples seen
-    negative_total: u32,
+    negative_total: u64,
     /// Total negative ngrams seen
-    negative_total_ngrams: u32,
-    /// Whether to reverse the scoring
-    reverse: bool,
+    negative_total_ngrams: u64,
+
     /// Set of all unique ngrams seen in either class
     vocabulary: HashSet<Ngram>,
+
+    /// Whether to reverse the scoring
+    reverse: bool,
 }
 
 impl NaiveBayesClassifier {
@@ -44,11 +47,13 @@ impl NaiveBayesClassifier {
     pub fn new(reverse: bool) -> Self {
         Self {
             positive_counts: HashMap::new(),
-            negative_counts: HashMap::new(),
             positive_total: 0,
+            positive_total_ngrams: 0,
+            negative_counts: HashMap::new(),
             negative_total: 0,
-            reverse,
+            negative_total_ngrams: 0,
             vocabulary: HashSet::new(),
+            reverse,
         }
     }
 
@@ -57,8 +62,8 @@ impl NaiveBayesClassifier {
         for ngram in ngrams.iter() {
             *self.positive_counts.entry(*ngram).or_default() += 1;
             self.vocabulary.insert(*ngram);
+            self.positive_total_ngrams += 1;
         }
-        self.positive_total_ngrams += ngrams.len() as u32;
     }
 
     pub fn train_negative(&mut self, ngrams: &Ngrams) {
@@ -66,27 +71,21 @@ impl NaiveBayesClassifier {
         for ngram in ngrams.iter() {
             *self.negative_counts.entry(*ngram).or_default() += 1;
             self.vocabulary.insert(*ngram);
+            self.negative_total_ngrams += 1;
         }
-        self.negative_total_ngrams += ngrams.len() as u32;
     }
 
     /// Returns log probability with Laplace smoothing
     fn log_probability(&self, ngram: Ngram, positive: bool) -> f64 {
-        let (counts, total) = if positive {
-            (&self.positive_counts, self.positive_total)
+        let (counts, total_ngrams) = if positive {
+            (&self.positive_counts, self.positive_total_ngrams)
         } else {
-            (&self.negative_counts, self.negative_total)
+            (&self.negative_counts, self.negative_total_ngrams)
         };
-
         // Laplace smoothing in log space
         let count = counts.get(&ngram).copied().unwrap_or(0) as f64;
         let vocab_size = self.vocabulary.len() as f64;
-        let total_ngrams = if positive {
-            self.positive_total_ngrams
-        } else {
-            self.negative_total_ngrams
-        } as f64;
-        ((1.0 + count) / (total_ngrams + vocab_size)).ln()
+        ((1.0 + count) / (1.0 + total_ngrams as f64 + vocab_size)).ln()
     }
 }
 
