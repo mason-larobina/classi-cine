@@ -51,30 +51,16 @@ impl NaiveBayesClassifier {
     pub fn train_positive(&mut self, ngrams: &Ngrams) {
         self.positive_total += 1;
         for ngram in ngrams.iter() {
-            // Track if this ngram is new to both classes
-            let is_new = !self.positive_counts.contains_key(ngram) 
-                && !self.negative_counts.contains_key(ngram);
-                
             *self.positive_counts.entry(*ngram).or_default() += 1;
-            
-            if is_new {
-                self.vocabulary.insert(*ngram);
-            }
+            self.vocabulary.insert(*ngram);
         }
     }
 
     pub fn train_negative(&mut self, ngrams: &Ngrams) {
         self.negative_total += 1;
         for ngram in ngrams.iter() {
-            // Track if this ngram is new to both classes
-            let is_new = !self.negative_counts.contains_key(ngram)
-                && !self.positive_counts.contains_key(ngram);
-                
             *self.negative_counts.entry(*ngram).or_default() += 1;
-            
-            if is_new {
-                self.vocabulary.insert(*ngram);
-            }
+            self.vocabulary.insert(*ngram);
         }
     }
 
@@ -89,7 +75,7 @@ impl NaiveBayesClassifier {
         // Laplace smoothing in log space
         let count = counts.get(&ngram).copied().unwrap_or(0) as f64;
         let vocab_size = self.vocabulary.len() as f64;
-        ((1.0 + count) / (1.0 + (total as f64) + vocab_size)).ln()
+        ((1.0 + count) / (1.0 + total as f64 + vocab_size)).ln()
     }
 }
 
