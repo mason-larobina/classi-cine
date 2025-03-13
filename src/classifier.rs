@@ -94,10 +94,10 @@ impl Classifier for NaiveBayesClassifier {
         // log_negative = ln(0.1) ≈ -2.302
         // This captures our prior belief that new examples are more likely to be positive
         let mut log_positive = ((1.0 + self.positive_total as f64)
-            / (1 + self.positive_total + self.negative_total) as f64)
+            / (2 + self.positive_total + self.negative_total) as f64)
             .ln();
         let mut log_negative = ((1.0 + self.negative_total as f64)
-            / (1 + self.positive_total + self.negative_total) as f64)
+            / (2 + self.positive_total + self.negative_total) as f64)
             .ln();
 
         // Add log likelihoods: log P(ngrams|class)
