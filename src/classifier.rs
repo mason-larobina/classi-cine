@@ -1,7 +1,7 @@
 use crate::Entry;
 use crate::ngrams::{Ngram, Ngrams};
 use log::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -26,6 +26,8 @@ pub struct NaiveBayesClassifier {
     negative_total: u32,
     /// Whether to reverse the scoring
     reverse: bool,
+    /// Set of all unique ngrams seen in either class
+    vocabulary: HashSet<Ngram>,
 }
 
 impl NaiveBayesClassifier {
@@ -42,20 +44,37 @@ impl NaiveBayesClassifier {
             positive_total: 0,
             negative_total: 0,
             reverse,
+            vocabulary: HashSet::new(),
         }
     }
 
     pub fn train_positive(&mut self, ngrams: &Ngrams) {
         self.positive_total += 1;
         for ngram in ngrams.iter() {
+            // Track if this ngram is new to both classes
+            let is_new = !self.positive_counts.contains_key(ngram) 
+                && !self.negative_counts.contains_key(ngram);
+                
             *self.positive_counts.entry(*ngram).or_default() += 1;
+            
+            if is_new {
+                self.vocabulary.insert(*ngram);
+            }
         }
     }
 
     pub fn train_negative(&mut self, ngrams: &Ngrams) {
         self.negative_total += 1;
         for ngram in ngrams.iter() {
+            // Track if this ngram is new to both classes
+            let is_new = !self.negative_counts.contains_key(ngram)
+                && !self.positive_counts.contains_key(ngram);
+                
             *self.negative_counts.entry(*ngram).or_default() += 1;
+            
+            if is_new {
+                self.vocabulary.insert(*ngram);
+            }
         }
     }
 
@@ -69,8 +88,8 @@ impl NaiveBayesClassifier {
 
         // Laplace smoothing in log space
         let count = counts.get(&ngram).copied().unwrap_or(0) as f64;
-        let vocab_size = self.positive_counts.len() + self.negative_counts.len();
-        ((1.0 + count) / (1.0 + (total as f64) + (vocab_size as f64))).ln()
+        let vocab_size = self.vocabulary.len() as f64;
+        ((1.0 + count) / (1.0 + (total as f64) + vocab_size)).ln()
     }
 }
 
