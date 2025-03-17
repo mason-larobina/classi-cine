@@ -1,4 +1,4 @@
-use std::path::{MAIN_SEPARATOR, Path};
+use std::path::{Component, MAIN_SEPARATOR, Path, PathBuf};
 
 /// Normalizes a file path by performing the following transformations:
 /// 1. Converts to lowercase
@@ -6,6 +6,40 @@ use std::path::{MAIN_SEPARATOR, Path};
 /// 3. Collapses consecutive special characters into single spaces
 /// 4. Removes apostrophes and trailing spaces
 /// 5. Maintains single path separators while cleaning surrounding spaces
+/// Convert path to canonical form, falling back to absolute + normalized if path doesn't exist
+pub fn canonicalize_path(path: &Path) -> PathBuf {
+    if let Ok(canon) = path.canonicalize() {
+        canon
+    } else {
+        let abs_path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+        normalize_abs_path(&abs_path)
+    }
+}
+
+/// Normalize an absolute path by resolving . and .. components 
+fn normalize_abs_path(path: &Path) -> PathBuf {
+    let mut stack = Vec::new();
+    
+    for component in path.components() {
+        match component {
+            Component::CurDir => {},
+            Component::ParentDir => {
+                if let Some(Component::Normal(_)) = stack.last() {
+                    stack.pop();
+                }
+            },
+            other => stack.push(other),
+        }
+    }
+    
+    let mut normalized = PathBuf::new();
+    for component in stack {
+        normalized.push(component.as_os_str());
+    }
+    
+    normalized
+}
+
 pub fn normalize(file: &Path) -> String {
     let file = file.to_string_lossy().to_lowercase();
     let mut ret = String::new();
@@ -34,6 +68,30 @@ pub fn normalize(file: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_canonicalization() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file = temp_dir.path().join("test.txt");
+        std::fs::write(&file, "").unwrap();
+        
+        // Existing path
+        let existing = canonicalize_path(&file);
+        assert_eq!(existing, file.canonicalize().unwrap());
+        
+        // Non-existing path
+        let non_existing = Path::new("/non/existing/../path.txt");
+        assert_eq!(canonicalize_path(non_existing), PathBuf::from("/non/path.txt"));
+        
+        // Relative path
+        let relative = Path::new("test/../file.txt");
+        let expected = std::env::current_dir().unwrap().join("file.txt");
+        assert_eq!(canonicalize_path(relative), expected);
+        
+        // Complex normalization
+        let complex = Path::new("/a/b/../c/./d/../../e");
+        assert_eq!(canonicalize_path(complex), PathBuf::from("/a/e"));
+    }
 
     #[test]
     fn special_characters() {

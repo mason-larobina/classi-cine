@@ -65,16 +65,8 @@ impl M3uPlaylist {
     }
 
     pub fn open(path: &Path) -> Result<Self, Error> {
-        // Make sure we have an absolute path for the playlist file
-        let mut path = path.canonicalize().unwrap_or_else(|e| {
-            warn!("canonicalize error: {:?} {:?}", path, e);
-            path.to_path_buf()
-        });
-
-        if path.is_relative() {
-            warn!("absolute instead");
-            path = std::path::absolute(path).unwrap();
-        }
+        // Get canonical or normalized absolute path
+        let path = crate::normalize::canonicalize_path(path);
 
         let root = path.parent().unwrap().to_path_buf();
 
