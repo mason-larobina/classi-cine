@@ -233,19 +233,17 @@ impl App {
     fn collect_unclassified_files(&mut self) {
         // Create set of already classified paths (convert relative paths to absolute)
         let mut classified_paths = HashSet::new();
-        let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
+        let playlist_dir = self.playlist.root();
 
         // Add all entries (both positive and negative) to the classified set
         for entry in self.playlist.entries() {
-            let path = entry.path();
-            let abs_path = if path.is_absolute() {
-                path.clone()
-            } else {
-                playlist_dir.join(path)
-            };
-            classified_paths.insert(abs_path);
+            let abs_path = playlist_dir.join(entry.path());
+            let canon = abs_path.canonicalize().unwrap_or_else(|e| {
+                warn!("Unable to canonicalize {:?}, {:?}", abs_path, e);
+                abs_path
+            });
+            classified_paths.insert(canon);
         }
-        //info!("Classified {:?}", classified_paths);
 
         let walk = Walk::new(self.build_args.video_exts.iter().map(String::as_ref));
         for dir in &self.build_args.dirs {
@@ -367,12 +365,9 @@ impl App {
         // Process all examples in a single loop
         for entry in self.playlist.entries().iter() {
             let path = entry.path();
-            let abs_path = if path.is_absolute() {
-                path.clone()
-            } else {
-                playlist_dir.join(path)
-            };
-            let normalized_path = normalize::normalize(&abs_path);
+            let abs_path = playlist_dir.join(path);
+            let canon = abs_path.canonicalize().unwrap_or_else(|_| abs_path);
+            let normalized_path = normalize::normalize(&canon);
             let tokens = tokenizer.tokenize(&normalized_path);
             temp_ngrams.windows(&tokens, 5, None, None);
 
@@ -600,12 +595,7 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
     // Process all entries in original order
     for entry in original_playlist.entries() {
         // Convert relative path to absolute using original playlist's parent
-        let rel_path = entry.path();
-        let abs_path = if rel_path.is_absolute() {
-            rel_path.clone()
-        } else {
-            original_dir.join(rel_path)
-        };
+        let abs_path = original_dir.join(entry.path());
 
         // Add to new playlist based on entry type
         match entry {
@@ -647,11 +637,7 @@ fn main() -> Result<(), Error> {
             let root = playlist.path().parent().unwrap_or(Path::new(""));
             for entry in playlist.entries().iter() {
                 if let &PlaylistEntry::Positive(ref path) = entry {
-                    let abs_path = if path.is_absolute() {
-                        path.clone()
-                    } else {
-                        root.join(path)
-                    };
+                    let abs_path = root.join(path);
                     println!("{}", abs_path.display());
                 };
             }
@@ -661,11 +647,7 @@ fn main() -> Result<(), Error> {
             let root = playlist.path().parent().unwrap_or(Path::new(""));
             for entry in playlist.entries().iter() {
                 if let &PlaylistEntry::Negative(ref path) = entry {
-                    let abs_path = if path.is_absolute() {
-                        path.clone()
-                    } else {
-                        root.join(path)
-                    };
+                    let abs_path = root.join(path);
                     println!("{}", abs_path.display());
                 };
             }

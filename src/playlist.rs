@@ -40,6 +40,7 @@ pub trait Playlist {
 /// M3U playlist implementation that tracks positive/negative classifications
 pub struct M3uPlaylist {
     path: PathBuf,
+    root: PathBuf,
     entries: Vec<PlaylistEntry>, // Single vector for all entries in order
 }
 
@@ -48,18 +49,38 @@ impl M3uPlaylist {
         &self.path
     }
 
-    // Helper method to convert absolute paths to relative (relative to playlist directory)
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn to_relative_path(&self, path: &Path) -> PathBuf {
-        let parent = self.path.parent().unwrap();
-        diff_paths(path, parent).unwrap_or_else(|| path.to_path_buf())
+        assert!(path.is_absolute());
+        let root = self.root();
+        let result = diff_paths(path, self.root()).unwrap_or_else(|| {
+            warn!("Uable to diff path: {:?}", path);
+            path.to_path_buf()
+        });
+        info!("Path {:?} root {:?} result {:?}", path, root, result);
+        result
     }
 
     pub fn open(path: &Path) -> Result<Self, Error> {
         // Make sure we have an absolute path for the playlist file
-        let path = std::path::absolute(path).unwrap();
+        let mut path = path.canonicalize().unwrap_or_else(|e| {
+            warn!("canonicalize error: {:?} {:?}", path, e);
+            path.to_path_buf()
+        });
+
+        if path.is_relative() {
+            warn!("absolute instead");
+            path = std::path::absolute(path).unwrap();
+        }
+
+        let root = path.parent().unwrap().to_path_buf();
 
         let mut playlist = Self {
             path,
+            root,
             entries: Vec::new(),
         };
 
@@ -106,21 +127,21 @@ impl M3uPlaylist {
 }
 
 impl Playlist for M3uPlaylist {
-    fn add_positive(&mut self, path: &Path) -> Result<(), Error> {
-        let relative_path = self.to_relative_path(path);
+    fn add_positive(&mut self, abs_path: &Path) -> Result<(), Error> {
+        let rel_path = self.to_relative_path(abs_path);
         self.entries
-            .push(PlaylistEntry::Positive(relative_path.clone()));
+            .push(PlaylistEntry::Positive(rel_path.clone()));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
-        writeln!(file, "{}", relative_path.display())?;
+        writeln!(file, "{}", rel_path.display())?;
         Ok(())
     }
 
     fn add_negative(&mut self, path: &Path) -> Result<(), Error> {
-        let relative_path = self.to_relative_path(path);
+        let rel_path = self.to_relative_path(path);
         self.entries
-            .push(PlaylistEntry::Negative(relative_path.clone()));
+            .push(PlaylistEntry::Negative(rel_path.clone()));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
-        writeln!(file, "{}{}", NEGATIVE_PREFIX, relative_path.display())?;
+        writeln!(file, "{}{}", NEGATIVE_PREFIX, rel_path.display())?;
         Ok(())
     }
 

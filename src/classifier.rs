@@ -77,6 +77,10 @@ impl NaiveBayesClassifier {
 
     /// Returns log probability with Laplace smoothing
     fn log_probability(&self, ngram: Ngram, positive: bool) -> f64 {
+        if self.vocabulary.is_empty() {
+            // Neutral probability for untrained classifier.
+            return 0.0;
+        }
         let (counts, total_ngrams) = if positive {
             (&self.positive_counts, self.positive_total_ngrams)
         } else {
@@ -85,7 +89,7 @@ impl NaiveBayesClassifier {
         // Laplace smoothing in log space
         let count = counts.get(&ngram).copied().unwrap_or(0) as f64;
         let vocab_size = self.vocabulary.len() as f64;
-        ((1.0 + count) / (1.0 + total_ngrams as f64 + vocab_size)).ln()
+        ((1.0 + count) / (total_ngrams as f64 + vocab_size)).ln()
     }
 }
 

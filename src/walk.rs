@@ -77,11 +77,16 @@ impl Walk {
             };
 
             let path = entry.path();
+            let path = path.canonicalize().unwrap_or_else(|_| {
+                warn!("Unable to canonicalize path: {:?}", path);
+                path
+            });
+
             let ft = metadata.file_type();
             if ft.is_dir() {
                 let exts = Arc::clone(&exts);
                 let tx = Arc::clone(&tx);
-                let child_dir = Arc::new(path.to_path_buf());
+                let child_dir = Arc::new(path);
                 rayon::spawn(move || {
                     Self::inner_walk_dir(exts, tx, child_dir);
                 });
