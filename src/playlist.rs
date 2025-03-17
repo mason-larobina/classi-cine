@@ -121,8 +121,7 @@ impl M3uPlaylist {
 impl Playlist for M3uPlaylist {
     fn add_positive(&mut self, abs_path: &Path) -> Result<(), Error> {
         let rel_path = self.to_relative_path(abs_path);
-        self.entries
-            .push(PlaylistEntry::Positive(rel_path.clone()));
+        self.entries.push(PlaylistEntry::Positive(rel_path.clone()));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
         writeln!(file, "{}", rel_path.display())?;
         Ok(())
@@ -130,8 +129,7 @@ impl Playlist for M3uPlaylist {
 
     fn add_negative(&mut self, path: &Path) -> Result<(), Error> {
         let rel_path = self.to_relative_path(path);
-        self.entries
-            .push(PlaylistEntry::Negative(rel_path.clone()));
+        self.entries.push(PlaylistEntry::Negative(rel_path.clone()));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
         writeln!(file, "{}{}", NEGATIVE_PREFIX, rel_path.display())?;
         Ok(())

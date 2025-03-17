@@ -637,8 +637,8 @@ fn main() -> Result<(), Error> {
             let root = playlist.path().parent().unwrap_or(Path::new(""));
             for entry in playlist.entries().iter() {
                 if let &PlaylistEntry::Positive(ref path) = entry {
-                    let abs_path = root.join(path);
-                    println!("{}", abs_path.display());
+                    let canon = normalize::canonicalize_path(&root.join(path));
+                    println!("{}", canon.display());
                 };
             }
         }
@@ -647,8 +647,8 @@ fn main() -> Result<(), Error> {
             let root = playlist.path().parent().unwrap_or(Path::new(""));
             for entry in playlist.entries().iter() {
                 if let &PlaylistEntry::Negative(ref path) = entry {
-                    let abs_path = root.join(path);
-                    println!("{}", abs_path.display());
+                    let canon = normalize::canonicalize_path(&root.join(path));
+                    println!("{}", canon.display());
                 };
             }
         }

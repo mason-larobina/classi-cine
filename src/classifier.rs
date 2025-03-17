@@ -136,7 +136,7 @@ impl Classifier for NaiveBayesClassifier {
 }
 
 /// Classifies based on file size using logarithmic scaling
-/// 
+///
 /// # Panics
 /// Panics during construction if log_base <= 1.0
 pub struct FileSizeClassifier {
@@ -177,7 +177,7 @@ impl Classifier for FileSizeClassifier {
 }
 
 /// Classifies based on number of files in same directory using logarithmic scaling
-/// 
+///
 /// # Panics
 /// Panics during construction if log_base <= 1.0
 pub struct DirSizeClassifier {
