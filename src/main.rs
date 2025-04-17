@@ -536,15 +536,6 @@ impl App {
         Ok(())
     }
 
-    // Main entry point remains simple and high-level
-    fn run(&mut self) -> Result<(), Error> {
-        self.set_threads_to_min_priority();
-        self.collect_unclassified_files();
-        self.initialize_tokens_and_train_classifiers();
-        self.classification_loop()?;
-        Ok(())
-    }
-
     // Handles the main classification loop
     fn classification_loop(&mut self) -> Result<(), Error> {
         while !self.entries.is_empty() {
@@ -570,21 +561,24 @@ impl App {
         }
         Ok(())
     }
+
+    // Main entry point remains simple and high-level
+    fn run(&mut self) -> Result<(), Error> {
+        self.set_threads_to_min_priority();
+        self.collect_unclassified_files();
+        self.initialize_tokens_and_train_classifiers();
+        self.classification_loop()?;
+        Ok(())
+    }
 }
 
 fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
     // Load the original playlist
     let original_playlist = M3uPlaylist::open(original_path)?;
+    let original_root = original_playlist.root();
 
     // Create a new playlist at the target location
     let mut new_playlist = M3uPlaylist::open(new_path)?;
-
-    // Get the absolute paths of both playlist parent directories
-    let original_dir = original_playlist
-        .path()
-        .parent()
-        .unwrap_or(Path::new(""))
-        .to_path_buf();
 
     info!(
         "Moving playlist from {} to {}",
@@ -594,18 +588,18 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
 
     // Process all entries in original order
     for entry in original_playlist.entries() {
-        // Convert relative path to absolute using original playlist's parent
-        let abs_path = original_dir.join(entry.path());
+        let abs_path = &original_root.join(entry.path());
+        let canon = normalize::canonicalize_path(abs_path);
 
         // Add to new playlist based on entry type
         match entry {
             PlaylistEntry::Positive(_) => {
-                new_playlist.add_positive(&abs_path)?;
-                debug!("Moved positive entry: {}", abs_path.display());
+                new_playlist.add_positive(&canon)?;
+                debug!("Moved positive entry: {}", canon.display());
             }
             PlaylistEntry::Negative(_) => {
-                new_playlist.add_negative(&abs_path)?;
-                debug!("Moved negative entry: {}", abs_path.display());
+                new_playlist.add_negative(&canon)?;
+                debug!("Moved negative entry: {}", canon.display());
             }
         }
     }

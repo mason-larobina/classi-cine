@@ -55,19 +55,16 @@ impl M3uPlaylist {
 
     pub fn to_relative_path(&self, path: &Path) -> PathBuf {
         assert!(path.is_absolute());
-        let root = self.root();
         let result = diff_paths(path, self.root()).unwrap_or_else(|| {
             warn!("Uable to diff path: {:?}", path);
             path.to_path_buf()
         });
-        info!("Path {:?} root {:?} result {:?}", path, root, result);
         result
     }
 
     pub fn open(path: &Path) -> Result<Self, Error> {
         // Get canonical or normalized absolute path
         let path = crate::normalize::canonicalize_path(path);
-
         let root = path.parent().unwrap().to_path_buf();
 
         let mut playlist = Self {
