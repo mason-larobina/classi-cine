@@ -82,10 +82,8 @@ struct Args {
 enum Command {
     /// Build playlist through interactive classification
     Build(BuildArgs),
-    /// List positively classified files
-    ListPositive(ListArgs),
-    /// List negatively classified files
-    ListNegative(ListArgs),
+    /// List classified files
+    List(ListArgs),
     /// Move playlist to a new location and rebase paths
     Move(MoveArgs),
 }
@@ -146,10 +144,27 @@ struct DirSizeArgs {
     dir_size_bias: f64,
 }
 
+#[derive(Debug, Clone)]
+enum ListFilter {
+    Positive,
+    Negative,
+}
+
 #[derive(Parser, Debug, Clone)]
 struct ListArgs {
     /// M3U playlist file
     playlist: PathBuf,
+    /// Which entries to list
+    #[clap(subcommand)]
+    filter: ListFilter,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum ListFilter {
+    /// List positively classified files
+    Positive,
+    /// List negatively classified files
+    Negative,
 }
 
 #[derive(Debug)]
@@ -626,24 +641,17 @@ fn main() -> Result<(), Error> {
             let mut app = App::new(args.clone(), build_args.clone(), playlist);
             app.run()?;
         }
-        Command::ListPositive(list_args) => {
+        Command::List(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
             let root = playlist.path().parent().unwrap_or(Path::new(""));
-            for entry in playlist.entries().iter() {
-                if let &PlaylistEntry::Positive(ref path) = entry {
-                    let canon = normalize::canonicalize_path(&root.join(path));
-                    println!("{}", canon.display());
-                };
-            }
-        }
-        Command::ListNegative(list_args) => {
-            let playlist = M3uPlaylist::open(&list_args.playlist)?;
-            let root = playlist.path().parent().unwrap_or(Path::new(""));
-            for entry in playlist.entries().iter() {
-                if let &PlaylistEntry::Negative(ref path) = entry {
-                    let canon = normalize::canonicalize_path(&root.join(path));
-                    println!("{}", canon.display());
-                };
+            let entries = match list_args.filter {
+                ListFilter::Positive => playlist.entries().iter().filter(|e| matches!(e, PlaylistEntry::Positive(_))),
+                ListFilter::Negative => playlist.entries().iter().filter(|e| matches!(e, PlaylistEntry::Negative(_))),
+            };
+            for entry in entries {
+                let path = entry.path();
+                let canon = normalize::canonicalize_path(&root.join(path));
+                println!("{}", canon.display());
             }
         }
         Command::Move(move_args) => {
