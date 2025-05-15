@@ -551,7 +551,7 @@ impl App {
         while !self.entries.is_empty() {
             self.calculate_scores_and_sort_entries();
 
-            let num_to_process = std::cmp::min(self.build_args.top_n, self.entries.len());
+            let num_to_process = std::cmp::min(self.entries.len(), std::cmp::max(self.build_args.top_n, 1));
             let entries_to_process: Vec<Entry> =
                 self.entries.drain(self.entries.len() - num_to_process..).collect();
 
