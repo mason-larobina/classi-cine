@@ -115,6 +115,9 @@ struct BuildArgs {
     file_size: FileSizeArgs,
     #[command(flatten)]
     dir_size: DirSizeArgs,
+    /// Number of top entries to classify in each iteration
+    #[clap(long, default_value_t = 1)]
+    top_n: usize,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -142,9 +145,6 @@ struct DirSizeArgs {
     /// Bias scoring based on directory sizes
     #[clap(long, default_value_t = 0.0)]
     dir_size_bias: f64,
-    /// Number of top entries to classify in each iteration
-    #[clap(long, default_value_t = 1)]
-    top_n: usize,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -551,7 +551,7 @@ impl App {
         while !self.entries.is_empty() {
             self.calculate_scores_and_sort_entries();
 
-            let num_to_process = std::cmp::min(self.build_args.dir_size.top_n, self.entries.len());
+            let num_to_process = std::cmp::min(self.build_args.top_n, self.entries.len());
             let entries_to_process: Vec<Entry> =
                 self.entries.drain(self.entries.len() - num_to_process..).collect();
 
