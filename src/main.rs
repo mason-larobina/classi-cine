@@ -142,6 +142,9 @@ struct DirSizeArgs {
     /// Bias scoring based on directory sizes
     #[clap(long, default_value_t = 0.0)]
     dir_size_bias: f64,
+    /// Number of top entries to classify in each iteration
+    #[clap(long, default_value_t = 1)]
+    top_n: usize,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -548,7 +551,11 @@ impl App {
         while !self.entries.is_empty() {
             self.calculate_scores_and_sort_entries();
 
-            if let Some(entry) = self.entries.last().clone() {
+            let num_to_process = std::cmp::min(self.build_args.dir_size.top_n, self.entries.len());
+            let entries_to_process: Vec<Entry> =
+                self.entries.drain(self.entries.len() - num_to_process..).collect();
+
+            for entry in entries_to_process {
                 // Get classifier names
                 let classifier_names: Vec<&str> =
                     self.get_classifiers().iter().map(|c| c.name()).collect();
@@ -560,7 +567,6 @@ impl App {
                 self.visualizer
                     .display_distributions(&self.entries, &entry, &classifier_names);
 
-                let entry = self.entries.pop().unwrap();
                 if let Some(classification) = self.play_file_and_get_classification(&entry) {
                     self.process_classification_result(entry, classification)?;
                 }
