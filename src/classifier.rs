@@ -4,6 +4,7 @@ use log::*;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 /// Trait for types that can classify files/content
 pub trait Classifier {
@@ -231,6 +232,50 @@ impl Classifier for DirSizeClassifier {
             -score
         } else {
             score
+        }
+    }
+}
+
+/// Classifies based on file creation time
+pub struct FileAgeClassifier {
+    /// Whether to reverse the scoring (older files = lower score)
+    reverse: bool,
+    /// The current time, used as a reference point for age calculation
+    now: SystemTime,
+}
+
+impl FileAgeClassifier {
+    pub fn new(reverse: bool) -> Self {
+        Self {
+            reverse,
+            now: SystemTime::now(),
+        }
+    }
+}
+
+impl Classifier for FileAgeClassifier {
+    fn name(&self) -> &'static str {
+        "file_age"
+    }
+
+    fn calculate_score(&self, item: &Entry) -> f64 {
+        let age_seconds = match self.now.duration_since(item.file.created) {
+            Ok(duration) => duration.as_secs_f64(),
+            Err(_) => {
+                // File created in the future, treat as very young
+                0.0
+            }
+        };
+
+        // Simple linear scoring based on age.
+        // Younger files get a higher score (unless reversed).
+        // We can adjust the scaling factor (e.g., divide by a constant) if needed.
+        let score = -age_seconds; // Negative because younger (smaller age_seconds) should have higher score
+
+        if self.reverse {
+            -score // Reverse the score: older files get higher score
+        } else {
+            score // Younger files get higher score
         }
     }
 }

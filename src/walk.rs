@@ -6,6 +6,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
+use std::time::SystemTime;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct File {
@@ -13,6 +14,7 @@ pub struct File {
     pub file_name: PathBuf,
     pub size: u64,
     pub inode: u64,
+    pub created: SystemTime,
 }
 
 pub struct Walk {
@@ -99,11 +101,19 @@ impl Walk {
                     continue;
                 }
                 let file_name = PathBuf::from(path.file_name().unwrap());
+                let created = match metadata.created() {
+                    Ok(time) => time,
+                    Err(e) => {
+                        warn!("Could not get creation time for {:?}: {}", path, e);
+                        SystemTime::UNIX_EPOCH // Default to epoch if creation time is unavailable
+                    }
+                };
                 let file = File {
                     dir: Arc::clone(&dir),
                     file_name,
                     size: metadata.len(),
                     inode: metadata.ino(),
+                    created,
                 };
                 tx.send(file).unwrap();
             }

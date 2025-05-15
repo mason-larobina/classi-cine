@@ -15,7 +15,7 @@ use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
 use crate::walk::Walk;
 use clap::{Parser, Subcommand};
-use classifier::{Classifier, DirSizeClassifier, FileSizeClassifier, NaiveBayesClassifier};
+use classifier::{Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier};
 use log::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -115,6 +115,8 @@ struct BuildArgs {
     file_size: FileSizeArgs,
     #[command(flatten)]
     dir_size: DirSizeArgs,
+    #[command(flatten)]
+    file_age: FileAgeArgs,
     /// Number of top entries to classify in each iteration
     #[clap(long, default_value_t = 1)]
     top_n: usize,
@@ -135,16 +137,23 @@ struct VlcArgs {
 
 #[derive(Parser, Debug, Clone)]
 struct FileSizeArgs {
-    /// Bias scoring based on file sizes
+    /// Bias scoring based on file sizes (log base, > 1.0). Negative reverses bias.
     #[clap(long, default_value_t = 0.0)]
     file_size_bias: f64,
 }
 
 #[derive(Parser, Debug, Clone)]
 struct DirSizeArgs {
-    /// Bias scoring based on directory sizes
+    /// Bias scoring based on directory sizes (log base, > 1.0). Negative reverses bias.
     #[clap(long, default_value_t = 0.0)]
     dir_size_bias: f64,
+}
+
+#[derive(Parser, Debug, Clone)]
+struct FileAgeArgs {
+    /// Bias scoring based on file age. Negative reverses bias (older files get higher score).
+    #[clap(long, default_value_t = 0.0)]
+    file_age_bias: f64,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -178,9 +187,10 @@ struct App {
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
     file_size_classifier: Option<FileSizeClassifier>,
     dir_size_classifier: Option<DirSizeClassifier>,
+    file_age_classifier: Option<FileAgeClassifier>,
     naive_bayes: NaiveBayesClassifier,
-    playlist: M3uPlaylist,
     visualizer: viz::ScoreVisualizer,
+    playlist: M3uPlaylist,
 }
 
 impl App {
@@ -191,7 +201,7 @@ impl App {
         let visualizer = viz::ScoreVisualizer::default();
 
         // Initialize optional classifiers based on args
-        let file_size_classifier = if build_args.file_size.file_size_bias != 0.0 {
+        let file_size_classifier = if build_args.file_size.file_size_bias.abs() > f64::EPSILON {
             let log_base = build_args.file_size.file_size_bias.abs();
             assert!(log_base > 1.0);
             let reverse = build_args.file_size.file_size_bias < 0.0;
@@ -200,7 +210,7 @@ impl App {
             None
         };
 
-        let dir_size_classifier = if build_args.dir_size.dir_size_bias != 0.0 {
+        let dir_size_classifier = if build_args.dir_size.dir_size_bias.abs() > f64::EPSILON {
             let log_base = build_args.dir_size.dir_size_bias.abs();
             assert!(log_base > 1.0);
             let reverse = build_args.dir_size.dir_size_bias < 0.0;
@@ -209,6 +219,14 @@ impl App {
             None
         };
 
+        let file_age_classifier = if build_args.file_age.file_age_bias.abs() > f64::EPSILON {
+            let reverse = build_args.file_age.file_age_bias < 0.0;
+            Some(FileAgeClassifier::new(reverse))
+        } else {
+            None
+        };
+
+
         Self {
             build_args,
             entries: Vec::new(),
@@ -216,9 +234,10 @@ impl App {
             frequent_ngrams: None,
             file_size_classifier,
             dir_size_classifier,
+            file_age_classifier,
             naive_bayes: NaiveBayesClassifier::new(false),
-            playlist,
             visualizer,
+            playlist,
         }
     }
 
@@ -234,6 +253,9 @@ impl App {
             classifiers.push(classifier as &dyn Classifier);
         }
         if let Some(ref classifier) = self.dir_size_classifier {
+            classifiers.push(classifier as &dyn Classifier);
+        }
+        if let Some(ref classifier) = self.file_age_classifier {
             classifiers.push(classifier as &dyn Classifier);
         }
         classifiers.push(&self.naive_bayes as &dyn Classifier);
