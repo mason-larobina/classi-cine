@@ -144,12 +144,6 @@ struct DirSizeArgs {
     dir_size_bias: f64,
 }
 
-#[derive(Debug, Clone)]
-enum ListFilter {
-    Positive,
-    Negative,
-}
-
 #[derive(Parser, Debug, Clone)]
 struct ListArgs {
     /// M3U playlist file
@@ -161,9 +155,7 @@ struct ListArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 enum ListFilter {
-    /// List positively classified files
     Positive,
-    /// List negatively classified files
     Negative,
 }
 
@@ -644,14 +636,15 @@ fn main() -> Result<(), Error> {
         Command::List(list_args) => {
             let playlist = M3uPlaylist::open(&list_args.playlist)?;
             let root = playlist.path().parent().unwrap_or(Path::new(""));
-            let entries = match list_args.filter {
-                ListFilter::Positive => playlist.entries().iter().filter(|e| matches!(e, PlaylistEntry::Positive(_))),
-                ListFilter::Negative => playlist.entries().iter().filter(|e| matches!(e, PlaylistEntry::Negative(_))),
-            };
-            for entry in entries {
-                let path = entry.path();
-                let canon = normalize::canonicalize_path(&root.join(path));
-                println!("{}", canon.display());
+            for entry in playlist.entries() {
+                match (&list_args.filter, entry) {
+                    (ListFilter::Positive, PlaylistEntry::Positive(_)) | (ListFilter::Negative, PlaylistEntry::Negative(_)) => {
+                        let path = entry.path();
+                        let canon = normalize::canonicalize_path(&root.join(path));
+                        println!("{}", canon.display());
+                    }
+                    _ => {}
+                }
             }
         }
         Command::Move(move_args) => {
