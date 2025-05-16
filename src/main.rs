@@ -140,6 +140,9 @@ struct FileSizeArgs {
     /// Bias scoring based on file sizes (log base, > 1.0). Negative reverses bias.
     #[clap(long, default_value_t = 0.0)]
     file_size_bias: f64,
+    /// Offset to add to file size before log scaling.
+    #[clap(long, default_value_t = 0)]
+    file_size_offset: u64,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -147,6 +150,9 @@ struct DirSizeArgs {
     /// Bias scoring based on directory sizes (log base, > 1.0). Negative reverses bias.
     #[clap(long, default_value_t = 0.0)]
     dir_size_bias: f64,
+    /// Offset to add to directory size before log scaling.
+    #[clap(long, default_value_t = 0)]
+    dir_size_offset: usize,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -154,6 +160,9 @@ struct FileAgeArgs {
     /// Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score).
     #[clap(long, default_value_t = 0.0)]
     file_age_bias: f64,
+    /// Offset to add to file age in seconds before log scaling.
+    #[clap(long, default_value_t = 86400)]
+    file_age_offset: u64,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -205,7 +214,7 @@ impl App {
             let log_base = build_args.file_size.file_size_bias.abs();
             assert!(log_base > 1.0);
             let reverse = build_args.file_size.file_size_bias < 0.0;
-            Some(FileSizeClassifier::new(log_base, reverse))
+            Some(FileSizeClassifier::new(log_base, build_args.file_size.file_size_offset, reverse))
         } else {
             None
         };
@@ -214,7 +223,7 @@ impl App {
             let log_base = build_args.dir_size.dir_size_bias.abs();
             assert!(log_base > 1.0);
             let reverse = build_args.dir_size.dir_size_bias < 0.0;
-            Some(DirSizeClassifier::new(log_base, reverse))
+            Some(DirSizeClassifier::new(log_base, build_args.dir_size.dir_size_offset, reverse))
         } else {
             None
         };
@@ -223,7 +232,7 @@ impl App {
             let log_base = build_args.file_age.file_age_bias.abs();
             assert!(log_base > 1.0);
             let reverse = build_args.file_age.file_age_bias < 0.0;
-            Some(FileAgeClassifier::new(log_base, reverse))
+            Some(FileAgeClassifier::new(log_base, build_args.file_age.file_age_offset, reverse))
         } else {
             None
         };

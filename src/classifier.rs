@@ -143,14 +143,16 @@ impl Classifier for NaiveBayesClassifier {
 pub struct FileSizeClassifier {
     /// Base for logarithmic scaling (must be > 1.0)
     log_base: f64,
+    /// Offset to add to the raw size before log scaling
+    offset: u64,
     /// Whether to reverse the scoring (larger files = lower score)
     reverse: bool,
 }
 
 impl FileSizeClassifier {
-    pub fn new(log_base: f64, reverse: bool) -> Self {
+    pub fn new(log_base: f64, offset: u64, reverse: bool) -> Self {
         assert!(log_base > 1.0, "Log base must be greater than 1");
-        Self { log_base, reverse }
+        Self { log_base, offset, reverse }
     }
 }
 
@@ -161,10 +163,11 @@ impl Classifier for FileSizeClassifier {
 
     fn calculate_score(&self, item: &Entry) -> f64 {
         let size = item.file.size;
-        if size == 0 {
+        let value = size.saturating_add(self.offset) as f64;
+        if value == 0.0 {
             0.0
         } else {
-            let score = (size as f64).log(self.log_base);
+            let score = value.log(self.log_base);
             if !score.is_finite() {
                 warn!("Invalid file size score for size {}: {}", size, score);
                 0.0
@@ -184,6 +187,8 @@ impl Classifier for FileSizeClassifier {
 pub struct DirSizeClassifier {
     /// Base for logarithmic scaling (must be > 1.0)
     log_base: f64,
+    /// Offset to add to the raw count before log scaling
+    offset: usize,
     /// Whether to reverse the scoring (more files = lower score)
     reverse: bool,
     /// Map of directory to file count
@@ -191,10 +196,11 @@ pub struct DirSizeClassifier {
 }
 
 impl DirSizeClassifier {
-    pub fn new(log_base: f64, reverse: bool) -> Self {
+    pub fn new(log_base: f64, offset: usize, reverse: bool) -> Self {
         assert!(log_base > 1.0, "Log base must be greater than 1");
         Self {
             log_base,
+            offset,
             reverse,
             dir_counts: HashMap::new(),
         }
@@ -224,7 +230,8 @@ impl Classifier for DirSizeClassifier {
 
     fn calculate_score(&self, item: &Entry) -> f64 {
         let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
-        let score = (count as f64).log(self.log_base);
+        let value = count.saturating_add(self.offset) as f64;
+        let score = value.log(self.log_base);
         if !score.is_finite() {
             warn!("Invalid dir size score for count {}: {}", count, score);
             0.0
@@ -242,14 +249,17 @@ pub struct FileAgeClassifier {
     reverse: bool,
     /// Base for logarithmic scaling (must be > 1.0)
     log_base: f64,
+    /// Offset to add to the raw age in seconds before log scaling
+    offset: u64,
     now: SystemTime,
 }
 
 impl FileAgeClassifier {
-    pub fn new(log_base: f64, reverse: bool) -> Self {
+    pub fn new(log_base: f64, offset: u64, reverse: bool) -> Self {
         Self {
             reverse,
             log_base,
+            offset,
             now: SystemTime::now(),
         }
     }
@@ -261,8 +271,9 @@ impl Classifier for FileAgeClassifier {
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
-        let age_seconds = self.now.duration_since(item.file.created).unwrap_or_default().as_secs() + 86400;
-        let score = (age_seconds as f64).log(self.log_base);
+        let age_seconds = self.now.duration_since(item.file.created).unwrap_or_default().as_secs();
+        let value = age_seconds.saturating_add(self.offset) as f64;
+        let score = value.log(self.log_base);
         println!("{:?} {:?} {:?} {:?}", item.file, age_seconds, self.log_base, score);
         if !score.is_finite() {
             warn!("Invalid dir age score for count {}: {}", age_seconds, score);
