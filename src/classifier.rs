@@ -163,19 +163,15 @@ impl Classifier for FileSizeClassifier {
 
     fn calculate_score(&self, item: &Entry) -> f64 {
         let size = item.file.size;
-        let value = size.saturating_add(self.offset) as f64;
-        if value == 0.0 {
+        let value = (size.saturating_add(self.offset) as f64).max(1.0); // Ensure value is at least 1.0
+        let score = value.log(self.log_base);
+        if !score.is_finite() {
+            warn!("Invalid file size score for size {}: {}", size, score);
             0.0
+        } else if self.reverse {
+            -score
         } else {
-            let score = value.log(self.log_base);
-            if !score.is_finite() {
-                warn!("Invalid file size score for size {}: {}", size, score);
-                0.0
-            } else if self.reverse {
-                -score
-            } else {
-                score
-            }
+            score
         }
     }
 }
@@ -230,7 +226,7 @@ impl Classifier for DirSizeClassifier {
 
     fn calculate_score(&self, item: &Entry) -> f64 {
         let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
-        let value = count.saturating_add(self.offset) as f64;
+        let value = (count.saturating_add(self.offset) as f64).max(1.0); // Ensure value is at least 1.0
         let score = value.log(self.log_base);
         if !score.is_finite() {
             warn!("Invalid dir size score for count {}: {}", count, score);
@@ -272,7 +268,7 @@ impl Classifier for FileAgeClassifier {
 
     fn calculate_score(&self, item: &Entry) -> f64 {
         let age_seconds = self.now.duration_since(item.file.created).unwrap_or_default().as_secs();
-        let value = age_seconds.saturating_add(self.offset) as f64;
+        let value = (age_seconds.saturating_add(self.offset) as f64).max(1.0); // Ensure value is at least 1.0
         let score = value.log(self.log_base);
         println!("{:?} {:?} {:?} {:?}", item.file, age_seconds, self.log_base, score);
         if !score.is_finite() {
