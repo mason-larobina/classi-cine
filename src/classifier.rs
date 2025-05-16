@@ -6,6 +6,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+/// Calculate a logarithmic score for a value
+fn calculate_log_score(value: u64, offset: u64, log_base: f64, reverse: bool) -> f64 {
+    let value = (value.saturating_add(offset) as f64).max(1.0); // Ensure value is at least 1.0
+    let score = value.log(log_base);
+    if !score.is_finite() {
+        warn!("Invalid score for value {}: {}", value, score);
+        0.0
+    } else if reverse {
+        -score
+    } else {
+        score
+    }
+}
+
 /// Trait for types that can classify files/content
 pub trait Classifier {
     /// Returns the name of this classifier.
@@ -162,17 +176,7 @@ impl Classifier for FileSizeClassifier {
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
-        let size = item.file.size;
-        let value = (size.saturating_add(self.offset) as f64).max(1.0); // Ensure value is at least 1.0
-        let score = value.log(self.log_base);
-        if !score.is_finite() {
-            warn!("Invalid file size score for size {}: {}", size, score);
-            0.0
-        } else if self.reverse {
-            -score
-        } else {
-            score
-        }
+        calculate_log_score(item.file.size, self.offset, self.log_base, self.reverse)
     }
 }
 
@@ -226,16 +230,7 @@ impl Classifier for DirSizeClassifier {
 
     fn calculate_score(&self, item: &Entry) -> f64 {
         let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
-        let value = (count.saturating_add(self.offset) as f64).max(1.0); // Ensure value is at least 1.0
-        let score = value.log(self.log_base);
-        if !score.is_finite() {
-            warn!("Invalid dir size score for count {}: {}", count, score);
-            0.0
-        } else if self.reverse {
-            -score
-        } else {
-            score
-        }
+        calculate_log_score(count as u64, self.offset as u64, self.log_base, self.reverse)
     }
 }
 
@@ -268,15 +263,6 @@ impl Classifier for FileAgeClassifier {
 
     fn calculate_score(&self, item: &Entry) -> f64 {
         let age_seconds = self.now.duration_since(item.file.created).unwrap_or_default().as_secs();
-        let value = (age_seconds.saturating_add(self.offset) as f64).max(1.0); // Ensure value is at least 1.0
-        let score = value.log(self.log_base);
-        if !score.is_finite() {
-            warn!("Invalid dir age score for count {}: {}", age_seconds, score);
-            0.0
-        } else if self.reverse {
-            -score
-        } else {
-            score
-        }
+        calculate_log_score(age_seconds, self.offset, self.log_base, self.reverse)
     }
 }
