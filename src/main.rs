@@ -109,9 +109,9 @@ struct BuildArgs {
         default_value = "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
     )]
     video_exts: Vec<String>,
-    #[clap(long)]
+    #[clap(long, default_value_t = 5)]
     windows: usize,
-    windows: usize,
+    #[command(flatten)]
     vlc: VlcArgs,
     #[command(flatten)]
     file_size: FileSizeArgs,
@@ -367,7 +367,7 @@ impl App {
         // Count ngrams from all sources
         for path in &paths {
             let tokens = tokenizer.tokenize(path);
-            temp_ngrams.windows(&tokens, windows, None, None);
+            temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
             for ngram in temp_ngrams.iter() {
                 let counter = ngram_counts.entry(*ngram).or_default();
                 *counter = counter.saturating_add(1);
@@ -510,7 +510,7 @@ impl App {
             let mut tmp_ngrams = Ngrams::default();
             tmp_ngrams.windows(
                 entry.tokens.as_ref().unwrap(),
-                5,
+                self.build_args.windows,
                 self.frequent_ngrams.as_ref(),
                 Some(&mut ngram_tokens),
             );
