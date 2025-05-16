@@ -101,8 +101,10 @@ impl Walk {
                     continue;
                 }
                 let file_name = PathBuf::from(path.file_name().unwrap());
-                let created = match metadata.created() {
-                    Ok(time) => time,
+                let created = match metadata.modified() {
+                    Ok(time) => { 
+                        time
+                    }
                     Err(e) => {
                         warn!("Could not get creation time for {:?}: {}", path, e);
                         SystemTime::UNIX_EPOCH // Default to epoch if creation time is unavailable

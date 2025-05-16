@@ -240,14 +240,16 @@ impl Classifier for DirSizeClassifier {
 pub struct FileAgeClassifier {
     /// Whether to reverse the scoring (older files = lower score)
     reverse: bool,
-    /// The current time, used as a reference point for age calculation
+    /// Base for logarithmic scaling (must be > 1.0)
+    log_base: f64,
     now: SystemTime,
 }
 
 impl FileAgeClassifier {
-    pub fn new(reverse: bool) -> Self {
+    pub fn new(log_base: f64, reverse: bool) -> Self {
         Self {
             reverse,
+            log_base,
             now: SystemTime::now(),
         }
     }
@@ -259,23 +261,16 @@ impl Classifier for FileAgeClassifier {
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
-        let age_seconds = match self.now.duration_since(item.file.created) {
-            Ok(duration) => duration.as_secs_f64(),
-            Err(_) => {
-                // File created in the future, treat as very young
-                0.0
-            }
-        };
-
-        // Simple linear scoring based on age.
-        // Younger files get a higher score (unless reversed).
-        // We can adjust the scaling factor (e.g., divide by a constant) if needed.
-        let score = -age_seconds; // Negative because younger (smaller age_seconds) should have higher score
-
-        if self.reverse {
-            -score // Reverse the score: older files get higher score
+        let age_seconds = self.now.duration_since(item.file.created).unwrap_or_default().as_secs() + 86400;
+        let score = (age_seconds as f64).log(self.log_base);
+        println!("{:?} {:?} {:?} {:?}", item.file, age_seconds, self.log_base, score);
+        if !score.is_finite() {
+            warn!("Invalid dir age score for count {}: {}", age_seconds, score);
+            0.0
+        } else if self.reverse {
+            -score
         } else {
-            score // Younger files get higher score
+            score
         }
     }
 }

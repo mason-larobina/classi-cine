@@ -151,7 +151,7 @@ struct DirSizeArgs {
 
 #[derive(Parser, Debug, Clone)]
 struct FileAgeArgs {
-    /// Bias scoring based on file age. Negative reverses bias (older files get higher score).
+    /// Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score).
     #[clap(long, default_value_t = 0.0)]
     file_age_bias: f64,
 }
@@ -220,8 +220,10 @@ impl App {
         };
 
         let file_age_classifier = if build_args.file_age.file_age_bias.abs() > f64::EPSILON {
+            let log_base = build_args.file_age.file_age_bias.abs();
+            assert!(log_base > 1.0);
             let reverse = build_args.file_age.file_age_bias < 0.0;
-            Some(FileAgeClassifier::new(reverse))
+            Some(FileAgeClassifier::new(log_base, reverse))
         } else {
             None
         };
