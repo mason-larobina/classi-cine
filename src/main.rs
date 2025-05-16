@@ -109,7 +109,8 @@ struct BuildArgs {
         default_value = "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
     )]
     video_exts: Vec<String>,
-    #[clap(long, default_value = "5")]
+    #[clap(long)]
+    windows: usize,
     windows: usize,
     vlc: VlcArgs,
     #[command(flatten)]
@@ -395,7 +396,7 @@ impl App {
             let mut ngrams = Ngrams::default();
             ngrams.windows(
                 entry.tokens.as_ref().unwrap(),
-                5,
+                self.build_args.windows,
                 self.frequent_ngrams.as_ref(),
                 None,
             );
@@ -413,7 +414,7 @@ impl App {
             let canon = abs_path.canonicalize().unwrap_or_else(|_| abs_path);
             let normalized_path = normalize::normalize(&canon);
             let tokens = tokenizer.tokenize(&normalized_path);
-            temp_ngrams.windows(&tokens, 5, None, None);
+            temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
 
             // Train based on entry type
             match entry {
