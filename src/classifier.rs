@@ -270,7 +270,6 @@ impl Classifier for FileAgeClassifier {
         let age_seconds = self.now.duration_since(item.file.created).unwrap_or_default().as_secs();
         let value = (age_seconds.saturating_add(self.offset) as f64).max(1.0); // Ensure value is at least 1.0
         let score = value.log(self.log_base);
-        println!("{:?} {:?} {:?} {:?}", item.file, age_seconds, self.log_base, score);
         if !score.is_finite() {
             warn!("Invalid dir age score for count {}: {}", age_seconds, score);
             0.0

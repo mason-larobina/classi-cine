@@ -141,7 +141,7 @@ struct FileSizeArgs {
     #[clap(long, default_value_t = 0.0)]
     file_size_bias: f64,
     /// Offset to add to file size before log scaling.
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t = 1048576)]
     file_size_offset: u64,
 }
 
