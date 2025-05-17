@@ -83,7 +83,10 @@ enum Command {
     /// Build playlist through interactive classification
     Build(BuildArgs),
     /// List classified files
-    List(ListArgs),
+    /// List positive classifications
+    ListPositive(ListPositiveArgs),
+    /// List negative classifications
+    ListNegative(ListNegativeArgs),
     /// Move playlist to a new location and rebase paths
     Move(MoveArgs),
 }
@@ -168,18 +171,15 @@ struct FileAgeArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-struct ListArgs {
+struct ListPositiveArgs {
     /// M3U playlist file
     playlist: PathBuf,
-    /// Which entries to list
-    #[clap(subcommand)]
-    filter: ListFilter,
 }
 
-#[derive(Subcommand, Debug, Clone)]
-enum ListFilter {
-    Positive,
-    Negative,
+#[derive(Parser, Debug, Clone)]
+struct ListNegativeArgs {
+    /// M3U playlist file
+    playlist: PathBuf,
 }
 
 #[derive(Debug)]
@@ -661,6 +661,32 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
+enum ListFilter {
+    Positive,
+    Negative,
+}
+
+fn list_entries(playlist_path: &Path, filter: ListFilter) -> Result<(), Error> {
+    let playlist = M3uPlaylist::open(playlist_path)?;
+    let root = playlist.path().parent().unwrap_or(Path::new(""));
+    for entry in playlist.entries() {
+        match (&filter, entry) {
+            (ListFilter::Positive, PlaylistEntry::Positive(_)) => {
+                let path = entry.path();
+                let canon = normalize::canonicalize_path(&root.join(path));
+                println!("{}", canon.display());
+            }
+            (ListFilter::Negative, PlaylistEntry::Negative(_)) => {
+                let path = entry.path();
+                let canon = normalize::canonicalize_path(&root.join(path));
+                println!("{}", canon.display());
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Error> {
     let args = Args::parse();
     if std::env::var("RUST_LOG").is_err() {
@@ -674,19 +700,11 @@ fn main() -> Result<(), Error> {
             let mut app = App::new(args.clone(), build_args.clone(), playlist);
             app.run()?;
         }
-        Command::List(list_args) => {
-            let playlist = M3uPlaylist::open(&list_args.playlist)?;
-            let root = playlist.path().parent().unwrap_or(Path::new(""));
-            for entry in playlist.entries() {
-                match (&list_args.filter, entry) {
-                    (ListFilter::Positive, PlaylistEntry::Positive(_)) | (ListFilter::Negative, PlaylistEntry::Negative(_)) => {
-                        let path = entry.path();
-                        let canon = normalize::canonicalize_path(&root.join(path));
-                        println!("{}", canon.display());
-                    }
-                    _ => {}
-                }
-            }
+        Command::ListPositive(list_args) => {
+            list_entries(&list_args.playlist, ListFilter::Positive)?;
+        }
+        Command::ListNegative(list_args) => {
+            list_entries(&list_args.playlist, ListFilter::Negative)?;
         }
         Command::Move(move_args) => {
             move_playlist(&move_args.original, &move_args.new)?;
