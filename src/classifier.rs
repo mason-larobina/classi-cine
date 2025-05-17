@@ -166,7 +166,11 @@ pub struct FileSizeClassifier {
 impl FileSizeClassifier {
     pub fn new(log_base: f64, offset: u64, reverse: bool) -> Self {
         assert!(log_base > 1.0, "Log base must be greater than 1");
-        Self { log_base, offset, reverse }
+        Self {
+            log_base,
+            offset,
+            reverse,
+        }
     }
 }
 
@@ -230,7 +234,12 @@ impl Classifier for DirSizeClassifier {
 
     fn calculate_score(&self, item: &Entry) -> f64 {
         let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
-        calculate_log_score(count as u64, self.offset as u64, self.log_base, self.reverse)
+        calculate_log_score(
+            count as u64,
+            self.offset as u64,
+            self.log_base,
+            self.reverse,
+        )
     }
 }
 
@@ -262,7 +271,11 @@ impl Classifier for FileAgeClassifier {
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
-        let age_seconds = self.now.duration_since(item.file.created).unwrap_or_default().as_secs();
+        let age_seconds = self
+            .now
+            .duration_since(item.file.created)
+            .unwrap_or_default()
+            .as_secs();
         calculate_log_score(age_seconds, self.offset, self.log_base, self.reverse)
     }
 }

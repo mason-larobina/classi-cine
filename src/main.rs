@@ -15,7 +15,9 @@ use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
 use crate::walk::Walk;
 use clap::{Parser, Subcommand};
-use classifier::{Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier};
+use classifier::{
+    Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier,
+};
 use log::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -208,7 +210,11 @@ impl App {
             let log_base = build_args.file_size.file_size_bias.abs();
             assert!(log_base > 1.0);
             let reverse = build_args.file_size.file_size_bias < 0.0;
-            Some(FileSizeClassifier::new(log_base, build_args.file_size.file_size_offset, reverse))
+            Some(FileSizeClassifier::new(
+                log_base,
+                build_args.file_size.file_size_offset,
+                reverse,
+            ))
         } else {
             None
         };
@@ -217,7 +223,11 @@ impl App {
             let log_base = build_args.dir_size.dir_size_bias.abs();
             assert!(log_base > 1.0);
             let reverse = build_args.dir_size.dir_size_bias < 0.0;
-            Some(DirSizeClassifier::new(log_base, build_args.dir_size.dir_size_offset, reverse))
+            Some(DirSizeClassifier::new(
+                log_base,
+                build_args.dir_size.dir_size_offset,
+                reverse,
+            ))
         } else {
             None
         };
@@ -226,11 +236,14 @@ impl App {
             let log_base = build_args.file_age.file_age_bias.abs();
             assert!(log_base > 1.0);
             let reverse = build_args.file_age.file_age_bias < 0.0;
-            Some(FileAgeClassifier::new(log_base, build_args.file_age.file_age_offset, reverse))
+            Some(FileAgeClassifier::new(
+                log_base,
+                build_args.file_age.file_age_offset,
+                reverse,
+            ))
         } else {
             None
         };
-
 
         Self {
             build_args,
@@ -578,9 +591,12 @@ impl App {
         while !self.entries.is_empty() {
             self.calculate_scores_and_sort_entries();
 
-            let num_to_process = std::cmp::min(self.entries.len(), std::cmp::max(self.build_args.top_n, 1));
-            let entries_to_process: Vec<Entry> =
-                self.entries.drain(self.entries.len() - num_to_process..).collect();
+            let num_to_process =
+                std::cmp::min(self.entries.len(), std::cmp::max(self.build_args.top_n, 1));
+            let entries_to_process: Vec<Entry> = self
+                .entries
+                .drain(self.entries.len() - num_to_process..)
+                .collect();
 
             for entry in entries_to_process {
                 // Get classifier names
