@@ -83,10 +83,8 @@ enum Command {
     /// Build playlist through interactive classification
     Build(BuildArgs),
     /// List classified files
-    /// List positive classifications
-    ListPositive(ListPositiveArgs),
-    /// List negative classifications
-    ListNegative(ListNegativeArgs),
+    ListPositive(ListArgs),
+    ListNegative(ListArgs),
     /// Move playlist to a new location and rebase paths
     Move(MoveArgs),
 }
@@ -171,13 +169,7 @@ struct FileAgeArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-struct ListPositiveArgs {
-    /// M3U playlist file
-    playlist: PathBuf,
-}
-
-#[derive(Parser, Debug, Clone)]
-struct ListNegativeArgs {
+struct ListArgs {
     /// M3U playlist file
     playlist: PathBuf,
 }
@@ -689,6 +681,7 @@ fn list_entries(playlist_path: &Path, filter: ListFilter) -> Result<(), Error> {
 
 fn main() -> Result<(), Error> {
     let args = Args::parse();
+
     if std::env::var("RUST_LOG").is_err() {
         unsafe { std::env::set_var("RUST_LOG", &args.log_level) };
     }
