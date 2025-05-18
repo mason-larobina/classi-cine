@@ -2,6 +2,7 @@
 .aider*
 .continue*
 .env
+.fuse*
 Cargo.lock
 debug/
 flamegraph.svg
