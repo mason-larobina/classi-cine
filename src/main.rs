@@ -406,10 +406,7 @@ impl App {
 
         // Process all paths to find frequent ngrams
         time_it!("Ngramization (Training)", {
-            let num_cpus = num_cpus::get();
-            let min_paths = 100;
-            let work_units_per_cpu = 10;
-            let chunk_size = usize::max(min_paths, paths.len() / (num_cpus * work_units_per_cpu));
+            let chunk_size = usize::max(100, paths.len() / (num_cpus::get() * 10));
 
             let ngram_counts: AHashMap<Ngram, u8> = paths
                 .par_chunks(chunk_size)
@@ -427,7 +424,7 @@ impl App {
                     local_counts
                 })
                 .reduce(
-                    || AHashMap::new(), // Identity: an empty map
+                    || AHashMap::new(),
                     |mut acc, local_counts| {
                         // Reduction: merge local counts into accumulator
                         for (ngram, count) in local_counts {
