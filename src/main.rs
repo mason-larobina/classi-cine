@@ -421,45 +421,14 @@ impl Build {
                 .map(|e| normalize::normalize(e.path())),
         );
 
-        let chunk_size = usize::max(100, paths.len() / (num_cpus::get() * 10));
+        // Use the new function in ngrams.rs to count and filter
+        self.frequent_ngrams = Some(Ngrams::count_and_filter_from_paths(
+            &paths,
+            tokenizer,
+            self.build_args.windows,
+        ));
 
-        let ngram_counts: AHashMap<Ngram, u8> = paths
-            .par_chunks(chunk_size)
-            .map(|chunk| {
-                let mut local_counts: AHashMap<Ngram, u8> = AHashMap::new();
-                let mut temp_ngrams = Ngrams::default();
-                for path in chunk {
-                    let tokens = tokenizer.tokenize(path);
-                    temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
-                    for ngram in temp_ngrams.iter() {
-                        let counter = local_counts.entry(*ngram).or_default();
-                        *counter = counter.saturating_add(1);
-                    }
-                }
-                local_counts
-            })
-            .reduce(
-                || AHashMap::new(),
-                |mut acc, local_counts| {
-                    // Reduction: merge local counts into accumulator
-                    for (ngram, count) in local_counts {
-                        let counter = acc.entry(ngram).or_default();
-                        *counter = counter.saturating_add(count);
-                    }
-                    acc
-                },
-            );
-
-        info!("total ngrams {:?}", ngram_counts.len());
-
-        // Filter to frequent ngrams
-        self.frequent_ngrams = Some(
-            ngram_counts
-                .into_iter()
-                .filter_map(|(ngram, count)| if count > 1 { Some(ngram) } else { None })
-                .collect(),
-        );
-
+        info!("total paths {:?}", paths.len());
         info!(
             "frequent ngrams {:?}",
             self.frequent_ngrams.as_ref().unwrap().len()
@@ -467,17 +436,16 @@ impl Build {
 
         // Final pass to store tokens and frequent ngrams for candidates only
         for entry in self.entries.iter_mut() {
-            // Tokenization is already done implicitly by the ngram counting loop above,
-            // but we need to store the tokens on the entry struct.
-            // Re-tokenize here for clarity and to ensure the tokens field is populated.
+            // Tokenize the path and store the tokens
             entry.tokens = Some(tokenizer.tokenize(&entry.normalized_path));
 
             let mut ngrams = Ngrams::default();
+            // Generate ngrams for the entry using the frequent filter
             ngrams.windows(
                 entry.tokens.as_ref().unwrap(),
                 self.build_args.windows,
                 self.frequent_ngrams.as_ref(),
-                None,
+                None, // No debug info needed here
             );
             entry.ngrams = Some(ngrams);
         }
