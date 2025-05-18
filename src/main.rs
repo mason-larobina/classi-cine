@@ -149,8 +149,8 @@ pub struct VlcArgs {
 #[derive(Parser, Debug, Clone)]
 struct FileSizeArgs {
     /// Bias scoring based on file sizes (log base, > 1.0). Negative reverses bias.
-    #[clap(long, default_value_t = 0.0)]
-    file_size_bias: f64,
+    #[clap(long)]
+    file_size_bias: Option<f64>,
     /// Offset to add to file size before log scaling.
     #[clap(long, default_value_t = 1048576)]
     file_size_offset: u64,
@@ -159,8 +159,8 @@ struct FileSizeArgs {
 #[derive(Parser, Debug, Clone)]
 struct DirSizeArgs {
     /// Bias scoring based on directory sizes (log base, > 1.0). Negative reverses bias.
-    #[clap(long, default_value_t = 0.0)]
-    dir_size_bias: f64,
+    #[clap(long)]
+    dir_size_bias: Option<f64>,
     /// Offset to add to directory size before log scaling.
     #[clap(long, default_value_t = 0)]
     dir_size_offset: usize,
@@ -169,8 +169,8 @@ struct DirSizeArgs {
 #[derive(Parser, Debug, Clone)]
 struct FileAgeArgs {
     /// Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score).
-    #[clap(long, default_value_t = 0.0)]
-    file_age_bias: f64,
+    #[clap(long)]
+    file_age_bias: Option<f64>,
     /// Offset to add to file age in seconds before log scaling.
     #[clap(long, default_value_t = 86400)]
     file_age_offset: u64,
@@ -243,12 +243,11 @@ impl Build {
         let visualizer = viz::ScoreVisualizer::default();
 
         // Initialize optional classifiers based on args
-        let file_size_classifier = if build_args.file_size.file_size_bias.abs() > f64::EPSILON {
-            let log_base = build_args.file_size.file_size_bias.abs();
-            assert!(log_base > 1.0);
-            let reverse = build_args.file_size.file_size_bias < 0.0;
+        let file_size_classifier = if let Some(log_base) = build_args.file_size.file_size_bias {
+            assert!(log_base.abs() > 1.0, "File size log base must be > 1.0");
+            let reverse = log_base < 0.0;
             Some(FileSizeClassifier::new(
-                log_base,
+                log_base.abs(),
                 build_args.file_size.file_size_offset,
                 reverse,
             ))
@@ -256,12 +255,11 @@ impl Build {
             None
         };
 
-        let dir_size_classifier = if build_args.dir_size.dir_size_bias.abs() > f64::EPSILON {
-            let log_base = build_args.dir_size.dir_size_bias.abs();
-            assert!(log_base > 1.0);
-            let reverse = build_args.dir_size.dir_size_bias < 0.0;
+        let dir_size_classifier = if let Some(log_base) = build_args.dir_size.dir_size_bias {
+            assert!(log_base.abs() > 1.0, "Directory size log base must be > 1.0");
+            let reverse = log_base < 0.0;
             Some(DirSizeClassifier::new(
-                log_base,
+                log_base.abs(),
                 build_args.dir_size.dir_size_offset,
                 reverse,
             ))
@@ -269,12 +267,11 @@ impl Build {
             None
         };
 
-        let file_age_classifier = if build_args.file_age.file_age_bias.abs() > f64::EPSILON {
-            let log_base = build_args.file_age.file_age_bias.abs();
-            assert!(log_base > 1.0);
-            let reverse = build_args.file_age.file_age_bias < 0.0;
+        let file_age_classifier = if let Some(log_base) = build_args.file_age.file_age_bias {
+            assert!(log_base.abs() > 1.0, "File age log base must be > 1.0");
+            let reverse = log_base < 0.0;
             Some(FileAgeClassifier::new(
-                log_base,
+                log_base.abs(),
                 build_args.file_age.file_age_offset,
                 reverse,
             ))
