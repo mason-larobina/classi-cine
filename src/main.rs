@@ -379,13 +379,11 @@ impl App {
         info!("Collected {} unclassified entries", self.entries.len());
     }
 
-    fn initialize_tokens_and_train_classifiers(&mut self) {
-        // Collect all paths that need tokenization
-        let mut paths: Vec<String> = HashSet::new().into_iter().collect();
-
+    // Initializes the PairTokenizer by training it on all relevant paths
+    fn initialize_tokenizer(&mut self) {
         time_it!("Tokenization (Training)", {
-            // Add paths from walk results (candidates)
-            paths.extend(self.entries.iter().map(|e| e.normalized_path.to_string()));
+            // Collect all paths that need tokenization (candidates + playlist)
+            let mut paths: Vec<String> = self.entries.iter().map(|e| e.normalized_path.to_string()).collect();
 
             // Add paths from playlist classifications
             paths.extend(
@@ -400,12 +398,24 @@ impl App {
                 paths.iter().map(String::as_str),
             ));
         });
+        info!("Tokenizer tokens {:?}", self.tokenizer.as_ref().unwrap().token_map().count());
+    }
 
+    // Generates ngrams for all relevant paths, counts them, filters for frequent ones,
+    // and stores tokens/ngrams for candidate entries.
+    fn generate_ngrams(&mut self) {
         let tokenizer = self.tokenizer.as_ref().unwrap();
-        info!("Tokenizer tokens {:?}", tokenizer.token_map().count());
 
-        // Process all paths to find frequent ngrams
         time_it!("Ngramization (Training)", {
+            // Collect all paths for ngram counting (candidates + playlist)
+            let mut paths: Vec<String> = self.entries.iter().map(|e| e.normalized_path.to_string()).collect();
+            paths.extend(
+                self.playlist
+                    .entries()
+                    .iter()
+                    .map(|e| normalize::normalize(e.path())),
+            );
+
             let chunk_size = usize::max(100, paths.len() / (num_cpus::get() * 10));
 
             let ngram_counts: AHashMap<Ngram, u8> = paths
@@ -452,6 +462,9 @@ impl App {
 
             // Final pass to store tokens and frequent ngrams for candidates only
             for entry in self.entries.iter_mut() {
+                // Tokenization is already done implicitly by the ngram counting loop above,
+                // but we need to store the tokens on the entry struct.
+                // Re-tokenize here for clarity and to ensure the tokens field is populated.
                 entry.tokens = Some(tokenizer.tokenize(&entry.normalized_path));
 
                 let mut ngrams = Ngrams::default();
@@ -464,6 +477,11 @@ impl App {
                 entry.ngrams = Some(ngrams);
             }
         });
+    }
+
+    // Trains the NaiveBayesClassifier using the tokenized and ngramized playlist entries.
+    fn train_naive_bayes_classifier(&mut self) {
+        let tokenizer = self.tokenizer.as_ref().unwrap();
 
         time_it!("Train NaiveBayesClassifier from playlist", {
             // Train naive bayes classifier on playlist entries
@@ -474,9 +492,10 @@ impl App {
             for entry in self.playlist.entries().iter() {
                 let path = entry.path();
                 let abs_path = playlist_dir.join(path);
-                let canon = abs_path.canonicalize().unwrap_or_else(|_| abs_path);
+                let canon = normalize::canonicalize_path(&abs_path);
                 let normalized_path = normalize::normalize(&canon);
                 let tokens = tokenizer.tokenize(&normalized_path);
+                // Original code used None for allowed ngrams during training
                 temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
 
                 // Train based on entry type
@@ -486,6 +505,17 @@ impl App {
                 }
             }
         });
+    }
+
+    fn initialize_tokens_and_train_classifiers(&mut self) {
+        // 1. Initialize Tokenizer
+        self.initialize_tokenizer();
+
+        // 2. Generate Ngrams for candidates and count frequent ones
+        self.generate_ngrams();
+
+        // 3. Train Naive Bayes Classifier from playlist
+        self.train_naive_bayes_classifier();
     }
 
     fn calculate_scores_and_sort_entries(&mut self) {
