@@ -23,6 +23,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use thread_priority::*;
 use std::time::Instant;
+use rayon::prelude::*;
+use ahash::AHashMap;
 
 use thiserror::Error;
 
@@ -379,7 +381,7 @@ impl App {
 
     fn initialize_tokens_and_train_classifiers(&mut self) {
         // Collect all paths that need tokenization
-        let mut paths = HashSet::new();
+        let mut paths: Vec<String> = HashSet::new().into_iter().collect();
 
         time_it!("Tokenization (Training)", {
             // Add paths from walk results (candidates)
@@ -404,18 +406,37 @@ impl App {
 
         // Process all paths to find frequent ngrams
         time_it!("Ngramization (Training)", {
-            let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
-            let mut temp_ngrams = Ngrams::default();
+            let num_cpus = num_cpus::get();
+            let min_paths = 100;
+            let work_units_per_cpu = 10;
+            let chunk_size = usize::max(min_paths, paths.len() / (num_cpus * work_units_per_cpu));
 
-            // Count ngrams from all sources
-            for path in &paths {
-                let tokens = tokenizer.tokenize(path);
-                temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
-                for ngram in temp_ngrams.iter() {
-                    let counter = ngram_counts.entry(*ngram).or_default();
-                    *counter = counter.saturating_add(1);
-                }
-            }
+            let ngram_counts: AHashMap<Ngram, u8> = paths
+                .par_chunks(chunk_size)
+                .map(|chunk| {
+                    let mut local_counts: AHashMap<Ngram, u8> = AHashMap::new();
+                    let mut temp_ngrams = Ngrams::default();
+                    for path in chunk {
+                        let tokens = tokenizer.tokenize(path);
+                        temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
+                        for ngram in temp_ngrams.iter() {
+                            let counter = local_counts.entry(*ngram).or_default();
+                            *counter = counter.saturating_add(1);
+                        }
+                    }
+                    local_counts
+                })
+                .reduce(
+                    || AHashMap::new(), // Identity: an empty map
+                    |mut acc, local_counts| {
+                        // Reduction: merge local counts into accumulator
+                        for (ngram, count) in local_counts {
+                            let counter = acc.entry(ngram).or_default();
+                            *counter = counter.saturating_add(count);
+                        }
+                        acc
+                    },
+                );
 
             info!("total ngrams {:?}", ngram_counts.len());
 
