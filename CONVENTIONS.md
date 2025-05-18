@@ -1,62 +1,37 @@
-# Contribution Conventions for classi-cine
+# AI Code Analyst Interaction Conventions for classi-cine
 
-This document outlines the conventions and workflow for contributing to the
-`classi-cine` project. Adhering to these guidelines helps maintain code quality,
-facilitates collaboration, and ensures a smooth development process.
+This document outlines the conventions for the AI code analyst's interaction and code generation process when contributing to the `classi-cine` project. Adhering to these guidelines helps ensure efficient collaboration, clear communication, and high-quality code output.
 
-## Code Style
+## Core Principles for AI Interaction
 
-- **Adhere to Existing Style:** When making changes, please observe and follow
-  the existing code style, naming conventions, and project structure present in
-  the codebase. Consistency is key to maintaining a readable and maintainable
-  codebase.
-- **Error Handling:** Continue to use the `Result` type and the `thiserror`
-  crate for error handling, consistent with the current implementation. Avoid
-  using `unwrap()` or `expect()` in production code.
-- **Logging:** Utilize the `log` crate for logging information, warnings, and
-  errors, following the existing patterns for different log levels.
+- **Minimize Rework:** Prioritize understanding the request and identifying potential issues *before* generating significant code.
+- **Focus on Single, Logical Changes:** Break down complex tasks into smaller, manageable steps.
+- **Proactive Problem Identification:** Highlight potential issues, ambiguities, or alternative approaches early in the process.
+- **Clear Communication:** Explain proposed plans, generated code, and suggested next steps concisely.
 
-## Contribution Workflow
+## Workflow for Handling Requests
 
-We strongly encourage contributions to be submitted as **single, logical
-features or bug fixes**. This approach is crucial for several reasons:
+When a coding request is received, the AI should follow this general workflow:
 
-- **Simplified Review:** Reviewers can focus on a specific, well-defined change.
-- **Faster Feedback:** You'll receive feedback more quickly on smaller, focused
-  contributions.
-- **Reduced Risk:** Isolated changes are less likely to introduce unintended
-  side effects.
-- **Clearer History:** The project's commit history remains clean and easy to
-  follow.
+1.  **Confirm Understanding:** If the request is complex, ambiguous, or involves multiple steps, rephrase the request or ask clarifying questions to ensure a shared understanding of the goal.
+2.  **Propose a Plan (for non-trivial changes):** For requests that involve more than a simple, isolated code change, propose a brief, step-by-step plan before generating code. This allows for early feedback and alignment.
+3.  **Identify Potential Issues:** Analyze the request in the context of the existing codebase and conventions. Proactively point out any potential conflicts, design concerns, or areas of ambiguity *before* implementation, or highlight them clearly when presenting the changes.
+4.  **Implement the Change:** Generate the code necessary to fulfill the request, adhering to the code style and quality conventions below.
+5.  **Consider Testing:** If the change adds new functionality or fixes a bug, consider how it could be tested. Suggest adding tests or include test code if appropriate and feasible within the scope of the request.
+6.  **Present the Changes:** Provide a clear and brief summary of the generated code changes. Explain *what* was changed and *why*, linking it back to the original request and the agreed-upon plan (if any).
+7.  **Suggest Follow-up Work (Optional):** After completing a specific request, suggest logical next steps or related tasks that could be addressed in future interactions.
 
-Avoid bundling unrelated changes together in a single contribution. If you have
-multiple ideas or bug fixes, please address them in separate contributions.
+## Code Style and Quality Conventions
 
-Here's the recommended workflow:
+When generating code, the AI must adhere to the following:
 
-1. **Understand the Goal:** Before starting work, ensure you have a clear
-   understanding of the feature you want to implement or the bug you want to
-   fix. If you're unsure, don't hesitate to ask clarifying questions.
-1. **Describe Your Plan:** Before writing a significant amount of code, it's
-   often helpful to briefly describe your planned approach. This allows for
-   early feedback and ensures alignment with the project's direction.
-1. **Implement a Single Logical Feature:** Focus on implementing one distinct
-   feature or fixing one specific bug in your contribution.
-1. **Test Your Changes:** Ensure your changes are well-tested. If you're adding
-   a new feature, include tests that cover its functionality. If you're fixing a
-   bug, add a test that reproduces the bug and verifies the fix.
-1. **Submit Your Changes:** Submit your changes for review.
-1. **Explain Your Contribution:** In your submission, clearly explain what your
-   changes do, why they were made, and how they fit into the overall project.
-1. **Suggest Future Work (Optional):** After your current, focused change is
-   reviewed and merged, you are encouraged to suggest potential follow-up
-   changes or related ideas for future contributions. This helps shape the
-   project's direction.
-1. **Be Open to Feedback:** Be prepared to receive feedback on your code. The
-   review process is an opportunity for collaboration and improvement.
+-   **Adhere to Existing Style:** Observe and follow the existing code style, naming conventions, and project structure.
+-   **Error Handling:** Continue to use the `Result` type and the `thiserror` crate for error handling. **Avoid** using `unwrap()` or `expect()` in production code paths.
+-   **Logging:** Utilize the `log` crate for logging information, warnings, and errors, following existing patterns.
+-   **Readability:** Generate code that is clean, well-structured, and easy for a human to read and understand.
 
-We value clear communication. If you have questions about the code, the
-project's direction, or your planned approach, please ask! We're here to help
-and guide you.
+## Work Unit Size
 
-We appreciate your contributions and look forward to collaborating with you!
+Contributions should be limited to **single, logical features or bug fixes**. If a request implies a larger change, the AI should suggest breaking it down and focus on completing the first logical step. This facilitates easier review and reduces the risk of introducing unintended side effects.
+
+By following these conventions, the AI can provide more effective and efficient assistance in developing the `classi-cine` project.
