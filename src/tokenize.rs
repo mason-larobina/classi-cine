@@ -162,7 +162,7 @@ impl PairTokenizer {
         }
 
         // Determine the chunk size for parallel processing of strings.
-        let chunk_size = std::dbg!(usize::max(100, strings.len() / num_cpus::get()));
+        let chunk_size = usize::max(100, strings.len() / num_cpus::get());
 
         // Continuously find and merge the most frequent pair until no pairs exceed the min_freq threshold.
         loop {

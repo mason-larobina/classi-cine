@@ -79,10 +79,6 @@ struct Args {
 
     #[clap(long, default_value = "info")]
     log_level: String,
-
-    /// Perform all steps except opening and classifying files.
-    #[clap(long)]
-    dry_run: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -130,6 +126,9 @@ struct BuildArgs {
     /// Number of top entries to classify in each iteration
     #[clap(long, default_value_t = 1)]
     top_n: usize,
+    /// Perform all steps except opening and classifying files.
+    #[clap(long)]
+    dry_run: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -191,7 +190,6 @@ struct Entry {
 }
 
 struct App {
-    args: Args, // Store full args to access dry_run
     build_args: BuildArgs,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
@@ -235,10 +233,9 @@ macro_rules! time_it {
     }};
 }
 
-
 impl App {
-    fn new(args: Args, build_args: BuildArgs, playlist: M3uPlaylist) -> Self {
-        info!("{:#?}", args);
+    fn new(build_args: BuildArgs, playlist: M3uPlaylist) -> Self {
+        info!("{:#?}", build_args);
 
         // Initialize visualizer
         let visualizer = viz::ScoreVisualizer::default();
@@ -284,7 +281,6 @@ impl App {
         };
 
         Self {
-            args, // Store full args
             build_args,
             entries: Vec::new(),
             tokenizer: None,
@@ -320,74 +316,72 @@ impl App {
     }
 
     fn collect_unclassified_files(&mut self) {
-        time_it!("File Reading and Collection", {
-            // Create set of already classified paths (convert relative paths to absolute)
-            let mut classified_paths = HashSet::new();
-            let playlist_dir = self.playlist.root();
+        // Create set of already classified paths (convert relative paths to absolute)
+        let mut classified_paths = HashSet::new();
+        let playlist_dir = self.playlist.root();
 
-            // Add all entries (both positive and negative) to the classified set
-            for entry in self.playlist.entries() {
-                let abs_path = playlist_dir.join(entry.path());
-                let canon = abs_path.canonicalize().unwrap_or_else(|e| {
-                    warn!("Unable to canonicalize {:?}, {:?}", abs_path, e);
-                    abs_path
-                });
-                classified_paths.insert(canon);
+        // Add all entries (both positive and negative) to the classified set
+        for entry in self.playlist.entries() {
+            let abs_path = playlist_dir.join(entry.path());
+            let canon = abs_path.canonicalize().unwrap_or_else(|e| {
+                warn!("Unable to canonicalize {:?}, {:?}", abs_path, e);
+                abs_path
+            });
+            classified_paths.insert(canon);
+        }
+
+        let walk = Walk::new(self.build_args.video_exts.iter().map(String::as_ref));
+        for dir in &self.build_args.dirs {
+            if let Err(e) = walk.walk_dir(dir) {
+                error!("Error walking directory {}: {}", dir.display(), e);
+                continue;
+            }
+        }
+
+        let classifiers_len = self.get_classifiers().len();
+
+        let file_receiver = walk.into_rx();
+        while let Ok(file) = file_receiver.recv() {
+            debug!("{:?}", file);
+
+            let file_path = file.dir.join(&file.file_name);
+
+            // Skip if already classified
+            if classified_paths.contains(&file_path) {
+                debug!("Skipping already classified file: {:?}", file_path);
+                continue;
             }
 
-            let walk = Walk::new(self.build_args.video_exts.iter().map(String::as_ref));
-            for dir in &self.build_args.dirs {
-                if let Err(e) = walk.walk_dir(dir) {
-                    error!("Error walking directory {}: {}", dir.display(), e);
-                    continue;
-                }
+            let normalized_path = normalize::normalize(&file_path);
+
+            let mut scores = vec![0.0; classifiers_len];
+            scores.shrink_to_fit();
+
+            // Initialize entry with scores array sized for all classifiers plus naive bayes
+            let entry = Entry {
+                file,
+                normalized_path,
+                tokens: None,
+                ngrams: None,
+                scores: scores.into_boxed_slice(),
+            };
+
+            // Update dir size classifier if present
+            if let Some(ref mut dir_classifier) = self.dir_size_classifier {
+                dir_classifier.add_entry(&entry);
             }
 
-            let classifiers_len = self.get_classifiers().len();
+            self.entries.push(entry);
+        }
 
-            let file_receiver = walk.into_rx();
-            while let Ok(file) = file_receiver.recv() {
-                debug!("{:?}", file);
-
-                let file_path = file.dir.join(&file.file_name);
-
-                // Skip if already classified
-                if classified_paths.contains(&file_path) {
-                    debug!("Skipping already classified file: {:?}", file_path);
-                    continue;
-                }
-
-                let normalized_path = normalize::normalize(&file_path);
-
-                let mut scores = vec![0.0; classifiers_len];
-                scores.shrink_to_fit();
-
-                // Initialize entry with scores array sized for all classifiers plus naive bayes
-                let entry = Entry {
-                    file,
-                    normalized_path,
-                    tokens: None,
-                    ngrams: None,
-                    scores: scores.into_boxed_slice(),
-                };
-
-                // Update dir size classifier if present
-                if let Some(ref mut dir_classifier) = self.dir_size_classifier {
-                    dir_classifier.add_entry(&entry);
-                }
-
-                self.entries.push(entry);
-            }
-
-            info!("Collected {} unclassified entries", self.entries.len());
-        }) // End time_it! "File Reading and Collection"
+        info!("Collected {} unclassified entries", self.entries.len());
     }
 
     fn initialize_tokens_and_train_classifiers(&mut self) {
-        time_it!("Tokenization and Training", {
-            // Collect all paths that need tokenization
-            let mut paths = HashSet::new();
+        // Collect all paths that need tokenization
+        let mut paths = HashSet::new();
 
+        time_it!("Tokenization (Training)", {
             // Add paths from walk results (candidates)
             paths.extend(self.entries.iter().map(|e| e.normalized_path.to_string()));
 
@@ -400,45 +394,43 @@ impl App {
             );
 
             // Create tokenizer from all paths
-            // TODO: If dry_run is enabled, consider skipping the intensive PairTokenizer::new process
             self.tokenizer = Some(tokenize::PairTokenizer::new(
                 paths.iter().map(String::as_str),
             ));
-            let tokenizer = self.tokenizer.as_ref().unwrap();
+        });
 
-            info!("tokenizer tokens {:?}", tokenizer.token_map().count());
+        let tokenizer = self.tokenizer.as_ref().unwrap();
+        info!("Tokenizer tokens {:?}", tokenizer.token_map().count());
 
-            // Process all paths to find frequent ngrams
-            time_it!("Ngramization (Training)", {
-                let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
-                let mut temp_ngrams = Ngrams::default();
+        // Process all paths to find frequent ngrams
+        time_it!("Ngramization (Training)", {
+            let mut ngram_counts: ahash::AHashMap<Ngram, u8> = ahash::AHashMap::new();
+            let mut temp_ngrams = Ngrams::default();
 
-                // Count ngrams from all sources
-                for path in &paths {
-                    let tokens = tokenizer.tokenize(path);
-                    temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
-                    for ngram in temp_ngrams.iter() {
-                        let counter = ngram_counts.entry(*ngram).or_default();
-                        *counter = counter.saturating_add(1);
-                    }
+            // Count ngrams from all sources
+            for path in &paths {
+                let tokens = tokenizer.tokenize(path);
+                temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
+                for ngram in temp_ngrams.iter() {
+                    let counter = ngram_counts.entry(*ngram).or_default();
+                    *counter = counter.saturating_add(1);
                 }
+            }
 
-                info!("total ngrams {:?}", ngram_counts.len());
+            info!("total ngrams {:?}", ngram_counts.len());
 
-                // Filter to frequent ngrams
-                self.frequent_ngrams = Some(
-                    ngram_counts
-                        .into_iter()
-                        .filter_map(|(ngram, count)| if count > 1 { Some(ngram) } else { None })
-                        .collect(),
-                );
+            // Filter to frequent ngrams
+            self.frequent_ngrams = Some(
+                ngram_counts
+                    .into_iter()
+                    .filter_map(|(ngram, count)| if count > 1 { Some(ngram) } else { None })
+                    .collect(),
+            );
 
-                info!(
-                    "frequent ngrams {:?}",
-                    self.frequent_ngrams.as_ref().unwrap().len()
-                );
-            }); // End time_it! "Ngramization (Training)"
-
+            info!(
+                "frequent ngrams {:?}",
+                self.frequent_ngrams.as_ref().unwrap().len()
+            );
 
             // Final pass to store tokens and frequent ngrams for candidates only
             for entry in self.entries.iter_mut() {
@@ -453,7 +445,9 @@ impl App {
                 );
                 entry.ngrams = Some(ngrams);
             }
+        });
 
+        time_it!("Train NaiveBayesClassifier from playlist", {
             // Train naive bayes classifier on playlist entries
             let mut temp_ngrams = Ngrams::default();
             let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
@@ -473,7 +467,7 @@ impl App {
                     PlaylistEntry::Negative(_) => self.naive_bayes.train_negative(&temp_ngrams),
                 }
             }
-        }) // End time_it! "Tokenization and Training"
+        });
     }
 
     fn calculate_scores_and_sort_entries(&mut self) {
@@ -520,7 +514,6 @@ impl App {
 
     // Starts VLC and gets classification from user
     fn play_file_and_get_classification(&self, entry: &Entry) -> Option<vlc::Classification> {
-        // TODO: If dry_run is enabled, skip VLC process creation and return a dummy classification
         let path = entry.file.dir.join(&entry.file.file_name);
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
@@ -633,40 +626,40 @@ impl App {
             }
             vlc::Classification::Skipped => unreachable!(), // Handled in play_file_and_get_classification
         }
+
         Ok(())
     }
 
     // Handles the main classification loop
     fn classification_loop(&mut self) -> Result<(), Error> {
-        time_it!("Classification Loop", {
-            while !self.entries.is_empty() {
-                self.calculate_scores_and_sort_entries();
+        while !self.entries.is_empty() {
+            self.calculate_scores_and_sort_entries();
 
-                let num_to_process =
-                    std::cmp::min(self.entries.len(), std::cmp::max(self.build_args.top_n, 1));
-                let entries_to_process: Vec<Entry> = self
-                    .entries
-                    .drain(self.entries.len() - num_to_process..)
-                    .collect();
+            let num_to_process =
+                std::cmp::min(self.entries.len(), std::cmp::max(self.build_args.top_n, 1));
+            let entries_to_process: Vec<Entry> = self
+                .entries
+                .drain(self.entries.len() - num_to_process..)
+                .collect();
 
-                for entry in entries_to_process {
-                    // Get classifier names
-                    let classifier_names: Vec<&str> =
-                        self.get_classifiers().iter().map(|c| c.name()).collect();
+            for entry in entries_to_process {
+                // Get classifier names
+                let classifier_names: Vec<&str> =
+                    self.get_classifiers().iter().map(|c| c.name()).collect();
 
-                    // Display detailed information about the entry
-                    self.display_entry_details(&entry);
+                // Display detailed information about the entry
+                self.display_entry_details(&entry);
 
-                    // Display visualizations
-                    self.visualizer
-                        .display_distributions(&self.entries, &entry, &classifier_names);
+                // Display visualizations
+                self.visualizer
+                    .display_distributions(&self.entries, &entry, &classifier_names);
 
-                    if let Some(classification) = self.play_file_and_get_classification(&entry) {
-                        self.process_classification_result(entry, classification)?;
-                    }
+                if let Some(classification) = self.play_file_and_get_classification(&entry) {
+                    self.process_classification_result(entry, classification)?;
                 }
             }
-        }) // End time_it! "Classification Loop"
+        }
+        Ok(())
     }
 
     // Main entry point remains simple and high-level
@@ -674,7 +667,9 @@ impl App {
         self.set_threads_to_min_priority();
 
         // 1. Reading files (assuming this happens during walk_dir and collect_unclassified_files)
-        self.collect_unclassified_files();
+        time_it!("File Reading and Collection", {
+            self.collect_unclassified_files();
+        });
 
         // 2. Tokenization and Training
         self.initialize_tokens_and_train_classifiers();
@@ -685,9 +680,9 @@ impl App {
         self.calculate_scores_and_sort_entries();
 
         // Dry Run Check
-        if self.args.dry_run {
+        if self.build_args.dry_run {
             info!("Dry run enabled. Skipping classification loop.");
-            return Ok(()); // Exit after logging timings
+            return Ok(());
         }
 
         // Classification Loop (only runs if not in dry run mode)
@@ -775,7 +770,7 @@ fn main() -> Result<(), Error> {
     match args.command {
         Command::Build(ref build_args) => {
             let playlist = M3uPlaylist::open(&build_args.playlist)?;
-            let mut app = App::new(args.clone(), build_args.clone(), playlist);
+            let mut app = App::new(build_args.clone(), playlist);
             app.run()?;
         }
         Command::ListPositive(list_args) => {
