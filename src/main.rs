@@ -254,7 +254,10 @@ impl Build {
         };
 
         let dir_size_classifier = if let Some(log_base) = build_args.dir_size.dir_size_bias {
-            assert!(log_base.abs() > 1.0, "Directory size log base must be > 1.0");
+            assert!(
+                log_base.abs() > 1.0,
+                "Directory size log base must be > 1.0"
+            );
             let reverse = log_base < 0.0;
             Some(DirSizeClassifier::new(
                 log_base.abs(),

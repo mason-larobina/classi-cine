@@ -1,10 +1,10 @@
+use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
 use ahash::{AHashMap, AHashSet};
+use num_cpus;
+use rayon::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use rayon::prelude::*;
-use crate::tokenize::PairTokenizer;
-use num_cpus;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Copy, Clone)]
 pub struct Ngram(pub(crate) u64);
