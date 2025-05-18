@@ -381,24 +381,29 @@ impl App {
 
     // Initializes the PairTokenizer by training it on all relevant paths
     fn initialize_tokenizer(&mut self) {
-        time_it!("Tokenization (Training)", {
-            // Collect all paths that need tokenization (candidates + playlist)
-            let mut paths: Vec<String> = self.entries.iter().map(|e| e.normalized_path.to_string()).collect();
+        // Collect all paths that need tokenization (candidates + playlist)
+        let mut paths: Vec<String> = self
+            .entries
+            .iter()
+            .map(|e| e.normalized_path.to_string())
+            .collect();
 
-            // Add paths from playlist classifications
-            paths.extend(
-                self.playlist
-                    .entries()
-                    .iter()
-                    .map(|e| normalize::normalize(e.path())),
-            );
+        // Add paths from playlist classifications
+        paths.extend(
+            self.playlist
+                .entries()
+                .iter()
+                .map(|e| normalize::normalize(e.path())),
+        );
 
-            // Create tokenizer from all paths
-            self.tokenizer = Some(tokenize::PairTokenizer::new(
-                paths.iter().map(String::as_str),
-            ));
-        });
-        info!("Tokenizer tokens {:?}", self.tokenizer.as_ref().unwrap().token_map().count());
+        // Create tokenizer from all paths
+        self.tokenizer = Some(tokenize::PairTokenizer::new(
+            paths.iter().map(String::as_str),
+        ));
+        info!(
+            "Tokenizer tokens {:?}",
+            self.tokenizer.as_ref().unwrap().token_map().count()
+        );
     }
 
     // Generates ngrams for all relevant paths, counts them, filters for frequent ones,
@@ -406,158 +411,145 @@ impl App {
     fn generate_ngrams(&mut self) {
         let tokenizer = self.tokenizer.as_ref().unwrap();
 
-        time_it!("Ngramization (Training)", {
-            // Collect all paths for ngram counting (candidates + playlist)
-            let mut paths: Vec<String> = self.entries.iter().map(|e| e.normalized_path.to_string()).collect();
-            paths.extend(
-                self.playlist
-                    .entries()
-                    .iter()
-                    .map(|e| normalize::normalize(e.path())),
-            );
+        // Collect all paths for ngram counting (candidates + playlist)
+        let mut paths: Vec<String> = self
+            .entries
+            .iter()
+            .map(|e| e.normalized_path.to_string())
+            .collect();
+        paths.extend(
+            self.playlist
+                .entries()
+                .iter()
+                .map(|e| normalize::normalize(e.path())),
+        );
 
-            let chunk_size = usize::max(100, paths.len() / (num_cpus::get() * 10));
+        let chunk_size = usize::max(100, paths.len() / (num_cpus::get() * 10));
 
-            let ngram_counts: AHashMap<Ngram, u8> = paths
-                .par_chunks(chunk_size)
-                .map(|chunk| {
-                    let mut local_counts: AHashMap<Ngram, u8> = AHashMap::new();
-                    let mut temp_ngrams = Ngrams::default();
-                    for path in chunk {
-                        let tokens = tokenizer.tokenize(path);
-                        temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
-                        for ngram in temp_ngrams.iter() {
-                            let counter = local_counts.entry(*ngram).or_default();
-                            *counter = counter.saturating_add(1);
-                        }
+        let ngram_counts: AHashMap<Ngram, u8> = paths
+            .par_chunks(chunk_size)
+            .map(|chunk| {
+                let mut local_counts: AHashMap<Ngram, u8> = AHashMap::new();
+                let mut temp_ngrams = Ngrams::default();
+                for path in chunk {
+                    let tokens = tokenizer.tokenize(path);
+                    temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
+                    for ngram in temp_ngrams.iter() {
+                        let counter = local_counts.entry(*ngram).or_default();
+                        *counter = counter.saturating_add(1);
                     }
-                    local_counts
-                })
-                .reduce(
-                    || AHashMap::new(),
-                    |mut acc, local_counts| {
-                        // Reduction: merge local counts into accumulator
-                        for (ngram, count) in local_counts {
-                            let counter = acc.entry(ngram).or_default();
-                            *counter = counter.saturating_add(count);
-                        }
-                        acc
-                    },
-                );
-
-            info!("total ngrams {:?}", ngram_counts.len());
-
-            // Filter to frequent ngrams
-            self.frequent_ngrams = Some(
-                ngram_counts
-                    .into_iter()
-                    .filter_map(|(ngram, count)| if count > 1 { Some(ngram) } else { None })
-                    .collect(),
+                }
+                local_counts
+            })
+            .reduce(
+                || AHashMap::new(),
+                |mut acc, local_counts| {
+                    // Reduction: merge local counts into accumulator
+                    for (ngram, count) in local_counts {
+                        let counter = acc.entry(ngram).or_default();
+                        *counter = counter.saturating_add(count);
+                    }
+                    acc
+                },
             );
 
-            info!(
-                "frequent ngrams {:?}",
-                self.frequent_ngrams.as_ref().unwrap().len()
+        info!("total ngrams {:?}", ngram_counts.len());
+
+        // Filter to frequent ngrams
+        self.frequent_ngrams = Some(
+            ngram_counts
+                .into_iter()
+                .filter_map(|(ngram, count)| if count > 1 { Some(ngram) } else { None })
+                .collect(),
+        );
+
+        info!(
+            "frequent ngrams {:?}",
+            self.frequent_ngrams.as_ref().unwrap().len()
+        );
+
+        // Final pass to store tokens and frequent ngrams for candidates only
+        for entry in self.entries.iter_mut() {
+            // Tokenization is already done implicitly by the ngram counting loop above,
+            // but we need to store the tokens on the entry struct.
+            // Re-tokenize here for clarity and to ensure the tokens field is populated.
+            entry.tokens = Some(tokenizer.tokenize(&entry.normalized_path));
+
+            let mut ngrams = Ngrams::default();
+            ngrams.windows(
+                entry.tokens.as_ref().unwrap(),
+                self.build_args.windows,
+                self.frequent_ngrams.as_ref(),
+                None,
             );
-
-            // Final pass to store tokens and frequent ngrams for candidates only
-            for entry in self.entries.iter_mut() {
-                // Tokenization is already done implicitly by the ngram counting loop above,
-                // but we need to store the tokens on the entry struct.
-                // Re-tokenize here for clarity and to ensure the tokens field is populated.
-                entry.tokens = Some(tokenizer.tokenize(&entry.normalized_path));
-
-                let mut ngrams = Ngrams::default();
-                ngrams.windows(
-                    entry.tokens.as_ref().unwrap(),
-                    self.build_args.windows,
-                    self.frequent_ngrams.as_ref(),
-                    None,
-                );
-                entry.ngrams = Some(ngrams);
-            }
-        });
+            entry.ngrams = Some(ngrams);
+        }
     }
 
     // Trains the NaiveBayesClassifier using the tokenized and ngramized playlist entries.
     fn train_naive_bayes_classifier(&mut self) {
         let tokenizer = self.tokenizer.as_ref().unwrap();
 
-        time_it!("Train NaiveBayesClassifier from playlist", {
-            // Train naive bayes classifier on playlist entries
-            let mut temp_ngrams = Ngrams::default();
-            let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
+        // Train naive bayes classifier on playlist entries
+        let mut temp_ngrams = Ngrams::default();
+        let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
 
-            // Process all examples in a single loop
-            for entry in self.playlist.entries().iter() {
-                let path = entry.path();
-                let abs_path = playlist_dir.join(path);
-                let canon = normalize::canonicalize_path(&abs_path);
-                let normalized_path = normalize::normalize(&canon);
-                let tokens = tokenizer.tokenize(&normalized_path);
-                // Original code used None for allowed ngrams during training
-                temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
+        // Process all examples in a single loop
+        for entry in self.playlist.entries().iter() {
+            let path = entry.path();
+            let abs_path = playlist_dir.join(path);
+            let canon = normalize::canonicalize_path(&abs_path);
+            let normalized_path = normalize::normalize(&canon);
+            let tokens = tokenizer.tokenize(&normalized_path);
+            // Original code used None for allowed ngrams during training
+            temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
 
-                // Train based on entry type
-                match entry {
-                    PlaylistEntry::Positive(_) => self.naive_bayes.train_positive(&temp_ngrams),
-                    PlaylistEntry::Negative(_) => self.naive_bayes.train_negative(&temp_ngrams),
-                }
+            // Train based on entry type
+            match entry {
+                PlaylistEntry::Positive(_) => self.naive_bayes.train_positive(&temp_ngrams),
+                PlaylistEntry::Negative(_) => self.naive_bayes.train_negative(&temp_ngrams),
             }
-        });
-    }
-
-    fn initialize_tokens_and_train_classifiers(&mut self) {
-        // 1. Initialize Tokenizer
-        self.initialize_tokenizer();
-
-        // 2. Generate Ngrams for candidates and count frequent ones
-        self.generate_ngrams();
-
-        // 3. Train Naive Bayes Classifier from playlist
-        self.train_naive_bayes_classifier();
+        }
     }
 
     fn calculate_scores_and_sort_entries(&mut self) {
-        time_it!("Classification (Scoring)", {
-            // Create temporary vector to swap with entries
-            let mut temp_entries = Vec::new();
-            std::mem::swap(&mut self.entries, &mut temp_entries);
+        // Create temporary vector to swap with entries
+        let mut temp_entries = Vec::new();
+        std::mem::swap(&mut self.entries, &mut temp_entries);
 
-            let classifiers = self.get_classifiers();
+        let classifiers = self.get_classifiers();
 
-            // Calculate raw scores for each classifier
-            for (idx, classifier) in classifiers.iter().enumerate() {
-                for entry in &mut temp_entries {
-                    entry.scores[idx] = classifier.calculate_score(entry);
-                }
+        // Calculate raw scores for each classifier
+        for (idx, classifier) in classifiers.iter().enumerate() {
+            for entry in &mut temp_entries {
+                entry.scores[idx] = classifier.calculate_score(entry);
             }
+        }
 
-            // Normalize each column of scores
-            for col in 0..classifiers.len() {
-                let col_scores: Vec<f64> = temp_entries.iter().map(|e| e.scores[col]).collect();
-                if let (Some(min), Some(max)) = (
-                    col_scores.iter().copied().reduce(f64::min),
-                    col_scores.iter().copied().reduce(f64::max),
-                ) {
-                    if (max - min).abs() > f64::EPSILON {
-                        for (entry, &raw_score) in temp_entries.iter_mut().zip(&col_scores) {
-                            entry.scores[col] = (raw_score - min) / (max - min);
-                        }
+        // Normalize each column of scores
+        for col in 0..classifiers.len() {
+            let col_scores: Vec<f64> = temp_entries.iter().map(|e| e.scores[col]).collect();
+            if let (Some(min), Some(max)) = (
+                col_scores.iter().copied().reduce(f64::min),
+                col_scores.iter().copied().reduce(f64::max),
+            ) {
+                if (max - min).abs() > f64::EPSILON {
+                    for (entry, &raw_score) in temp_entries.iter_mut().zip(&col_scores) {
+                        entry.scores[col] = (raw_score - min) / (max - min);
                     }
                 }
             }
+        }
 
-            // Sort entries by total score ascending
-            temp_entries.sort_by(|a, b| {
-                let a_sum = a.scores.iter().sum::<f64>();
-                let b_sum = b.scores.iter().sum::<f64>();
-                a_sum.partial_cmp(&b_sum).expect("Invalid score comparison")
-            });
+        // Sort entries by total score ascending
+        temp_entries.sort_by(|a, b| {
+            let a_sum = a.scores.iter().sum::<f64>();
+            let b_sum = b.scores.iter().sum::<f64>();
+            a_sum.partial_cmp(&b_sum).expect("Invalid score comparison")
+        });
 
-            // Swap back the processed entries
-            std::mem::swap(&mut self.entries, &mut temp_entries);
-        }) // End time_it! "Classification (Scoring)"
+        // Swap back the processed entries
+        std::mem::swap(&mut self.entries, &mut temp_entries);
     }
 
     // Starts VLC and gets classification from user
@@ -681,7 +673,9 @@ impl App {
     // Handles the main classification loop
     fn classification_loop(&mut self) -> Result<(), Error> {
         while !self.entries.is_empty() {
-            self.calculate_scores_and_sort_entries();
+            time_it!("Update classification scores", {
+                self.calculate_scores_and_sort_entries();
+            });
 
             let num_to_process =
                 std::cmp::min(self.entries.len(), std::cmp::max(self.build_args.top_n, 1));
@@ -719,13 +713,17 @@ impl App {
             self.collect_unclassified_files();
         });
 
-        // 2. Tokenization and Training
-        self.initialize_tokens_and_train_classifiers();
+        time_it!("Tokenization", {
+            self.initialize_tokenizer();
+        });
 
-        // 3. Ngramization (This happens within initialize_tokens_and_train_classifiers)
+        time_it!("Generate ngrams", {
+            self.generate_ngrams();
+        });
 
-        // 4. Classification (Scoring)
-        self.calculate_scores_and_sort_entries();
+        time_it!("Train naive bayes classifier", {
+            self.train_naive_bayes_classifier();
+        });
 
         // Dry Run Check
         if self.build_args.dry_run {
@@ -733,7 +731,6 @@ impl App {
             return Ok(());
         }
 
-        // Classification Loop (only runs if not in dry run mode)
         self.classification_loop()?;
 
         Ok(())
