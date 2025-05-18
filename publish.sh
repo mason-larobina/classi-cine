@@ -1,7 +1,6 @@
 #!/usr/bin/bash
 set -xe
-mdformat . --wrap 80
-cargo fmt
+./format.sh
 cargo +stable build
 cargo +stable test
 [[ -z "$(git status --porcelain)" ]] || exit 1
