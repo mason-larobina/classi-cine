@@ -191,7 +191,7 @@ struct Entry {
     scores: Box<[f64]>, // One score per classifier
 }
 
-struct App {
+struct Build {
     build_args: BuildArgs,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
@@ -235,7 +235,7 @@ macro_rules! time_it {
     }};
 }
 
-impl App {
+impl Build {
     fn new(build_args: BuildArgs, playlist: M3uPlaylist) -> Self {
         info!("{:#?}", build_args);
 
@@ -815,7 +815,7 @@ fn main() -> Result<(), Error> {
     match args.command {
         Command::Build(ref build_args) => {
             let playlist = M3uPlaylist::open(&build_args.playlist)?;
-            let mut app = App::new(build_args.clone(), playlist);
+            let mut app = Build::new(build_args.clone(), playlist);
             app.run()?;
         }
         Command::ListPositive(list_args) => {
