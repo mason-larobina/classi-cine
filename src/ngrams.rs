@@ -84,7 +84,7 @@ impl Ngrams {
                 |mut acc, local_counts| {
                     // Reduction: merge local counts into accumulator
                     for (ngram, count) in local_counts {
-                        let counter = acc.entry(ngram).or_or_insert(0);
+                        let counter = acc.entry(ngram).or_insert(0);
                         *counter = counter.saturating_add(count);
                     }
                     acc

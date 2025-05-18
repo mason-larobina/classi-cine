@@ -14,13 +14,11 @@ use crate::playlist::{M3uPlaylist, Playlist, PlaylistEntry};
 use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
 use crate::walk::Walk;
-use ahash::AHashMap;
 use clap::{Parser, Subcommand};
 use classifier::{
     Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier,
 };
 use log::*;
-use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
