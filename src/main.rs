@@ -23,6 +23,12 @@ use thread_priority::*;
 
 use thiserror::Error;
 
+use crossterm::event::{self, Event, KeyCode};
+use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::ExecutableCommand;
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("HTTP request failed: {0}")]
@@ -178,6 +184,8 @@ struct App {
     naive_bayes: NaiveBayesClassifier,
     playlist: M3uPlaylist,
     visualizer: viz::ScoreVisualizer,
+    list_state: ListState,
+    running: bool,
 }
 
 impl App {
@@ -216,6 +224,8 @@ impl App {
             naive_bayes: NaiveBayesClassifier::new(false),
             playlist,
             visualizer,
+            list_state: ListState::default(),
+            running: false,
         }
     }
 
@@ -543,26 +553,81 @@ impl App {
         Ok(())
     }
 
-    // Handles the main classification loop
-    fn classification_loop(&mut self) -> Result<(), Error> {
-        while !self.entries.is_empty() {
-            self.calculate_scores_and_sort_entries();
+    fn tui(&mut self) -> Result<(), Error> {
+        terminal::enable_raw_mode()?;
+        let mut stdout = std::io::stdout();
+        stdout.execute(EnterAlternateScreen)?;
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend)?;
+        terminal.clear()?;
 
-            if let Some(entry) = self.entries.last().clone() {
-                // Get classifier names
-                let classifier_names: Vec<&str> =
-                    self.get_classifiers().iter().map(|c| c.name()).collect();
+        self.running = true;
+        while self.running {
+            terminal.draw(|frame| self.render_frame(frame))?;
+            self.handle_events()?;
+        }
 
-                // Display detailed information about the entry
-                self.display_entry_details(&entry);
+        terminal::disable_raw_mode()?;
+        terminal.backend_mut().execute(LeaveAlternateScreen)?;
+        terminal.show_cursor()?;
 
-                // Display visualizations
-                self.visualizer
-                    .display_distributions(&self.entries, &entry, &classifier_names);
+        Ok(())
+    }
 
-                let entry = self.entries.pop().unwrap();
-                if let Some(classification) = self.play_file_and_get_classification(&entry) {
-                    self.process_classification_result(entry, classification)?;
+    fn render_frame(&mut self, frame: &mut Frame) {
+        let items: Vec<ListItem> = self.entries.iter().map(|e| {
+            let total = e.scores.iter().sum::<f64>();
+            ListItem::new(format!("{:?} - score: {:.2}", e.file.file_name, total))
+        }).collect();
+
+        let list = List::new(items)
+            .block(Block::default().title("Pending Entries").borders(Borders::ALL))
+            .highlight_symbol(">> ")
+            .highlight_style(Style::default().add_modifier(Modifier::BOLD));
+
+        frame.render_stateful_widget(list, frame.size(), &mut self.list_state);
+    }
+
+    fn handle_events(&mut self) -> Result<(), Error> {
+        if event::poll(std::time::Duration::from_millis(250))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('q') => {
+                        self.running = false;
+                    }
+                    KeyCode::Down => {
+                        let i = match self.list_state.selected() {
+                            Some(i) => if i == 0 { 0 } else { i - 1 },
+                            None => 0,
+                        };
+                        self.list_state.select(Some(i));
+                    }
+                    KeyCode::Up => {
+                        let len = self.entries.len();
+                        let i = match self.list_state.selected() {
+                            Some(i) => if i >= len - 1 { len - 1 } else { i + 1 },
+                            None => if len > 0 { len - 1 } else { 0 },
+                        };
+                        self.list_state.select(Some(i));
+                    }
+                    KeyCode::Enter => {
+                        if let Some(idx) = self.list_state.selected() {
+                            if idx < self.entries.len() {
+                                let entry = self.entries.remove(idx);
+                                if let Some(classification) = self.play_file_and_get_classification(&entry) {
+                                    self.process_classification_result(entry, classification)?;
+                                }
+                                self.calculate_scores_and_sort_entries();
+                                let len = self.entries.len();
+                                if len == 0 {
+                                    self.running = false;
+                                } else {
+                                    self.list_state.select(Some(len - 1));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -573,9 +638,15 @@ impl App {
     fn run(&mut self) -> Result<(), Error> {
         self.set_threads_to_min_priority();
         self.collect_unclassified_files();
+        if self.entries.is_empty() {
+            return Ok(());
+        }
         self.initialize_tokens_and_train_classifiers();
-        self.classification_loop()?;
-        Ok(())
+        self.calculate_scores_and_sort_entries();
+        if !self.entries.is_empty() {
+            self.list_state.select(Some(self.entries.len() - 1));
+        }
+        self.tui()
     }
 }
 
