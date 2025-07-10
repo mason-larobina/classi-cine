@@ -186,6 +186,8 @@ struct App {
     visualizer: viz::ScoreVisualizer,
     list_state: ListState,
     running: bool,
+    current_vlc: Option<vlc::VLCProcessHandle>,
+    current_idx: Option<usize>,
 }
 
 impl App {
@@ -226,6 +228,8 @@ impl App {
             visualizer,
             list_state: ListState::default(),
             running: false,
+            current_vlc: None,
+            current_idx: None,
         }
     }
 
@@ -425,46 +429,15 @@ impl App {
             }
         }
 
-        // Sort entries by total score ascending
+        // Sort entries by total score descending
         temp_entries.sort_by(|a, b| {
             let a_sum = a.scores.iter().sum::<f64>();
             let b_sum = b.scores.iter().sum::<f64>();
-            a_sum.partial_cmp(&b_sum).expect("Invalid score comparison")
+            b_sum.partial_cmp(&a_sum).expect("Invalid score comparison")
         });
 
         // Swap back the processed entries
         std::mem::swap(&mut self.entries, &mut temp_entries);
-    }
-
-    // Starts VLC and gets classification from user
-    fn play_file_and_get_classification(&self, entry: &Entry) -> Option<vlc::Classification> {
-        let path = entry.file.dir.join(&entry.file.file_name);
-        let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
-
-        // Start VLC and get classification
-        let vlc = vlc::VLCProcessHandle::new(&self.build_args.vlc, &path, file_name)
-            .expect("failed to start vlc process");
-
-        // Wait for VLC to start and verify filename
-        if let Err(e) = vlc.wait_for_status() {
-            error!("VLC startup error {:?}", e);
-            return None;
-        }
-
-        match vlc.get_classification() {
-            Ok(classification) => {
-                if matches!(classification, vlc::Classification::Skipped) {
-                    error!("Classification skipped for {:?}", path);
-                    None
-                } else {
-                    Some(classification)
-                }
-            }
-            Err(e) => {
-                error!("Classification error: {:?}", e);
-                None
-            }
-        }
     }
 
     // Displays detailed entry information including filename, tokens, and ngrams
@@ -553,6 +526,75 @@ impl App {
         Ok(())
     }
 
+    fn play_current(&mut self) -> Result<(), Error> {
+        if let Some(idx) = self.list_state.selected() {
+            if Some(idx) == self.current_idx {
+                return Ok(());
+            }
+
+            self.current_vlc = None;
+            self.current_idx = None;
+
+            if idx >= self.entries.len() {
+                return Ok(());
+            }
+
+            let entry = &self.entries[idx];
+            let path = entry.file.dir.join(&entry.file.file_name);
+            let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
+
+            let vlc = vlc::VLCProcessHandle::new(&self.build_args.vlc, &path, file_name)
+                .expect("failed to start vlc process");
+
+            if let Err(e) = vlc.wait_for_status() {
+                error!("VLC startup error {:?}", e);
+                return Err(e);
+            }
+
+            self.current_vlc = Some(vlc);
+            self.current_idx = Some(idx);
+        } else {
+            self.current_vlc = None;
+            self.current_idx = None;
+        }
+        Ok(())
+    }
+
+    fn handle_vlc_status(&mut self) -> Result<(), Error> {
+        if let Some(vlc) = self.current_vlc.as_ref() {
+            match vlc.status() {
+                Ok(status) => {
+                    let classification = match status.state() {
+                        "stopped" => Some(vlc::Classification::Positive),
+                        "paused" => Some(vlc::Classification::Negative),
+                        _ => None,
+                    };
+                    if let Some(class) = classification {
+                        let idx = self.current_idx.unwrap();
+                        let entry = self.entries.remove(idx);
+                        self.process_classification_result(entry, class)?;
+                        self.calculate_scores_and_sort_entries();
+                        let len = self.entries.len();
+                        self.current_vlc = None;
+                        self.current_idx = None;
+                        if len == 0 {
+                            self.running = false;
+                        } else {
+                            self.list_state.select(Some(0));
+                            self.play_current()?;
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Classification error: {:?}", e);
+                    self.current_vlc = None;
+                    self.current_idx = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn tui(&mut self) -> Result<(), Error> {
         terminal::enable_raw_mode()?;
         let mut stdout = std::io::stdout();
@@ -560,6 +602,7 @@ impl App {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         terminal.clear()?;
+        self.play_current()?;
 
         self.running = true;
         while self.running {
@@ -589,6 +632,8 @@ impl App {
     }
 
     fn handle_events(&mut self) -> Result<(), Error> {
+        self.handle_vlc_status()?;
+
         if event::poll(std::time::Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
@@ -597,35 +642,22 @@ impl App {
                     }
                     KeyCode::Down => {
                         let i = match self.list_state.selected() {
+                            Some(i) => {
+                                let len = self.entries.len();
+                                if i >= len - 1 { len - 1 } else { i + 1 }
+                            }
+                            None => 0,
+                        };
+                        self.list_state.select(Some(i));
+                        self.play_current()?;
+                    }
+                    KeyCode::Up => {
+                        let i = match self.list_state.selected() {
                             Some(i) => if i == 0 { 0 } else { i - 1 },
                             None => 0,
                         };
                         self.list_state.select(Some(i));
-                    }
-                    KeyCode::Up => {
-                        let len = self.entries.len();
-                        let i = match self.list_state.selected() {
-                            Some(i) => if i >= len - 1 { len - 1 } else { i + 1 },
-                            None => if len > 0 { len - 1 } else { 0 },
-                        };
-                        self.list_state.select(Some(i));
-                    }
-                    KeyCode::Enter => {
-                        if let Some(idx) = self.list_state.selected() {
-                            if idx < self.entries.len() {
-                                let entry = self.entries.remove(idx);
-                                if let Some(classification) = self.play_file_and_get_classification(&entry) {
-                                    self.process_classification_result(entry, classification)?;
-                                }
-                                self.calculate_scores_and_sort_entries();
-                                let len = self.entries.len();
-                                if len == 0 {
-                                    self.running = false;
-                                } else {
-                                    self.list_state.select(Some(len - 1));
-                                }
-                            }
-                        }
+                        self.play_current()?;
                     }
                     _ => {}
                 }
@@ -644,7 +676,7 @@ impl App {
         self.initialize_tokens_and_train_classifiers();
         self.calculate_scores_and_sort_entries();
         if !self.entries.is_empty() {
-            self.list_state.select(Some(self.entries.len() - 1));
+            self.list_state.select(Some(0));
         }
         self.tui()
     }
