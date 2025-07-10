@@ -581,7 +581,6 @@ impl App {
                             self.running = false;
                         } else {
                             self.list_state.select(Some(0));
-                            self.play_current()?;
                         }
                     }
                 }
@@ -602,7 +601,6 @@ impl App {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         terminal.clear()?;
-        self.play_current()?;
 
         self.running = true;
         while self.running {
@@ -618,9 +616,13 @@ impl App {
     }
 
     fn render_frame(&mut self, frame: &mut Frame) {
-        let items: Vec<ListItem> = self.entries.iter().map(|e| {
+        let items: Vec<ListItem> = self.entries.iter().enumerate().map(|(i, e)| {
             let total = e.scores.iter().sum::<f64>();
-            ListItem::new(format!("{:?} - score: {:.2}", e.file.file_name, total))
+            let mut text = format!("{:?} - score: {:.2}", e.file.file_name, total);
+            if Some(i) == self.current_idx {
+                text.push_str(" [Playing]");
+            }
+            ListItem::new(text)
         }).collect();
 
         let list = List::new(items)
@@ -649,7 +651,6 @@ impl App {
                             None => 0,
                         };
                         self.list_state.select(Some(i));
-                        self.play_current()?;
                     }
                     KeyCode::Up => {
                         let i = match self.list_state.selected() {
@@ -657,6 +658,8 @@ impl App {
                             None => 0,
                         };
                         self.list_state.select(Some(i));
+                    }
+                    KeyCode::Enter => {
                         self.play_current()?;
                     }
                     _ => {}
