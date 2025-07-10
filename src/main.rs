@@ -27,7 +27,9 @@ use crossterm::event::{self, Event, KeyCode};
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::ExecutableCommand;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::layout::{Layout, Direction, Constraint};
+use ratatui::text::Line;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -617,6 +619,11 @@ impl App {
     }
 
     fn render_frame(&mut self, frame: &mut Frame) {
+        let main_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(frame.area());
+
         let items: Vec<ListItem> = self.entries.iter().enumerate().map(|(i, e)| {
             let total = e.scores.iter().sum::<f64>();
             let mut text = format!("{:?} - score: {:.2}", e.file.file_name, total);
@@ -631,7 +638,59 @@ impl App {
             .highlight_symbol(">> ")
             .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
-        frame.render_stateful_widget(list, frame.area(), &mut self.list_state);
+        frame.render_stateful_widget(list, main_layout[0], &mut self.list_state);
+
+        if let Some(idx) = self.list_state.selected() {
+            if let Some(entry) = self.entries.get(idx) {
+                let full_path = entry.file.dir.join(&entry.file.file_name).display().to_string();
+                let norm_path = entry.normalized_path.clone();
+
+                let token_map = self.tokenizer.as_ref().unwrap().token_map();
+
+                let mut ngram_tokens: Vec<Vec<Token>> = Vec::new();
+                {
+                    let mut tmp_ngrams = Ngrams::default();
+                    tmp_ngrams.windows(
+                        entry.tokens.as_ref().unwrap(),
+                        5,
+                        self.frequent_ngrams.as_ref(),
+                        Some(&mut ngram_tokens),
+                    );
+                    ngram_tokens.sort();
+                    ngram_tokens.dedup();
+                }
+
+                let mut ngram_scores: Vec<(String, f64)> = Vec::new();
+                for window in ngram_tokens.into_iter() {
+                    let ngram = Ngram::new(&window);
+                    let score = self.naive_bayes.ngram_score(ngram);
+                    let token_strs: Vec<&str> = window
+                        .iter()
+                        .map(|t| token_map.get_str(*t).unwrap())
+                        .collect();
+                    let ngram_str = token_strs.join(" ");
+                    ngram_scores.push((ngram_str, score));
+                }
+
+                // Sort by absolute score descending
+                ngram_scores.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
+
+                // Build text lines
+                let mut lines: Vec<Line> = vec![];
+                lines.push(Line::from(format!("Full Path: {}", full_path)));
+                lines.push(Line::from(format!("Normalized Path: {}", norm_path)));
+                lines.push(Line::from("Top Ngrams by absolute score:"));
+                for (ngram, score) in ngram_scores.iter().take(50) {
+                    lines.push(Line::from(format!("{}: {:.3}", ngram, score)));
+                }
+
+                let paragraph = Paragraph::new(lines)
+                    .block(Block::default().title("Details").borders(Borders::ALL))
+                    .wrap(ratatui::widgets::Wrap::default());
+
+                frame.render_widget(paragraph, main_layout[1]);
+            }
+        }
     }
 
     fn handle_events(&mut self) -> Result<(), Error> {
