@@ -581,6 +581,7 @@ impl App {
                             self.running = false;
                         } else {
                             self.list_state.select(Some(0));
+                            self.play_current()?;
                         }
                     }
                 }
@@ -680,6 +681,7 @@ impl App {
         self.calculate_scores_and_sort_entries();
         if !self.entries.is_empty() {
             self.list_state.select(Some(0));
+            self.play_current()?;
         }
         self.tui()
     }
