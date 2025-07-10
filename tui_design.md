@@ -14,11 +14,6 @@ The core classification workflow remains unchanged: VLC is used to play videos a
 - Responsive TUI with keyboard navigation and event handling.
 - Maintain performance for large datasets (e.g., thousands of entries or ngrams).
 
-### Non-Goals
-- Replacing VLC entirely; VLC remains the primary tool for video playback and classification input.
-- Full GUI replacement; this is a TUI migration focused on terminal-based interaction.
-- Real-time video rendering in the TUI.
-
 ## 2. Overall Architecture
 
 ### High-Level Components
@@ -29,8 +24,7 @@ The TUI will be built using Ratatui (a Rust library for building rich terminal u
 - **Views/Tabs**: Use Ratatui's widgets (e.g., Tabs, Tables, Lists, Charts) to create tabbed interfaces for different sections.
 - **Integration Points**:
   - Access to `App`'s fields like `entries`, `playlist`, `naive_bayes`, `tokenizer`.
-  - Trigger VLC playback from the TUI (e.g., on keypress for the current entry).
-  - Update classifications in real-time based on VLC feedback.
+  - Update classifications and data views in real-time based on VLC feedback.
 
 ### Dependencies
 - Add `ratatui` and `crossterm` to `Cargo.toml`.
