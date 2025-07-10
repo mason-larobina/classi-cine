@@ -637,7 +637,7 @@ impl App {
     fn handle_events(&mut self) -> Result<(), Error> {
         self.handle_vlc_status()?;
 
-        if event::poll(std::time::Duration::from_millis(250))? {
+        if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') => {
