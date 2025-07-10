@@ -628,7 +628,7 @@ impl App {
             .highlight_symbol(">> ")
             .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
-        frame.render_stateful_widget(list, frame.size(), &mut self.list_state);
+        frame.render_stateful_widget(list, frame.area(), &mut self.list_state);
     }
 
     fn handle_events(&mut self) -> Result<(), Error> {
@@ -725,9 +725,9 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
 
 fn main() -> Result<(), Error> {
     let args = Args::parse();
-    if std::env::var("RUST_LOG").is_err() {
-        unsafe { std::env::set_var("RUST_LOG", &args.log_level) };
-    }
+    //if std::env::var("RUST_LOG").is_err() {
+    //    unsafe { std::env::set_var("RUST_LOG", &args.log_level) };
+    //}
     env_logger::init();
 
     match args.command {
