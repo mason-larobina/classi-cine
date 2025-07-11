@@ -699,7 +699,7 @@ impl App {
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
-                    KeyCode::Char('q') => {
+                    KeyCode::Char('q') | KeyCode::Esc => {
                         self.running = false;
                     }
                     KeyCode::Down => {
