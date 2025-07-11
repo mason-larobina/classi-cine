@@ -626,7 +626,7 @@ impl App {
 
         let items: Vec<ListItem> = self.entries.iter().enumerate().map(|(i, e)| {
             let total = e.scores.iter().sum::<f64>();
-            let mut text = format!("{:?} - score: {:.2}", e.file.file_name, total);
+            let mut text = format!("{:?}\n -> {:?} - score: {:.2}", e.file.dir, e.file.file_name, total);
             if Some(i) == self.current_idx {
                 text.push_str(" [Playing]");
             }
@@ -668,7 +668,7 @@ impl App {
                         .iter()
                         .map(|t| token_map.get_str(*t).unwrap())
                         .collect();
-                    let ngram_str = token_strs.join(" ");
+                    let ngram_str = format!("{:?}", token_strs);
                     ngram_scores.push((ngram_str, score));
                 }
 
