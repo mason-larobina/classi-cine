@@ -122,7 +122,9 @@ impl Tokens {
 pub struct TokenMap {
     str_token: HashMap<String, Token>,
     token_str: HashMap<Token, String>,
-    special: Vec<Token>,
+    special_tokens: Vec<Token>,
+    unknown: Token,
+    eol: Token,
 }
 
 impl TokenMap {
@@ -130,32 +132,36 @@ impl TokenMap {
         let mut token_map = Self {
             str_token: Default::default(),
             token_str: Default::default(),
-            special: Vec::new(),
+            special_tokens: Vec::new(),
+            unknown: Token(0),
+            eol: Token(0),
         };
 
         // Create the unknown token which is used for any unseen character in the training data.
         let unknown = token_map.create_token("<UNK>");
         assert_eq!(unknown, Token::default());
-        token_map.special.push(unknown);
+        token_map.special_tokens.push(unknown);
+        token_map.unknown = unknown;
 
         let eol = token_map.create_token("<EOL>");
-        token_map.special.push(eol);
+        token_map.special_tokens.push(eol);
+        token_map.eol = eol;
 
         // Create the special tokens which are not merged in the PairTokenizer.
         for c in special_chars.chars() {
             let t = token_map.get_or_create_token(&c.to_string());
-            token_map.special.push(t);
+            token_map.special_tokens.push(t);
         }
 
         token_map
     }
 
     pub fn eol(&self) -> Token {
-        self.special[1]
+        self.eol
     }
 
     pub fn last_special(&self) -> Token {
-        *self.special.last().unwrap()
+        *self.special_tokens.last().unwrap()
     }
 
     pub fn create_token(&mut self, s: &str) -> Token {
