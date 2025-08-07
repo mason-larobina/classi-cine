@@ -39,6 +39,7 @@ impl Tokens {
             let token = token_map.get_or_create_token(&tmp_string);
             tokens.tokens.push(token);
         }
+        tokens.tokens.push(token_map.eol());
         tokens.calc_bloom(&token_map);
         tokens
     }
@@ -52,6 +53,7 @@ impl Tokens {
             let token = token_map.get_token(&tmp_string);
             tokens.tokens.push(token);
         }
+        tokens.tokens.push(token_map.eol());
         tokens.calc_bloom(token_map);
         tokens
     }
@@ -136,6 +138,9 @@ impl TokenMap {
         assert_eq!(unknown, Token::default());
         token_map.special.push(unknown);
 
+        let eol = token_map.create_token("<EOL>");
+        token_map.special.push(eol);
+
         // Create the special tokens which are not merged in the PairTokenizer.
         for c in special_chars.chars() {
             let t = token_map.get_or_create_token(&c.to_string());
@@ -143,6 +148,10 @@ impl TokenMap {
         }
 
         token_map
+    }
+
+    pub fn eol(&self) -> Token {
+        self.special[1]
     }
 
     pub fn last_special(&self) -> Token {

@@ -289,7 +289,7 @@ mod tests {
         // Checking if the round trip matches
         assert_eq!(
             tokens.debug_strs(&pt.token_map),
-            vec!["hello", " ", "world"]
+            vec!["hello", " ", "world", "<EOL>"]
         );
     }
 }
