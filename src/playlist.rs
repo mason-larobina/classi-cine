@@ -63,8 +63,13 @@ impl M3uPlaylist {
     }
 
     pub fn open(path: &Path) -> Result<Self, Error> {
-        // Get canonical or normalized absolute path
-        let path = crate::normalize::canonicalize_path(path);
+        // Create an absolute path to the playlist, normalizing it.
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(path)
+        };
+        let path = crate::normalize::normalize_path(&path);
         let root = path.parent().unwrap().to_path_buf();
 
         let mut playlist = Self {
@@ -134,5 +139,55 @@ impl Playlist for M3uPlaylist {
 
     fn entries(&self) -> &[PlaylistEntry] {
         &self.entries
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_playlist_path_handling() -> Result<(), Error> {
+        let temp_dir = tempdir()?;
+        let music_dir = temp_dir.path().join("music");
+        std::fs::create_dir(&music_dir)?;
+
+        let playlist_path = temp_dir.path().join("playlist.m3u");
+
+        // 1. Test creating a new playlist and checking its root
+        let mut playlist = M3uPlaylist::open(&playlist_path)?;
+        let expected_root = crate::normalize::normalize_path(temp_dir.path());
+        assert_eq!(playlist.root(), expected_root);
+        assert!(playlist.path().is_absolute());
+
+        // 2. Test adding a file and checking the relative path
+        let track1_path = music_dir.join("track1.mp3");
+        playlist.add_positive(&track1_path)?;
+
+        let content = std::fs::read_to_string(&playlist_path)?;
+        assert!(content.contains("music/track1.mp3"));
+
+        // 3. Test re-opening and loading entries
+        let playlist = M3uPlaylist::open(&playlist_path)?;
+        assert_eq!(
+            playlist.entries(),
+            &[PlaylistEntry::Positive(PathBuf::from("music/track1.mp3"))]
+        );
+
+        // 4. Test adding a negative entry
+        let track2_path = music_dir.join("track2.mp3");
+        let mut playlist = M3uPlaylist::open(&playlist_path)?;
+        playlist.add_negative(&track2_path)?;
+        let content = std::fs::read_to_string(&playlist_path)?;
+        assert!(content.contains("#NEGATIVE:music/track2.mp3"));
+
+        // 5. Test opening from a relative path
+        std::env::set_current_dir(temp_dir.path())?;
+        let relative_playlist_path = Path::new("playlist.m3u");
+        let playlist = M3uPlaylist::open(relative_playlist_path)?;
+        assert_eq!(playlist.root(), expected_root);
+
+        Ok(())
     }
 }

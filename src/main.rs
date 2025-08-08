@@ -318,24 +318,18 @@ impl Build {
     fn collect_unclassified_files(&mut self) {
         // Create set of already classified paths (convert relative paths to absolute)
         let mut classified_paths = HashSet::new();
-        let playlist_dir = self.playlist.root();
+        let playlist_root = self.playlist.root();
 
         // Add all entries (both positive and negative) to the classified set
         for entry in self.playlist.entries() {
-            let abs_path = playlist_dir.join(entry.path());
-            let canon = abs_path.canonicalize().unwrap_or_else(|e| {
-                warn!("Unable to canonicalize {:?}, {:?}", abs_path, e);
-                abs_path
-            });
-            classified_paths.insert(canon);
+            let abs_path = playlist_root.join(entry.path());
+            let normalized = normalize::normalize_path(&abs_path);
+            classified_paths.insert(normalized);
         }
 
         let walk = Walk::new(self.build_args.video_exts.iter().map(String::as_ref));
         for dir in &self.build_args.dirs {
-            if let Err(e) = walk.walk_dir(dir) {
-                error!("Error walking directory {}: {}", dir.display(), e);
-                continue;
-            }
+            walk.walk_dir(dir);
         }
 
         let classifiers_len = self.get_classifiers().len();
@@ -345,14 +339,20 @@ impl Build {
             debug!("{:?}", file);
 
             let file_path = file.dir.join(&file.file_name);
+            let abs_file_path = if file_path.is_absolute() {
+                file_path.clone()
+            } else {
+                std::env::current_dir().unwrap().join(&file_path)
+            };
+            let normalized_file_path = normalize::normalize_path(&abs_file_path);
 
             // Skip if already classified
-            if classified_paths.contains(&file_path) {
+            if classified_paths.contains(&normalized_file_path) {
                 debug!("Skipping already classified file: {:?}", file_path);
                 continue;
             }
 
-            let normalized_path = normalize::normalize(&file_path);
+            let normalized_path = normalize::normalize(&normalized_file_path);
 
             let mut scores = vec![0.0; classifiers_len];
             scores.shrink_to_fit();
@@ -455,17 +455,16 @@ impl Build {
     // Trains the NaiveBayesClassifier using the tokenized and ngramized playlist entries.
     fn train_naive_bayes_classifier(&mut self) {
         let tokenizer = self.tokenizer.as_ref().unwrap();
+        let playlist_root = self.playlist.root();
 
         // Train naive bayes classifier on playlist entries
         let mut temp_ngrams = Ngrams::default();
-        let playlist_dir = self.playlist.path().parent().unwrap_or(Path::new(""));
 
         // Process all examples in a single loop
         for entry in self.playlist.entries().iter() {
             let path = entry.path();
-            let abs_path = playlist_dir.join(path);
-            let canon = normalize::canonicalize_path(&abs_path);
-            let normalized_path = normalize::normalize(&canon);
+            let abs_path = playlist_root.join(path);
+            let normalized_path = normalize::normalize(&abs_path);
             let tokens = tokenizer.tokenize(&normalized_path);
             // Original code used None for allowed ngrams during training
             temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
@@ -521,10 +520,15 @@ impl Build {
     // Starts VLC and gets classification from user
     fn play_file_and_get_classification(&self, entry: &Entry) -> Option<vlc::Classification> {
         let path = entry.file.dir.join(&entry.file.file_name);
+        let abs_path = if path.is_absolute() {
+            path.clone()
+        } else {
+            std::env::current_dir().unwrap().join(&path)
+        };
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
         // Start VLC and get classification
-        let vlc = vlc::VLCProcessHandle::new(&self.build_args.vlc, &path, file_name)
+        let vlc = vlc::VLCProcessHandle::new(&self.build_args.vlc, &abs_path, file_name)
             .expect("failed to start vlc process");
 
         // Wait for VLC to start and verify filename
@@ -611,6 +615,11 @@ impl Build {
         classification: vlc::Classification,
     ) -> Result<(), Error> {
         let path = entry.file.dir.join(&entry.file.file_name);
+        let abs_path = if path.is_absolute() {
+            path.clone()
+        } else {
+            std::env::current_dir().unwrap().join(&path)
+        };
 
         // Update dir size classifier
         if let Some(ref mut dir_classifier) = self.dir_size_classifier {
@@ -619,13 +628,13 @@ impl Build {
 
         match classification {
             vlc::Classification::Positive => {
-                self.playlist.add_positive(&path)?;
+                self.playlist.add_positive(&abs_path)?;
                 self.naive_bayes
                     .train_positive(entry.ngrams.as_ref().unwrap());
                 info!("{:?} (POSITIVE)", path);
             }
             vlc::Classification::Negative => {
-                self.playlist.add_negative(&path)?;
+                self.playlist.add_negative(&abs_path)?;
                 self.naive_bayes
                     .train_negative(entry.ngrams.as_ref().unwrap());
                 info!("{:?} (NEGATIVE)", path);
@@ -719,18 +728,18 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
 
     // Process all entries in original order
     for entry in original_playlist.entries() {
-        let abs_path = &original_root.join(entry.path());
-        let canon = normalize::canonicalize_path(abs_path);
+        let abs_path = original_root.join(entry.path());
+        let normalized_path = normalize::normalize_path(&abs_path);
 
         // Add to new playlist based on entry type
         match entry {
             PlaylistEntry::Positive(_) => {
-                new_playlist.add_positive(&canon)?;
-                debug!("Moved positive entry: {}", canon.display());
+                new_playlist.add_positive(&normalized_path)?;
+                debug!("Moved positive entry: {}", normalized_path.display());
             }
             PlaylistEntry::Negative(_) => {
-                new_playlist.add_negative(&canon)?;
-                debug!("Moved negative entry: {}", canon.display());
+                new_playlist.add_negative(&normalized_path)?;
+                debug!("Moved negative entry: {}", normalized_path.display());
             }
         }
     }
@@ -751,18 +760,18 @@ enum ListFilter {
 
 fn list_entries(playlist_path: &Path, filter: ListFilter) -> Result<(), Error> {
     let playlist = M3uPlaylist::open(playlist_path)?;
-    let root = playlist.path().parent().unwrap_or(Path::new(""));
+    let root = playlist.root();
     for entry in playlist.entries() {
         match (&filter, entry) {
             (ListFilter::Positive, PlaylistEntry::Positive(_)) => {
                 let path = entry.path();
-                let canon = normalize::canonicalize_path(&root.join(path));
-                println!("{}", canon.display());
+                let abs_path = root.join(path);
+                println!("{}", abs_path.display());
             }
             (ListFilter::Negative, PlaylistEntry::Negative(_)) => {
                 let path = entry.path();
-                let canon = normalize::canonicalize_path(&root.join(path));
-                println!("{}", canon.display());
+                let abs_path = root.join(path);
+                println!("{}", abs_path.display());
             }
             _ => {}
         }

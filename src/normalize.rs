@@ -1,16 +1,8 @@
 use std::path::{Component, MAIN_SEPARATOR, Path, PathBuf};
 
-pub fn canonicalize_path(path: &Path) -> PathBuf {
-    if let Ok(canon) = path.canonicalize() {
-        canon
-    } else {
-        let abs_path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-        normalize_abs_path(&abs_path)
-    }
-}
-
-/// Normalize an absolute path by resolving . and .. components
-fn normalize_abs_path(path: &Path) -> PathBuf {
+/// Normalize a path by resolving `.` and `..` components.
+/// This function does not touch the filesystem and does not make paths absolute.
+pub fn normalize_path(path: &Path) -> PathBuf {
     let mut stack = Vec::new();
 
     for component in path.components() {
@@ -70,30 +62,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn path_canonicalization() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let file = temp_dir.path().join("test.txt");
-        std::fs::write(&file, "").unwrap();
-
-        // Existing path
-        let existing = canonicalize_path(&file);
-        assert_eq!(existing, file.canonicalize().unwrap());
-
+    fn path_normalization() {
         // Non-existing path
         let non_existing = Path::new("/non/existing/../path.txt");
-        assert_eq!(
-            canonicalize_path(non_existing),
-            PathBuf::from("/non/path.txt")
-        );
+        assert_eq!(normalize_path(non_existing), PathBuf::from("/non/path.txt"));
 
         // Relative path
         let relative = Path::new("test/../file.txt");
-        let expected = std::env::current_dir().unwrap().join("file.txt");
-        assert_eq!(canonicalize_path(relative), expected);
+        assert_eq!(normalize_path(relative), PathBuf::from("file.txt"));
 
         // Complex normalization
         let complex = Path::new("/a/b/../c/./d/../../e");
-        assert_eq!(canonicalize_path(complex), PathBuf::from("/a/e"));
+        assert_eq!(normalize_path(complex), PathBuf::from("/a/e"));
+
+        // Path with trailing slash
+        let trailing = Path::new("a/b/");
+        assert_eq!(normalize_path(trailing), PathBuf::from("a/b/"));
     }
 
     #[test]
