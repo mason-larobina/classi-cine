@@ -1,7 +1,6 @@
 use crate::bloom::{Bloom, IntoMask};
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::path::MAIN_SEPARATOR;
 
 /// A token representing a unique string in the vocabulary
 #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash)]
@@ -34,11 +33,7 @@ impl Tokens {
     pub fn from_str_and_create(s: &str, token_map: &mut TokenMap) -> Tokens {
         let mut tokens = Tokens::default();
         let mut tmp_string = String::new();
-        let mut s = s;
-        if s.starts_with(MAIN_SEPARATOR) {
-            tokens.tokens.push(token_map.root());
-            s = &s[1..];
-        }
+        tokens.tokens.push(token_map.root());
         for c in s.chars() {
             tmp_string.clear();
             tmp_string.push(c);
@@ -53,11 +48,7 @@ impl Tokens {
     pub fn from_str_or_unknown(s: &str, token_map: &TokenMap) -> Tokens {
         let mut tokens = Tokens::default();
         let mut tmp_string = String::new();
-        let mut s = s;
-        if s.starts_with(MAIN_SEPARATOR) {
-            tokens.tokens.push(token_map.root());
-            s = &s[1..];
-        }
+        tokens.tokens.push(token_map.root());
         for c in s.chars() {
             tmp_string.clear();
             tmp_string.push(c);
