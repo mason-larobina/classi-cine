@@ -1,6 +1,7 @@
 use crate::bloom::{Bloom, IntoMask};
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::path::MAIN_SEPARATOR;
 
 /// A token representing a unique string in the vocabulary
 #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Ord, PartialOrd, Hash)]
@@ -33,6 +34,11 @@ impl Tokens {
     pub fn from_str_and_create(s: &str, token_map: &mut TokenMap) -> Tokens {
         let mut tokens = Tokens::default();
         let mut tmp_string = String::new();
+        let mut s = s;
+        if s.starts_with(MAIN_SEPARATOR) {
+            tokens.tokens.push(token_map.root());
+            s = &s[1..];
+        }
         for c in s.chars() {
             tmp_string.clear();
             tmp_string.push(c);
@@ -47,6 +53,11 @@ impl Tokens {
     pub fn from_str_or_unknown(s: &str, token_map: &TokenMap) -> Tokens {
         let mut tokens = Tokens::default();
         let mut tmp_string = String::new();
+        let mut s = s;
+        if s.starts_with(MAIN_SEPARATOR) {
+            tokens.tokens.push(token_map.root());
+            s = &s[1..];
+        }
         for c in s.chars() {
             tmp_string.clear();
             tmp_string.push(c);
@@ -125,6 +136,7 @@ pub struct TokenMap {
     special_tokens: Vec<Token>,
     unknown: Token,
     eol: Token,
+    root: Token,
 }
 
 impl TokenMap {
@@ -135,6 +147,7 @@ impl TokenMap {
             special_tokens: Vec::new(),
             unknown: Token(0),
             eol: Token(0),
+            root: Token(0),
         };
 
         // Create the unknown token which is used for any unseen character in the training data.
@@ -147,6 +160,10 @@ impl TokenMap {
         token_map.special_tokens.push(eol);
         token_map.eol = eol;
 
+        let root = token_map.create_token("<ROOT>");
+        token_map.special_tokens.push(root);
+        token_map.root = root;
+
         // Create the special tokens which are not merged in the PairTokenizer.
         for c in special_chars.chars() {
             let t = token_map.get_or_create_token(&c.to_string());
@@ -158,6 +175,10 @@ impl TokenMap {
 
     pub fn eol(&self) -> Token {
         self.eol
+    }
+
+    pub fn root(&self) -> Token {
+        self.root
     }
 
     pub fn last_special(&self) -> Token {

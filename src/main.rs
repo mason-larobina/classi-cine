@@ -352,7 +352,8 @@ impl Build {
                 continue;
             }
 
-            let normalized_path = normalize::normalize(&normalized_file_path);
+            let path_to_normalize = self.playlist.to_relative_path(&abs_file_path);
+            let normalized_path = normalize::normalize(&path_to_normalize);
 
             let mut scores = vec![0.0; classifiers_len];
             scores.shrink_to_fit();
@@ -387,12 +388,11 @@ impl Build {
             .collect();
 
         // Add paths from playlist classifications
-        paths.extend(
-            self.playlist
-                .entries()
-                .iter()
-                .map(|e| normalize::normalize(e.path())),
-        );
+        paths.extend(self.playlist.entries().iter().map(|e| {
+            let abs_path = self.playlist.root().join(e.path());
+            let path_to_normalize = self.playlist.to_relative_path(&abs_path);
+            normalize::normalize(&path_to_normalize)
+        }));
 
         // Create tokenizer from all paths
         self.tokenizer = Some(tokenize::PairTokenizer::new(
@@ -415,12 +415,11 @@ impl Build {
             .iter()
             .map(|e| e.normalized_path.to_string())
             .collect();
-        paths.extend(
-            self.playlist
-                .entries()
-                .iter()
-                .map(|e| normalize::normalize(e.path())),
-        );
+        paths.extend(self.playlist.entries().iter().map(|e| {
+            let abs_path = self.playlist.root().join(e.path());
+            let path_to_normalize = self.playlist.to_relative_path(&abs_path);
+            normalize::normalize(&path_to_normalize)
+        }));
 
         // Use the new function in ngrams.rs to count and filter
         self.frequent_ngrams = Some(Ngrams::count_and_filter_from_paths(
@@ -464,7 +463,8 @@ impl Build {
         for entry in self.playlist.entries().iter() {
             let path = entry.path();
             let abs_path = playlist_root.join(path);
-            let normalized_path = normalize::normalize(&abs_path);
+            let path_to_normalize = self.playlist.to_relative_path(&abs_path);
+            let normalized_path = normalize::normalize(&path_to_normalize);
             let tokens = tokenizer.tokenize(&normalized_path);
             // Original code used None for allowed ngrams during training
             temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
