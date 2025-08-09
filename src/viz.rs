@@ -1,4 +1,4 @@
-use crate::Entry;
+use crate::app::Entry;
 use terminal_size::{Width, terminal_size};
 use textplots::{Chart, Plot, Shape};
 

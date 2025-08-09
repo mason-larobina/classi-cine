@@ -1,4 +1,4 @@
-use crate::Entry;
+use crate::app::Entry;
 use crate::ngrams::{Ngram, Ngrams};
 use log::*;
 use std::collections::{HashMap, HashSet};
