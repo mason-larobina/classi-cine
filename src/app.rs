@@ -38,6 +38,7 @@ pub struct App {
     naive_bayes: NaiveBayesClassifier,
     visualizer: viz::ScoreVisualizer,
     playlist: M3uPlaylist,
+    vlc_controller: vlc::VlcController,
 }
 
 // Helper struct for timing
@@ -118,6 +119,8 @@ impl App {
             None
         };
 
+        let vlc_controller = vlc::VlcController::new(build_args.vlc.clone());
+
         Self {
             build_args,
             entries: Vec::new(),
@@ -129,6 +132,7 @@ impl App {
             naive_bayes: NaiveBayesClassifier::new(false),
             visualizer,
             playlist,
+            vlc_controller,
         }
     }
 
@@ -363,28 +367,33 @@ impl App {
         };
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
-        // Start VLC and get classification
-        let vlc = vlc::VLCProcessHandle::new(&self.build_args.vlc, &abs_path, file_name)
-            .expect("failed to start vlc process");
-
-        // Wait for VLC to start and verify filename
-        if let Err(e) = vlc.wait_for_status() {
-            error!("VLC startup error {:?}", e);
+        // Send start playback to controller
+        if let Err(e) = self.vlc_controller.start_playback(&abs_path, file_name) {
+            error!("Failed to start VLC playback: {:?}", e);
             return None;
         }
 
-        match vlc.get_classification() {
-            Ok(classification) => {
-                if matches!(classification, vlc::Classification::Skipped) {
-                    error!("Classification skipped for {:?}", path);
-                    None
-                } else {
-                    Some(classification)
+        // Wait for classification with try_recv and sleep
+        loop {
+            match self.vlc_controller.try_recv_classification() {
+                Ok(Some(classification)) => {
+                    if matches!(classification, vlc::Classification::Skipped) {
+                        error!("Classification skipped for {:?}", path);
+                        return None;
+                    } else {
+                        return Some(classification);
+                    }
                 }
-            }
-            Err(e) => {
-                error!("Classification error: {:?}", e);
-                None
+                Ok(None) => {
+                    // No update yet, sleep and try again
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        self.build_args.vlc.vlc_poll_interval,
+                    ));
+                }
+                Err(e) => {
+                    error!("Classification error: {:?}", e);
+                    return None;
+                }
             }
         }
     }

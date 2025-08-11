@@ -4,6 +4,7 @@
 .env
 .fuse*
 Cargo.lock
+aider.sh
 debug/
 flamegraph.svg
 perf.*
