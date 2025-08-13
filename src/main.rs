@@ -290,12 +290,12 @@ fn main() -> Result<(), Error> {
 
             let playlist = M3uPlaylist::open(&build_args.common.playlist)?;
             let mut app = App::new(build_args.clone(), playlist);
-            app.run()?;
+            app.run_build()?;
         }
         Command::Score(ref score_args) => {
             let playlist = M3uPlaylist::open(&score_args.common.playlist)?;
             let mut app = App::new_for_scoring(score_args.clone(), playlist);
-            app.score_files()?;
+            app.run_score()?;
         }
         Command::ListPositive(list_args) => {
             list_entries(&list_args.playlist, ListFilter::Positive)?;

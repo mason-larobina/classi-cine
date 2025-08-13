@@ -646,11 +646,9 @@ impl App {
         Ok(())
     }
 
-    // Main entry point remains simple and high-level
-    pub fn run(&mut self) -> Result<(), Error> {
+    fn init(&mut self) {
         self.set_threads_to_min_priority();
 
-        // 1. Reading files (assuming this happens during walk_dir and collect_unclassified_files)
         time_it!("File Reading and Collection", {
             self.collect_files(self.include_classified);
         });
@@ -666,31 +664,17 @@ impl App {
         time_it!("Train naive bayes classifier", {
             self.train_naive_bayes_classifier();
         });
+    }
 
+    pub fn run_build(&mut self) -> Result<(), Error> {
+        self.init();
         self.classification_loop()?;
 
         Ok(())
     }
 
-    pub fn score_files(&mut self) -> Result<(), Error> {
-        self.set_threads_to_min_priority();
-
-        // Same initial steps as run() but without VLC classification loop
-        time_it!("File Reading and Collection", {
-            self.collect_files(self.include_classified);
-        });
-
-        time_it!("Tokenization", {
-            self.initialize_tokenizer();
-        });
-
-        time_it!("Generate ngrams", {
-            self.generate_ngrams();
-        });
-
-        time_it!("Train naive bayes classifier", {
-            self.train_naive_bayes_classifier();
-        });
+    pub fn run_score(&mut self) -> Result<(), Error> {
+        self.init();
 
         // Calculate scores and sort entries
         time_it!("Calculate scores", {
