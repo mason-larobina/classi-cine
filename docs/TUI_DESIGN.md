@@ -20,40 +20,67 @@ Classi-cine is a sophisticated ML-powered video playlist builder with:
 
 ## Layout Design
 
-### Main Dashboard Layout (Split into 4 panes like btop)
+### Main View Layout (Interactive Classification Interface)
 
 ```
-┌─ File Queue (30%) ────────────────┬─ Classifier Scores (70%) ──────┐
-│ ◆ video1.mp4                      │ ┌─ Naive Bayes ───────────────┐│
-│ ○ video2.avi         [▓▓▓▓░░] 67% │ │ ████████████████░░░░ 0.82   ││
-│ ○ video3.mkv         [▓▓░░░░] 33% │ └─────────────────────────────┘│
-│ ○ video4.mp4         [▓░░░░░] 17% │ ┌─ File Size ─────────────────┐│
-│                                   │ │ ██████████░░░░░░░░░░ 0.45   ││
-│ Queue: 156 files                  │ └─────────────────────────────┘│
-│ Processed: 42 positive, 18 neg    │ ┌─ Directory Size ────────────┐│
-├───────────────────────────────────┤ │ ████████████████████ 0.91   ││
-│ Current File Details              │ └─────────────────────────────┘│
-│ /path/to/current/video.mp4        │ ┌─ File Age ──────────────────┐│
-│ Size: 1.2GB  Age: 3 days          │ │ ██████░░░░░░░░░░░░░░ 0.28   ││
-│ Directory: 45 files               │ └─────────────────────────────┘│
+┌─ File List (50%) ─────────────────┬─ Selected File Details (50%) ──┐
+│   0.89 │ terminator2.mp4          │ Full Path:                     │
+│   0.76 │ matrix.mkv               │ /movies/action/terminator2.mp4 │
+│   0.63 │ john_wick.mp4            │                                │
+│ > 0.58 │ avatar.mp4               │ Normalized:                    │
+│   0.41 │ deadpool.avi             │ movies action terminator2 mp4  │
+│   0.28 │ comedy_special.mkv       │                                │
+│   0.19 │ tutorial.mp4             │ Tokenized:                     │
+│   0.12 │ boring_doc.avi           │ ["movies", "action",           │
+│   0.08 │ documentary.avi          │  "terminator", "2", "mp4"]     │
 │                                   │                                │
-│ Tokens: ["video", "1080p", ...]   │ Combined Score: 0.615          │
-│ Top N-grams:                      │ Confidence: High ████████████  │
-│ • ["action", "movie"]: +0.85      │                                │
-│ • ["720p"]: -0.23                 │                                │
+│                                   │ Top 100 N-grams:               │
+│                                   │ ┌────────────────────────────┐ │
+│                                   │ │ action        ████████ 0.85│ │
+│                                   │ │ terminator    ███████░ 0.71│ │
+│                                   │ │ movie         ██████░░ 0.62│ │
+│                                   │ │ sci           █████░░░ 0.54│ │
+│                                   │ │ fi            █████░░░ 0.52│ │
+│                                   │ │ 1991          ████░░░░ 0.48│ │
+│                                   │ │ classic       ████░░░░ 0.45│ │
+│                                   │ │ arnold        ████░░░░ 0.43│ │
+│                                   │ │ cameron       ███░░░░░ 0.41│ │
+│                                   │ │ sequel        ███░░░░░ 0.38│ │
+│                                   │ │ ...                        │ │
+│                                   │ │ boring        ░░░░███ -0.56│ │
+│ Total: 156 files                  │ │ documentary   ░░░░██░ -0.43│ │
+│ ✓ Positive: 42  ✗ Negative: 18    │ │ tutorial      ░░░░██░ -0.38│ │
+│ ○ Pending: 96                     │ └────────────────────────────┘ │
 └───────────────────────────────────┴────────────────────────────────┘
-┌─ VLC Status ──────────────────────┬─ Score Distribution ───────────┐
-│ ⏵ Playing: video1.mp4             │     Score Histogram            │
-│ 🎬 00:15:23 / 01:42:15            │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓           │
-│ 📊 Volume: ████████░░ 80%         │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓               │
-│                                   │ ▓▓▓▓▓▓▓▓▓▓▓▓         YOU → ▲   │
-│ Controls:                         │ ▓▓▓▓▓▓▓▓                       │
-│ Space: Pause/Resume               │ ▓▓▓▓                           │
-│ S: Skip (Positive)                │ ▓▓                             │
-│ D: Delete (Negative)              │ 0.0    0.2    0.4    0.6   1.0 │
-│ Q: Quit                           │                                │
-└───────────────────────────────────┴────────────────────────────────┘
+┌─ Help & Controls ──────────────────────────────────────────────────┐
+│ [↑/↓] Navigate  [Enter] Select  [P] Positive  [N] Negative         │
+│ [R] Re-classify  [Esc/Ctrl+C] Exit                                 │
+└────────────────────────────────────────────────────────────────────┘
 ```
+
+#### Interface Specifications
+
+**Left Pane - File List Table:**
+- Two-column table: Score | Filename
+- Current selection highlighted with `>` and inverted colors
+- Status indicators: `✓` (positive), `✗` (negative), `○` (pending), `?` (unscored)
+- Score display: numeric 0.00-1.00 or `????` for unscored files
+- Scrollable list with keyboard navigation (↑/↓)
+
+**Right Pane - Selected File Details:**
+- **Full Path**: Complete filesystem path to the selected file
+- **Normalized**: Path converted to space-separated tokens for ML processing
+- **Tokenized**: Array representation showing individual tokens after processing
+- **Top 100 N-grams**: Scrollable list of most significant n-grams with:
+  - N-gram text on left
+  - Visual intensity bar (color-coded by positive/negative influence)
+  - Numeric weight/score on right
+  - Sorted by absolute value of influence
+
+**Color Coding for N-grams:**
+- Positive influence: Green gradient (█ = strongest positive)
+- Negative influence: Red gradient (█ = strongest negative)
+- Bar length represents absolute influence strength
 
 ## Interactive Features & User Workflows
 
