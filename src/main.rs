@@ -150,6 +150,9 @@ struct ScoreArgs {
     /// Reverse output order (lowest scores first)
     #[clap(long)]
     reverse: bool,
+    /// Group results by directory and aggregate scores
+    #[clap(long)]
+    by_dir: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -284,7 +287,7 @@ fn main() -> Result<(), Error> {
                     "--batch and --random-top-n are mutually exclusive".to_string(),
                 ));
             }
-            
+
             let playlist = M3uPlaylist::open(&build_args.common.playlist)?;
             let mut app = App::new(build_args.clone(), playlist);
             app.run()?;

@@ -16,7 +16,7 @@ use crate::{BuildArgs, ScoreArgs};
 use log::*;
 use rand::Rng;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use thread_priority::*;
 
@@ -35,6 +35,14 @@ struct ScoreEntry {
     filename: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     size: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct DirScoreEntry {
+    average_score: f64,
+    entry_count: usize,
+    total_size: u64,
+    directory: String,
 }
 
 pub struct App {
@@ -105,7 +113,7 @@ impl App {
             score_args.common.clone(),
             None,
             Some(score_args.clone()),
-            1, // batch_size not used for scoring
+            1,    // batch_size not used for scoring
             None, // random_top_n not used for scoring
             score_args.include_classified,
             playlist,
@@ -659,55 +667,117 @@ impl App {
         // Display all files with their scores
         let score_args = self.score_args.as_ref().unwrap();
 
-        // Collect score entries
-        let mut score_entries: Vec<ScoreEntry> = Vec::new();
+        if score_args.by_dir {
+            // Aggregate by directory
+            let mut dir_aggregates: HashMap<String, (f64, usize, u64)> = HashMap::new();
 
-        for entry in &self.entries {
-            let path = entry.file.dir.join(&entry.file.file_name);
-            let total_score: f64 = entry.scores.iter().sum();
+            for entry in &self.entries {
+                let path = entry.file.dir.join(&entry.file.file_name);
+                let total_score: f64 = entry.scores.iter().sum();
+                let dir_path = entry.file.dir.display().to_string();
 
-            let size = if score_args.include_size {
-                std::fs::metadata(&path).map(|metadata| metadata.len()).ok()
-            } else {
-                None
-            };
+                let size = std::fs::metadata(&path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
 
-            score_entries.push(ScoreEntry {
-                score: total_score,
-                filename: path.display().to_string(),
-                size,
-            });
-        }
-
-        // Apply reverse ordering if requested
-        // Default is highest scores first (.rev() in original), so reverse=true means lowest first
-        if score_args.reverse {
-            // Keep current order (lowest scores first)
-        } else {
-            // Default behavior: highest scores first
-            score_entries.reverse();
-        }
-
-        if score_args.json {
-            // JSON output
-            let json_output =
-                serde_json::to_string_pretty(&score_entries).map_err(|e| Error::SerdeJson(e))?;
-            println!("{}", json_output);
-        } else {
-            // Text output
-            if !score_args.no_header {
-                if score_args.include_size {
-                    println!("SCORE\tSIZE\tFILENAME");
-                } else {
-                    println!("SCORE\tFILENAME");
-                }
+                let (total_score_sum, count, total_size) =
+                    dir_aggregates.entry(dir_path).or_insert((0.0, 0, 0));
+                *total_score_sum += total_score;
+                *count += 1;
+                *total_size += size;
             }
 
-            for entry in &score_entries {
-                if let Some(size) = entry.size {
-                    println!("{:.3}\t{}\t{}", entry.score, size, entry.filename);
+            // Convert to dir score entries
+            let mut dir_score_entries: Vec<DirScoreEntry> = dir_aggregates
+                .into_iter()
+                .map(
+                    |(directory, (total_score_sum, count, total_size))| DirScoreEntry {
+                        average_score: total_score_sum / count as f64,
+                        entry_count: count,
+                        total_size,
+                        directory,
+                    },
+                )
+                .collect();
+
+            // Apply reverse ordering if requested
+            if score_args.reverse {
+                dir_score_entries
+                    .sort_by(|a, b| a.average_score.partial_cmp(&b.average_score).unwrap());
+            } else {
+                dir_score_entries
+                    .sort_by(|a, b| b.average_score.partial_cmp(&a.average_score).unwrap());
+            }
+
+            if score_args.json {
+                // JSON output
+                let json_output = serde_json::to_string_pretty(&dir_score_entries)
+                    .map_err(|e| Error::SerdeJson(e))?;
+                println!("{}", json_output);
+            } else {
+                // Text output
+                if !score_args.no_header {
+                    println!("AVG_SCORE\tENTRIES\tTOTAL_SIZE\tDIRECTORY");
+                }
+
+                for entry in &dir_score_entries {
+                    println!(
+                        "{:.3}\t{}\t{}\t{}",
+                        entry.average_score, entry.entry_count, entry.total_size, entry.directory
+                    );
+                }
+            }
+        } else {
+            // Collect score entries
+            let mut score_entries: Vec<ScoreEntry> = Vec::new();
+
+            for entry in &self.entries {
+                let path = entry.file.dir.join(&entry.file.file_name);
+                let total_score: f64 = entry.scores.iter().sum();
+
+                let size = if score_args.include_size {
+                    std::fs::metadata(&path).map(|metadata| metadata.len()).ok()
                 } else {
-                    println!("{:.3}\t{}", entry.score, entry.filename);
+                    None
+                };
+
+                score_entries.push(ScoreEntry {
+                    score: total_score,
+                    filename: path.display().to_string(),
+                    size,
+                });
+            }
+
+            // Apply reverse ordering if requested
+            // Default is highest scores first (.rev() in original), so reverse=true means lowest first
+            if score_args.reverse {
+                // Keep current order (lowest scores first)
+            } else {
+                // Default behavior: highest scores first
+                score_entries.reverse();
+            }
+
+            if score_args.json {
+                // JSON output
+                let json_output = serde_json::to_string_pretty(&score_entries)
+                    .map_err(|e| Error::SerdeJson(e))?;
+                println!("{}", json_output);
+            } else {
+                // Text output
+                if !score_args.no_header {
+                    if score_args.include_size {
+                        println!("SCORE\tSIZE\tFILENAME");
+                    } else {
+                        println!("SCORE\tFILENAME");
+                    }
+                }
+
+                for entry in &score_entries {
+                    if let Some(size) = entry.size {
+                        println!("{:.3}\t{}\t{}", entry.score, size, entry.filename);
+                    } else {
+                        println!("{:.3}\t{}", entry.score, entry.filename);
+                    }
                 }
             }
         }
