@@ -13,10 +13,24 @@ use crate::walk;
 use crate::walk::Walk;
 use crate::{BuildArgs, ScoreArgs};
 
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
 use log::*;
 use rand::Rng;
+use ratatui::{
+    Frame, Terminal,
+    backend::{Backend, CrosstermBackend},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::time::Instant;
 use thread_priority::*;
 
@@ -430,7 +444,7 @@ impl App {
     }
 
     // Starts VLC and gets classification from user
-    fn play_file_and_get_classification(&self, entry: &Entry) -> Option<vlc::Classification> {
+    fn play_file(&self, entry: &Entry) -> Result<(), Error> {
         let path = entry.file.dir.join(&entry.file.file_name);
         let abs_path = if path.is_absolute() {
             path.clone()
@@ -439,38 +453,31 @@ impl App {
         };
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
-        // Send start playback to controller
         let vlc_controller = self
             .vlc_controller
             .as_ref()
             .expect("VLC controller required for classification");
-        if let Err(e) = vlc_controller.start_playback(&abs_path, file_name) {
-            error!("Failed to start VLC playback: {:?}", e);
-            return None;
-        }
 
-        // Wait for classification with try_recv and sleep
-        loop {
-            match vlc_controller.try_recv_classification() {
-                Ok(Some(classification)) => {
-                    if matches!(classification, vlc::Classification::Skipped) {
-                        error!("Classification skipped for {:?}", path);
-                        return None;
-                    } else {
-                        return Some(classification);
-                    }
-                }
-                Ok(None) => {
-                    // No update yet, sleep and try again
-                    std::thread::sleep(std::time::Duration::from_millis(
-                        self.vlc_args.as_ref().unwrap().vlc_poll_interval,
-                    ));
-                }
-                Err(e) => {
-                    error!("Classification error: {:?}", e);
-                    return None;
+        vlc_controller.start_playback(&abs_path, file_name)?;
+        Ok(())
+    }
+
+    fn poll_classification(&self) -> Result<Option<vlc::Classification>, Error> {
+        let vlc_controller = self
+            .vlc_controller
+            .as_ref()
+            .expect("VLC controller required for classification");
+
+        match vlc_controller.try_recv_classification() {
+            Ok(Some(classification)) => {
+                if matches!(classification, vlc::Classification::Skipped) {
+                    Ok(None)
+                } else {
+                    Ok(Some(classification))
                 }
             }
+            Ok(None) => Ok(None), // No classification yet
+            Err(e) => Err(e),
         }
     }
 
@@ -560,7 +567,7 @@ impl App {
                     .train_negative(entry.ngrams.as_ref().unwrap());
                 info!("{:?} (NEGATIVE)", path);
             }
-            vlc::Classification::Skipped => unreachable!(), // Handled in play_file_and_get_classification
+            vlc::Classification::Skipped => unreachable!(), // Handled in poll_classification
         }
 
         Ok(())
@@ -605,7 +612,33 @@ impl App {
                 self.visualizer
                     .display_distributions(&self.entries, &entry, &classifier_names);
 
-                if let Some(classification) = self.play_file_and_get_classification(&entry) {
+                if let Err(e) = self.play_file(&entry) {
+                    error!("Failed to start VLC playback: {:?}", e);
+                    continue;
+                }
+
+                // Wait for classification with polling
+                let mut classification = None;
+                loop {
+                    match self.poll_classification() {
+                        Ok(Some(c)) => {
+                            classification = Some(c);
+                            break;
+                        }
+                        Ok(None) => {
+                            // No update yet, sleep and try again
+                            std::thread::sleep(std::time::Duration::from_millis(
+                                self.vlc_args.as_ref().unwrap().vlc_poll_interval,
+                            ));
+                        }
+                        Err(e) => {
+                            error!("Classification error: {:?}", e);
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(classification) = classification {
                     self.process_classification_result(entry, classification)?;
                 }
             }
