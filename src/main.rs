@@ -144,6 +144,12 @@ struct ScoreArgs {
     /// Include file size in bytes in output
     #[clap(long)]
     include_size: bool,
+    /// Output results in JSON format
+    #[clap(long)]
+    json: bool,
+    /// Reverse output order (lowest scores first)
+    #[clap(long)]
+    reverse: bool,
 }
 
 #[derive(Parser, Debug, Clone)]

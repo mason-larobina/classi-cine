@@ -14,6 +14,7 @@ use crate::walk::Walk;
 use crate::{BuildArgs, ScoreArgs};
 
 use log::*;
+use serde::Serialize;
 use std::collections::HashSet;
 use std::time::Instant;
 use thread_priority::*;
@@ -25,6 +26,14 @@ pub struct Entry {
     pub tokens: Option<Tokens>,
     pub ngrams: Option<Ngrams>,
     pub scores: Box<[f64]>, // One score per classifier
+}
+
+#[derive(Serialize)]
+struct ScoreEntry {
+    score: f64,
+    filename: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
 }
 
 pub struct App {
@@ -642,26 +651,56 @@ impl App {
         // Display all files with their scores
         let score_args = self.score_args.as_ref().unwrap();
 
-        if !score_args.no_header {
-            if score_args.include_size {
-                println!("SCORE\tSIZE\tFILENAME");
-            } else {
-                println!("SCORE\tFILENAME");
-            }
-        }
+        // Collect score entries
+        let mut score_entries: Vec<ScoreEntry> = Vec::new();
 
-        for entry in self.entries.iter().rev() {
-            // Reverse to show highest scores first
+        for entry in &self.entries {
             let path = entry.file.dir.join(&entry.file.file_name);
             let total_score: f64 = entry.scores.iter().sum();
 
-            if score_args.include_size {
-                let file_size = std::fs::metadata(&path)
-                    .map(|metadata| metadata.len())
-                    .unwrap_or(0);
-                println!("{:.3}\t{}\t{}", total_score, file_size, path.display());
+            let size = if score_args.include_size {
+                std::fs::metadata(&path).map(|metadata| metadata.len()).ok()
             } else {
-                println!("{:.3}\t{}", total_score, path.display());
+                None
+            };
+
+            score_entries.push(ScoreEntry {
+                score: total_score,
+                filename: path.display().to_string(),
+                size,
+            });
+        }
+
+        // Apply reverse ordering if requested
+        // Default is highest scores first (.rev() in original), so reverse=true means lowest first
+        if score_args.reverse {
+            // Keep current order (lowest scores first)
+        } else {
+            // Default behavior: highest scores first
+            score_entries.reverse();
+        }
+
+        if score_args.json {
+            // JSON output
+            let json_output =
+                serde_json::to_string_pretty(&score_entries).map_err(|e| Error::SerdeJson(e))?;
+            println!("{}", json_output);
+        } else {
+            // Text output
+            if !score_args.no_header {
+                if score_args.include_size {
+                    println!("SCORE\tSIZE\tFILENAME");
+                } else {
+                    println!("SCORE\tFILENAME");
+                }
+            }
+
+            for entry in &score_entries {
+                if let Some(size) = entry.size {
+                    println!("{:.3}\t{}\t{}", entry.score, size, entry.filename);
+                } else {
+                    println!("{:.3}\t{}", entry.score, entry.filename);
+                }
             }
         }
 
