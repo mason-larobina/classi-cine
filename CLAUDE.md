@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with
+code in this repository.
 
 ## Build and Development Commands
 
@@ -12,63 +13,88 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Architecture
 
-Classi-Cine is a Rust CLI tool that uses machine learning to build smart video playlists by learning user preferences through VLC playback feedback.
+Classi-Cine is a Rust CLI tool that uses machine learning to build smart video
+playlists by learning user preferences through VLC playback feedback.
 
 ### Core Components
 
 **Main Application Flow (`app.rs`)**:
+
 - `App` struct orchestrates the entire classification workflow
 - Manages multiple classifiers, tokenization, and VLC integration
-- Main phases: file collection → tokenization → ngram generation → training → classification loop
+- Main phases: file collection → tokenization → ngram generation → training →
+  classification loop
 
 **Classification System (`classifier.rs`)**:
-- **NaiveBayesClassifier**: Core ML classifier using ngram frequencies with Laplace smoothing
+
+- **NaiveBayesClassifier**: Core ML classifier using ngram frequencies with
+  Laplace smoothing
 - **FileSizeClassifier**: Logarithmic scoring based on file sizes
 - **DirSizeClassifier**: Scoring based on directory file counts
 - **FileAgeClassifier**: Scoring based on file creation time
-- All classifiers implement the `Classifier` trait with `calculate_score()` method
+- All classifiers implement the `Classifier` trait with `calculate_score()`
+  method
 
 **VLC Integration (`vlc.rs`)**:
+
 - `VlcController`: Multi-threaded VLC control with background processing
 - Uses VLC's HTTP interface for status monitoring
 - Classification mapping: stop = positive, pause = negative
 - Automatic process lifecycle management with `Drop` traits
 
 **Tokenization System**:
+
 - `PairTokenizer` (`tokenize.rs`): Byte-pair encoding for path tokenization
 - `Ngrams` (`ngrams.rs`): N-gram generation and frequency analysis
 - `Tokens` (`tokens.rs`): Token representation and management
 
 **Data Management**:
-- `M3uPlaylist` (`playlist.rs`): M3U playlist format handling with relative path management
+
+- `M3uPlaylist` (`playlist.rs`): M3U playlist format handling with relative path
+  management
 - `Walk` (`walk.rs`): Parallel file system traversal with video file filtering
 - `normalize.rs`: Path normalization utilities
 
 ### Key Design Patterns
 
-**Multi-threaded Architecture**: VLC control runs in background thread communicating via channels (`mpsc`)
+**Multi-threaded Architecture**: VLC control runs in background thread
+communicating via channels (`mpsc`)
 
-**Classifier Composition**: Multiple classifiers with normalized scores combined for final ranking
+**Classifier Composition**: Multiple classifiers with normalized scores combined
+for final ranking
 
-**Incremental Learning**: Naive Bayes classifier updates with each user classification
+**Incremental Learning**: Naive Bayes classifier updates with each user
+classification
 
-**Resource Management**: Automatic cleanup with `Drop` implementations for VLC processes
+**Resource Management**: Automatic cleanup with `Drop` implementations for VLC
+processes
 
 ## CLI Usage
 
 ```bash
-classi-cine build <playlist.m3u> <directories...> [options]
-classi-cine list-positive <playlist.m3u>
-classi-cine list-negative <playlist.m3u>
-classi-cine move <original.m3u> <new.m3u>
+classi-cine build <playlist.m3u> <directories...> [options]   # Interactive classification with VLC
+classi-cine score <playlist.m3u> <directories...> [options]   # Rank files using trained classifiers
+classi-cine list-positive <playlist.m3u>                      # List positively classified files
+classi-cine list-negative <playlist.m3u>                      # List negatively classified files
+classi-cine move <original.m3u> <new.m3u>                     # Move playlist and rebase paths
 ```
 
+The `score` command uses existing classifications in the playlist to train all
+classifiers, then ranks discovered files by their combined scores without
+requiring interactive VLC classification.
+
 Key options for `build`:
+
 - `--top-n`: Number of files to classify per iteration
 - `--file-size-bias`: Logarithmic bias for file sizes
 - `--dir-size-bias`: Logarithmic bias for directory sizes
 - `--file-age-bias`: Logarithmic bias for file age
 - `--dry-run`: Skip actual classification loop
+
+Key options for `score`:
+
+- `--top-n`: Number of top scoring files to display (default: 10)
+- Same classifier bias options as `build` command
 
 ## Testing and Quality
 

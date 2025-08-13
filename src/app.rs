@@ -1,4 +1,3 @@
-use crate::BuildArgs;
 use crate::Error;
 use crate::classifier::{
     Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier,
@@ -12,6 +11,7 @@ use crate::viz;
 use crate::vlc;
 use crate::walk;
 use crate::walk::Walk;
+use crate::{BuildArgs, ScoreArgs};
 
 use log::*;
 use std::collections::HashSet;
@@ -28,7 +28,10 @@ pub struct Entry {
 }
 
 pub struct App {
-    build_args: BuildArgs,
+    common_args: crate::CommonArgs,
+    vlc_args: Option<crate::VlcArgs>,
+    top_n: usize,
+    dry_run: bool,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
@@ -38,7 +41,7 @@ pub struct App {
     naive_bayes: NaiveBayesClassifier,
     visualizer: viz::ScoreVisualizer,
     playlist: M3uPlaylist,
-    vlc_controller: vlc::VlcController,
+    vlc_controller: Option<vlc::VlcController>,
 }
 
 // Helper struct for timing
@@ -74,25 +77,51 @@ macro_rules! time_it {
 
 impl App {
     pub fn new(build_args: BuildArgs, playlist: M3uPlaylist) -> Self {
-        info!("{:#?}", build_args);
+        Self::new_common(
+            build_args.common.clone(),
+            Some(build_args.vlc.clone()),
+            build_args.top_n,
+            build_args.dry_run,
+            playlist,
+        )
+    }
+
+    pub fn new_for_scoring(score_args: ScoreArgs, playlist: M3uPlaylist) -> Self {
+        Self::new_common(
+            score_args.common.clone(),
+            None,
+            score_args.top_n,
+            false,
+            playlist,
+        )
+    }
+
+    fn new_common(
+        common_args: crate::CommonArgs,
+        vlc_args: Option<crate::VlcArgs>,
+        top_n: usize,
+        dry_run: bool,
+        playlist: M3uPlaylist,
+    ) -> Self {
+        info!("{:#?}", common_args);
 
         // Initialize visualizer
         let visualizer = viz::ScoreVisualizer::default();
 
         // Initialize optional classifiers based on args
-        let file_size_classifier = if let Some(log_base) = build_args.file_size.file_size_bias {
+        let file_size_classifier = if let Some(log_base) = common_args.file_size.file_size_bias {
             assert!(log_base.abs() > 1.0, "File size log base must be > 1.0");
             let reverse = log_base < 0.0;
             Some(FileSizeClassifier::new(
                 log_base.abs(),
-                build_args.file_size.file_size_offset,
+                common_args.file_size.file_size_offset,
                 reverse,
             ))
         } else {
             None
         };
 
-        let dir_size_classifier = if let Some(log_base) = build_args.dir_size.dir_size_bias {
+        let dir_size_classifier = if let Some(log_base) = common_args.dir_size.dir_size_bias {
             assert!(
                 log_base.abs() > 1.0,
                 "Directory size log base must be > 1.0"
@@ -100,29 +129,34 @@ impl App {
             let reverse = log_base < 0.0;
             Some(DirSizeClassifier::new(
                 log_base.abs(),
-                build_args.dir_size.dir_size_offset,
+                common_args.dir_size.dir_size_offset,
                 reverse,
             ))
         } else {
             None
         };
 
-        let file_age_classifier = if let Some(log_base) = build_args.file_age.file_age_bias {
+        let file_age_classifier = if let Some(log_base) = common_args.file_age.file_age_bias {
             assert!(log_base.abs() > 1.0, "File age log base must be > 1.0");
             let reverse = log_base < 0.0;
             Some(FileAgeClassifier::new(
                 log_base.abs(),
-                build_args.file_age.file_age_offset,
+                common_args.file_age.file_age_offset,
                 reverse,
             ))
         } else {
             None
         };
 
-        let vlc_controller = vlc::VlcController::new(build_args.vlc.clone());
+        let vlc_controller = vlc_args
+            .as_ref()
+            .map(|args| vlc::VlcController::new(args.clone()));
 
         Self {
-            build_args,
+            common_args,
+            vlc_args,
+            top_n,
+            dry_run,
             entries: Vec::new(),
             tokenizer: None,
             frequent_ngrams: None,
@@ -169,8 +203,8 @@ impl App {
             classified_paths.insert(normalized);
         }
 
-        let walk = Walk::new(self.build_args.video_exts.iter().map(String::as_ref));
-        for dir in &self.build_args.dirs {
+        let walk = Walk::new(self.common_args.video_exts.iter().map(String::as_ref));
+        for dir in &self.common_args.dirs {
             walk.walk_dir(dir);
         }
 
@@ -265,7 +299,7 @@ impl App {
         self.frequent_ngrams = Some(Ngrams::count_and_filter_from_paths(
             &paths,
             tokenizer,
-            self.build_args.windows,
+            self.common_args.windows,
         ));
 
         info!("total paths {:?}", paths.len());
@@ -283,7 +317,7 @@ impl App {
             // Generate ngrams for the entry using the frequent filter
             ngrams.windows(
                 entry.tokens.as_ref().unwrap(),
-                self.build_args.windows,
+                self.common_args.windows,
                 self.frequent_ngrams.as_ref(),
                 None, // No debug info needed here
             );
@@ -307,7 +341,7 @@ impl App {
             let normalized_path = normalize::normalize(&path_to_normalize);
             let tokens = tokenizer.tokenize(&normalized_path);
             // Original code used None for allowed ngrams during training
-            temp_ngrams.windows(&tokens, self.build_args.windows, None, None);
+            temp_ngrams.windows(&tokens, self.common_args.windows, None, None);
 
             // Train based on entry type
             match entry {
@@ -368,14 +402,18 @@ impl App {
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
         // Send start playback to controller
-        if let Err(e) = self.vlc_controller.start_playback(&abs_path, file_name) {
+        let vlc_controller = self
+            .vlc_controller
+            .as_ref()
+            .expect("VLC controller required for classification");
+        if let Err(e) = vlc_controller.start_playback(&abs_path, file_name) {
             error!("Failed to start VLC playback: {:?}", e);
             return None;
         }
 
         // Wait for classification with try_recv and sleep
         loop {
-            match self.vlc_controller.try_recv_classification() {
+            match vlc_controller.try_recv_classification() {
                 Ok(Some(classification)) => {
                     if matches!(classification, vlc::Classification::Skipped) {
                         error!("Classification skipped for {:?}", path);
@@ -387,7 +425,7 @@ impl App {
                 Ok(None) => {
                     // No update yet, sleep and try again
                     std::thread::sleep(std::time::Duration::from_millis(
-                        self.build_args.vlc.vlc_poll_interval,
+                        self.vlc_args.as_ref().unwrap().vlc_poll_interval,
                     ));
                 }
                 Err(e) => {
@@ -413,7 +451,7 @@ impl App {
             let mut tmp_ngrams = Ngrams::default();
             tmp_ngrams.windows(
                 entry.tokens.as_ref().unwrap(),
-                self.build_args.windows,
+                self.common_args.windows,
                 self.frequent_ngrams.as_ref(),
                 Some(&mut ngram_tokens),
             );
@@ -497,8 +535,7 @@ impl App {
                 self.calculate_scores_and_sort_entries();
             });
 
-            let num_to_process =
-                std::cmp::min(self.entries.len(), std::cmp::max(self.build_args.top_n, 1));
+            let num_to_process = std::cmp::min(self.entries.len(), std::cmp::max(self.top_n, 1));
             let entries_to_process: Vec<Entry> = self
                 .entries
                 .drain(self.entries.len() - num_to_process..)
@@ -546,12 +583,55 @@ impl App {
         });
 
         // Dry Run Check
-        if self.build_args.dry_run {
+        if self.dry_run {
             info!("Dry run enabled. Skipping classification loop.");
             return Ok(());
         }
 
         self.classification_loop()?;
+
+        Ok(())
+    }
+
+    pub fn score_files(&mut self) -> Result<(), Error> {
+        self.set_threads_to_min_priority();
+
+        // Same initial steps as run() but without VLC classification loop
+        time_it!("File Reading and Collection", {
+            self.collect_unclassified_files();
+        });
+
+        time_it!("Tokenization", {
+            self.initialize_tokenizer();
+        });
+
+        time_it!("Generate ngrams", {
+            self.generate_ngrams();
+        });
+
+        time_it!("Train naive bayes classifier", {
+            self.train_naive_bayes_classifier();
+        });
+
+        // Calculate scores and sort entries
+        time_it!("Calculate scores", {
+            self.calculate_scores_and_sort_entries();
+        });
+
+        // Display top N files with their scores
+        let num_to_display = std::cmp::min(self.entries.len(), self.top_n);
+        let top_entries = &self.entries[self.entries.len().saturating_sub(num_to_display)..];
+
+        println!("Top {} files by classifier scores:", num_to_display);
+        println!("{:60} {:>10}", "File", "Total Score");
+        println!("{:-<71}", "");
+
+        for entry in top_entries.iter().rev() {
+            // Reverse to show highest scores first
+            let path = entry.file.dir.join(&entry.file.file_name);
+            let total_score: f64 = entry.scores.iter().sum();
+            println!("{:60} {:>10.3}", path.display().to_string(), total_score);
+        }
 
         Ok(())
     }

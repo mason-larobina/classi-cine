@@ -77,6 +77,8 @@ struct Args {
 enum Command {
     /// Build playlist through interactive classification
     Build(BuildArgs),
+    /// Score files using trained classifiers without interactive classification
+    Score(ScoreArgs),
     /// List classified files
     ListPositive(ListArgs),
     ListNegative(ListArgs),
@@ -93,8 +95,8 @@ struct MoveArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-struct BuildArgs {
-    /// M3U playlist file for storing classifications
+struct CommonArgs {
+    /// M3U playlist file
     playlist: PathBuf,
     /// Directories to scan for video files
     dirs: Vec<PathBuf>,
@@ -108,19 +110,34 @@ struct BuildArgs {
     #[clap(long, default_value_t = 5)]
     windows: usize,
     #[command(flatten)]
-    vlc: VlcArgs,
-    #[command(flatten)]
     file_size: FileSizeArgs,
     #[command(flatten)]
     dir_size: DirSizeArgs,
     #[command(flatten)]
     file_age: FileAgeArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+struct BuildArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    #[command(flatten)]
+    vlc: VlcArgs,
     /// Number of top entries to classify in each iteration
     #[clap(long, default_value_t = 1)]
     top_n: usize,
     /// Perform all steps except opening and classifying files.
     #[clap(long)]
     dry_run: bool,
+}
+
+#[derive(Parser, Debug, Clone)]
+struct ScoreArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    /// Number of top scoring files to display
+    #[clap(long, default_value_t = 10)]
+    top_n: usize,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -249,9 +266,14 @@ fn main() -> Result<(), Error> {
 
     match args.command {
         Command::Build(ref build_args) => {
-            let playlist = M3uPlaylist::open(&build_args.playlist)?;
+            let playlist = M3uPlaylist::open(&build_args.common.playlist)?;
             let mut app = App::new(build_args.clone(), playlist);
             app.run()?;
+        }
+        Command::Score(ref score_args) => {
+            let playlist = M3uPlaylist::open(&score_args.common.playlist)?;
+            let mut app = App::new_for_scoring(score_args.clone(), playlist);
+            app.score_files()?;
         }
         Command::ListPositive(list_args) => {
             list_entries(&list_args.playlist, ListFilter::Positive)?;
