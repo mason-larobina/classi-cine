@@ -123,9 +123,9 @@ struct BuildArgs {
     common: CommonArgs,
     #[command(flatten)]
     vlc: VlcArgs,
-    /// Number of top entries to classify in each iteration
+    /// Number of entries to classify in each batch iteration
     #[clap(long, default_value_t = 1)]
-    top_n: usize,
+    batch: usize,
     /// Perform all steps except opening and classifying files.
     #[clap(long)]
     dry_run: bool,
@@ -135,9 +135,9 @@ struct BuildArgs {
 struct ScoreArgs {
     #[command(flatten)]
     common: CommonArgs,
-    /// Number of top scoring files to display
-    #[clap(long, default_value_t = 10)]
-    top_n: usize,
+    /// Include already classified files in the score listing
+    #[clap(long)]
+    include_classified: bool,
 }
 
 #[derive(Parser, Debug, Clone)]

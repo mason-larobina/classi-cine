@@ -30,7 +30,8 @@ pub struct Entry {
 pub struct App {
     common_args: crate::CommonArgs,
     vlc_args: Option<crate::VlcArgs>,
-    top_n: usize,
+    batch_size: usize,
+    include_classified: bool,
     dry_run: bool,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
@@ -80,7 +81,8 @@ impl App {
         Self::new_common(
             build_args.common.clone(),
             Some(build_args.vlc.clone()),
-            build_args.top_n,
+            build_args.batch,
+            false, // never include classified files for build command
             build_args.dry_run,
             playlist,
         )
@@ -90,7 +92,8 @@ impl App {
         Self::new_common(
             score_args.common.clone(),
             None,
-            score_args.top_n,
+            1, // batch_size not used for scoring
+            score_args.include_classified,
             false,
             playlist,
         )
@@ -99,7 +102,8 @@ impl App {
     fn new_common(
         common_args: crate::CommonArgs,
         vlc_args: Option<crate::VlcArgs>,
-        top_n: usize,
+        batch_size: usize,
+        include_classified: bool,
         dry_run: bool,
         playlist: M3uPlaylist,
     ) -> Self {
@@ -155,7 +159,8 @@ impl App {
         Self {
             common_args,
             vlc_args,
-            top_n,
+            batch_size,
+            include_classified,
             dry_run,
             entries: Vec::new(),
             tokenizer: None,
@@ -191,16 +196,19 @@ impl App {
         classifiers
     }
 
-    fn collect_unclassified_files(&mut self) {
+    fn collect_files(&mut self, include_classified: bool) {
         // Create set of already classified paths (convert relative paths to absolute)
         let mut classified_paths = HashSet::new();
-        let playlist_root = self.playlist.root();
+        
+        if !include_classified {
+            let playlist_root = self.playlist.root();
 
-        // Add all entries (both positive and negative) to the classified set
-        for entry in self.playlist.entries() {
-            let abs_path = playlist_root.join(entry.path());
-            let normalized = normalize::normalize_path(&abs_path);
-            classified_paths.insert(normalized);
+            // Add all entries (both positive and negative) to the classified set
+            for entry in self.playlist.entries() {
+                let abs_path = playlist_root.join(entry.path());
+                let normalized = normalize::normalize_path(&abs_path);
+                classified_paths.insert(normalized);
+            }
         }
 
         let walk = Walk::new(self.common_args.video_exts.iter().map(String::as_ref));
@@ -222,8 +230,8 @@ impl App {
             };
             let normalized_file_path = normalize::normalize_path(&abs_file_path);
 
-            // Skip if already classified
-            if classified_paths.contains(&normalized_file_path) {
+            // Skip if already classified (only when include_classified is false)
+            if !include_classified && classified_paths.contains(&normalized_file_path) {
                 debug!("Skipping already classified file: {:?}", file_path);
                 continue;
             }
@@ -251,7 +259,11 @@ impl App {
             self.entries.push(entry);
         }
 
-        info!("Collected {} unclassified entries", self.entries.len());
+        if include_classified {
+            info!("Collected {} entries (including classified)", self.entries.len());
+        } else {
+            info!("Collected {} unclassified entries", self.entries.len());
+        }
     }
 
     // Initializes the PairTokenizer by training it on all relevant paths
@@ -535,7 +547,7 @@ impl App {
                 self.calculate_scores_and_sort_entries();
             });
 
-            let num_to_process = std::cmp::min(self.entries.len(), std::cmp::max(self.top_n, 1));
+            let num_to_process = std::cmp::min(self.entries.len(), std::cmp::max(self.batch_size, 1));
             let entries_to_process: Vec<Entry> = self
                 .entries
                 .drain(self.entries.len() - num_to_process..)
@@ -567,7 +579,7 @@ impl App {
 
         // 1. Reading files (assuming this happens during walk_dir and collect_unclassified_files)
         time_it!("File Reading and Collection", {
-            self.collect_unclassified_files();
+            self.collect_files(self.include_classified);
         });
 
         time_it!("Tokenization", {
@@ -598,7 +610,7 @@ impl App {
 
         // Same initial steps as run() but without VLC classification loop
         time_it!("File Reading and Collection", {
-            self.collect_unclassified_files();
+            self.collect_files(self.include_classified);
         });
 
         time_it!("Tokenization", {
@@ -618,15 +630,12 @@ impl App {
             self.calculate_scores_and_sort_entries();
         });
 
-        // Display top N files with their scores
-        let num_to_display = std::cmp::min(self.entries.len(), self.top_n);
-        let top_entries = &self.entries[self.entries.len().saturating_sub(num_to_display)..];
-
-        println!("Top {} files by classifier scores:", num_to_display);
+        // Display all files with their scores
+        println!("Files ranked by classifier scores:");
         println!("{:60} {:>10}", "File", "Total Score");
         println!("{:-<71}", "");
 
-        for entry in top_entries.iter().rev() {
+        for entry in self.entries.iter().rev() {
             // Reverse to show highest scores first
             let path = entry.file.dir.join(&entry.file.file_name);
             let total_score: f64 = entry.scores.iter().sum();
