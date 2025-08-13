@@ -30,6 +30,7 @@ pub struct Entry {
 pub struct App {
     common_args: crate::CommonArgs,
     vlc_args: Option<crate::VlcArgs>,
+    score_args: Option<crate::ScoreArgs>,
     batch_size: usize,
     include_classified: bool,
     dry_run: bool,
@@ -81,6 +82,7 @@ impl App {
         Self::new_common(
             build_args.common.clone(),
             Some(build_args.vlc.clone()),
+            None, // no score args for build command
             build_args.batch,
             false, // never include classified files for build command
             build_args.dry_run,
@@ -92,6 +94,7 @@ impl App {
         Self::new_common(
             score_args.common.clone(),
             None,
+            Some(score_args.clone()),
             1, // batch_size not used for scoring
             score_args.include_classified,
             false,
@@ -102,6 +105,7 @@ impl App {
     fn new_common(
         common_args: crate::CommonArgs,
         vlc_args: Option<crate::VlcArgs>,
+        score_args: Option<crate::ScoreArgs>,
         batch_size: usize,
         include_classified: bool,
         dry_run: bool,
@@ -159,6 +163,7 @@ impl App {
         Self {
             common_args,
             vlc_args,
+            score_args,
             batch_size,
             include_classified,
             dry_run,
@@ -199,7 +204,7 @@ impl App {
     fn collect_files(&mut self, include_classified: bool) {
         // Create set of already classified paths (convert relative paths to absolute)
         let mut classified_paths = HashSet::new();
-        
+
         if !include_classified {
             let playlist_root = self.playlist.root();
 
@@ -260,7 +265,10 @@ impl App {
         }
 
         if include_classified {
-            info!("Collected {} entries (including classified)", self.entries.len());
+            info!(
+                "Collected {} entries (including classified)",
+                self.entries.len()
+            );
         } else {
             info!("Collected {} unclassified entries", self.entries.len());
         }
@@ -547,7 +555,8 @@ impl App {
                 self.calculate_scores_and_sort_entries();
             });
 
-            let num_to_process = std::cmp::min(self.entries.len(), std::cmp::max(self.batch_size, 1));
+            let num_to_process =
+                std::cmp::min(self.entries.len(), std::cmp::max(self.batch_size, 1));
             let entries_to_process: Vec<Entry> = self
                 .entries
                 .drain(self.entries.len() - num_to_process..)
@@ -631,15 +640,29 @@ impl App {
         });
 
         // Display all files with their scores
-        println!("Files ranked by classifier scores:");
-        println!("{:60} {:>10}", "File", "Total Score");
-        println!("{:-<71}", "");
+        let score_args = self.score_args.as_ref().unwrap();
+
+        if !score_args.no_header {
+            if score_args.include_size {
+                println!("SCORE\tSIZE\tFILENAME");
+            } else {
+                println!("SCORE\tFILENAME");
+            }
+        }
 
         for entry in self.entries.iter().rev() {
             // Reverse to show highest scores first
             let path = entry.file.dir.join(&entry.file.file_name);
             let total_score: f64 = entry.scores.iter().sum();
-            println!("{:60} {:>10.3}", path.display().to_string(), total_score);
+
+            if score_args.include_size {
+                let file_size = std::fs::metadata(&path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
+                println!("{:.3}\t{}\t{}", total_score, file_size, path.display());
+            } else {
+                println!("{:.3}\t{}", total_score, path.display());
+            }
         }
 
         Ok(())

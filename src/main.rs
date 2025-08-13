@@ -138,6 +138,12 @@ struct ScoreArgs {
     /// Include already classified files in the score listing
     #[clap(long)]
     include_classified: bool,
+    /// Skip header output for machine-readable format
+    #[clap(long)]
+    no_header: bool,
+    /// Include file size in bytes in output
+    #[clap(long)]
+    include_size: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
