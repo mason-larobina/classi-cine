@@ -14,6 +14,7 @@ use crate::walk::Walk;
 use crate::{BuildArgs, ScoreArgs};
 
 use log::*;
+use rand::Rng;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::time::Instant;
@@ -41,6 +42,7 @@ pub struct App {
     vlc_args: Option<crate::VlcArgs>,
     score_args: Option<crate::ScoreArgs>,
     batch_size: usize,
+    random_top_n: Option<usize>,
     include_classified: bool,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
@@ -92,6 +94,7 @@ impl App {
             Some(build_args.vlc.clone()),
             None, // no score args for build command
             build_args.batch,
+            build_args.random_top_n,
             false, // never include classified files for build command
             playlist,
         )
@@ -103,6 +106,7 @@ impl App {
             None,
             Some(score_args.clone()),
             1, // batch_size not used for scoring
+            None, // random_top_n not used for scoring
             score_args.include_classified,
             playlist,
         )
@@ -113,6 +117,7 @@ impl App {
         vlc_args: Option<crate::VlcArgs>,
         score_args: Option<crate::ScoreArgs>,
         batch_size: usize,
+        random_top_n: Option<usize>,
         include_classified: bool,
         playlist: M3uPlaylist,
     ) -> Self {
@@ -170,6 +175,7 @@ impl App {
             vlc_args,
             score_args,
             batch_size,
+            random_top_n,
             include_classified,
             entries: Vec::new(),
             tokenizer: None,
@@ -559,12 +565,25 @@ impl App {
                 self.calculate_scores_and_sort_entries();
             });
 
-            let num_to_process =
-                std::cmp::min(self.entries.len(), std::cmp::max(self.batch_size, 1));
-            let entries_to_process: Vec<Entry> = self
-                .entries
-                .drain(self.entries.len() - num_to_process..)
-                .collect();
+            let entries_to_process: Vec<Entry> = if let Some(random_top_n) = self.random_top_n {
+                // Random selection from top-n entries (single entry)
+                if self.entries.is_empty() {
+                    Vec::new()
+                } else {
+                    let top_n = std::cmp::min(random_top_n, self.entries.len());
+                    let mut rng = rand::rng();
+                    let start_idx = self.entries.len() - top_n;
+                    let selected_idx = rng.random_range(start_idx..self.entries.len());
+                    vec![self.entries.remove(selected_idx)]
+                }
+            } else {
+                // Default batch behavior: take from the end (highest scores)
+                let num_to_process =
+                    std::cmp::min(self.entries.len(), std::cmp::max(self.batch_size, 1));
+                self.entries
+                    .drain(self.entries.len() - num_to_process..)
+                    .collect()
+            };
 
             for entry in entries_to_process {
                 // Get classifier names

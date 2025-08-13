@@ -126,6 +126,9 @@ struct BuildArgs {
     /// Number of entries to classify in each batch iteration
     #[clap(long, default_value_t = 1)]
     batch: usize,
+    /// Select next entry randomly from top-n scored entries to break out of local optima (mutually exclusive with --batch)
+    #[clap(long)]
+    random_top_n: Option<usize>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -275,6 +278,13 @@ fn main() -> Result<(), Error> {
 
     match args.command {
         Command::Build(ref build_args) => {
+            // Validate mutually exclusive options
+            if build_args.batch > 1 && build_args.random_top_n.is_some() {
+                return Err(Error::PlaylistError(
+                    "--batch and --random-top-n are mutually exclusive".to_string(),
+                ));
+            }
+            
             let playlist = M3uPlaylist::open(&build_args.common.playlist)?;
             let mut app = App::new(build_args.clone(), playlist);
             app.run()?;
