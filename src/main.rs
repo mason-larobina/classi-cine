@@ -126,9 +126,6 @@ struct BuildArgs {
     /// Number of entries to classify in each batch iteration
     #[clap(long, default_value_t = 1)]
     batch: usize,
-    /// Perform all steps except opening and classifying files.
-    #[clap(long)]
-    dry_run: bool,
 }
 
 #[derive(Parser, Debug, Clone)]

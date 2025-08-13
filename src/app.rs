@@ -42,7 +42,6 @@ pub struct App {
     score_args: Option<crate::ScoreArgs>,
     batch_size: usize,
     include_classified: bool,
-    dry_run: bool,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
@@ -94,7 +93,6 @@ impl App {
             None, // no score args for build command
             build_args.batch,
             false, // never include classified files for build command
-            build_args.dry_run,
             playlist,
         )
     }
@@ -106,7 +104,6 @@ impl App {
             Some(score_args.clone()),
             1, // batch_size not used for scoring
             score_args.include_classified,
-            false,
             playlist,
         )
     }
@@ -117,7 +114,6 @@ impl App {
         score_args: Option<crate::ScoreArgs>,
         batch_size: usize,
         include_classified: bool,
-        dry_run: bool,
         playlist: M3uPlaylist,
     ) -> Self {
         info!("{:#?}", common_args);
@@ -175,7 +171,6 @@ impl App {
             score_args,
             batch_size,
             include_classified,
-            dry_run,
             entries: Vec::new(),
             tokenizer: None,
             frequent_ngrams: None,
@@ -611,12 +606,6 @@ impl App {
         time_it!("Train naive bayes classifier", {
             self.train_naive_bayes_classifier();
         });
-
-        // Dry Run Check
-        if self.dry_run {
-            info!("Dry run enabled. Skipping classification loop.");
-            return Ok(());
-        }
 
         self.classification_loop()?;
 

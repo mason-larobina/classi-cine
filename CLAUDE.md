@@ -85,11 +85,10 @@ requiring interactive VLC classification.
 
 Key options for `build`:
 
-- `--top-n`: Number of files to classify per iteration
+- `--batch`: Number of files to classify per iteration
 - `--file-size-bias`: Logarithmic bias for file sizes
 - `--dir-size-bias`: Logarithmic bias for directory sizes
 - `--file-age-bias`: Logarithmic bias for file age
-- `--dry-run`: Skip actual classification loop
 
 Key options for `score`:
 
