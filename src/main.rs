@@ -3,6 +3,7 @@ mod bloom;
 mod classifier;
 mod ngrams;
 mod normalize;
+mod path;
 mod playlist;
 mod tokenize;
 mod tokens;
