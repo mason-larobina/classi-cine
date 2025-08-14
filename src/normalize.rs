@@ -1,29 +1,4 @@
-use std::path::{Component, MAIN_SEPARATOR, Path, PathBuf};
-
-/// Normalize a path by resolving `.` and `..` components.
-/// This function does not touch the filesystem and does not make paths absolute.
-pub fn normalize_path(path: &Path) -> PathBuf {
-    let mut stack = Vec::new();
-
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if let Some(Component::Normal(_)) = stack.last() {
-                    stack.pop();
-                }
-            }
-            other => stack.push(other),
-        }
-    }
-
-    let mut normalized = PathBuf::new();
-    for component in stack {
-        normalized.push(component.as_os_str());
-    }
-
-    normalized
-}
+use std::path::MAIN_SEPARATOR;
 
 /// Normalizes a file path by performing the following transformations:
 /// 1. Converts to lowercase
@@ -61,25 +36,6 @@ pub fn normalize(file: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn path_normalization() {
-        // Non-existing path
-        let non_existing = Path::new("/non/existing/../path.txt");
-        assert_eq!(normalize_path(non_existing), PathBuf::from("/non/path.txt"));
-
-        // Relative path
-        let relative = Path::new("test/../file.txt");
-        assert_eq!(normalize_path(relative), PathBuf::from("file.txt"));
-
-        // Complex normalization
-        let complex = Path::new("/a/b/../c/./d/../../e");
-        assert_eq!(normalize_path(complex), PathBuf::from("/a/e"));
-
-        // Path with trailing slash
-        let trailing = Path::new("a/b/");
-        assert_eq!(normalize_path(trailing), PathBuf::from("a/b/"));
-    }
 
     #[test]
     fn special_characters() {

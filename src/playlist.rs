@@ -63,9 +63,8 @@ impl M3uPlaylist {
         } else {
             std::env::current_dir()?.join(path)
         };
-        let abs_path_buf = crate::normalize::normalize_path(&path);
-        let abs_path = AbsPath::from_abs_path(&abs_path_buf);
-        let root = AbsPath::from_abs_path(abs_path_buf.parent().unwrap());
+        let abs_path = AbsPath::from_abs_path(&path);
+        let root = AbsPath::from_abs_path(path.parent().unwrap());
 
         let mut playlist = Self {
             path: abs_path,
@@ -162,7 +161,7 @@ mod tests {
 
         // 1. Test creating a new playlist and checking its root
         let mut playlist = M3uPlaylist::open(&playlist_path)?;
-        let expected_root = crate::normalize::normalize_path(temp_dir.path());
+        let expected_root = crate::path::normalize_path(temp_dir.path());
         assert_eq!(playlist.root(), expected_root);
         assert!(playlist.path().is_absolute());
 
@@ -176,7 +175,7 @@ mod tests {
         // 3. Test re-opening and loading entries
         let playlist = M3uPlaylist::open(&playlist_path)?;
         let expected_abs_path = music_dir.join("track1.mp3");
-        let expected_abs_path = crate::normalize::normalize_path(&expected_abs_path);
+        let expected_abs_path = crate::path::normalize_path(&expected_abs_path);
         assert_eq!(playlist.entries().len(), 1);
         match &playlist.entries()[0] {
             PlaylistEntry::Positive(path) => {

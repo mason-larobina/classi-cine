@@ -84,3 +84,27 @@ impl PathDisplayContext {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_normalization() {
+        // Non-existing path
+        let non_existing = Path::new("/non/existing/../path.txt");
+        assert_eq!(normalize_path(non_existing), PathBuf::from("/non/path.txt"));
+
+        // Relative path
+        let relative = Path::new("test/../file.txt");
+        assert_eq!(normalize_path(relative), PathBuf::from("file.txt"));
+
+        // Complex normalization
+        let complex = Path::new("/a/b/../c/./d/../../e");
+        assert_eq!(normalize_path(complex), PathBuf::from("/a/e"));
+
+        // Path with trailing slash
+        let trailing = Path::new("a/b/");
+        assert_eq!(normalize_path(trailing), PathBuf::from("a/b/"));
+    }
+}

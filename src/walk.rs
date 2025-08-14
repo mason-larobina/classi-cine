@@ -45,7 +45,7 @@ impl Walk {
         } else {
             std::env::current_dir().unwrap().join(dir)
         };
-        let abs_dir = crate::normalize::normalize_path(&abs_dir);
+        let abs_dir = crate::path::normalize_path(&abs_dir);
         Self::inner_walk_dir(Arc::clone(&self.exts), Arc::clone(&self.tx), abs_dir);
     }
 
