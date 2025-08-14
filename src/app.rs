@@ -10,28 +10,13 @@ use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
 use crate::viz;
 use crate::vlc;
-use crate::walk;
 use crate::walk::Walk;
 use crate::{BuildArgs, ScoreArgs};
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
 use log::*;
 use rand::Rng;
-use ratatui::{
-    Frame, Terminal,
-    backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
@@ -248,8 +233,6 @@ impl App {
         let mut parent_dir_cache: HashMap<PathBuf, Arc<PathBuf>> = HashMap::new();
 
         if !include_classified {
-            let playlist_root = self.playlist.root();
-
             // Add all entries (both positive and negative) to the classified set
             for entry in self.playlist.entries() {
                 let abs_path = entry.path().abs_path().to_path_buf();
@@ -398,7 +381,6 @@ impl App {
     // Trains the NaiveBayesClassifier using the tokenized and ngramized playlist entries.
     fn train_naive_bayes_classifier(&mut self) {
         let tokenizer = self.tokenizer.as_ref().unwrap();
-        let playlist_root = self.playlist.root();
 
         // Train naive bayes classifier on playlist entries
         let mut temp_ngrams = Ngrams::default();
@@ -440,11 +422,10 @@ impl App {
             if let (Some(min), Some(max)) = (
                 col_scores.iter().copied().reduce(f64::min),
                 col_scores.iter().copied().reduce(f64::max),
-            ) {
-                if (max - min).abs() > f64::EPSILON {
-                    for (entry, &raw_score) in temp_entries.iter_mut().zip(&col_scores) {
-                        entry.scores[col] = (raw_score - min) / (max - min);
-                    }
+            ) && (max - min).abs() > f64::EPSILON
+            {
+                for (entry, &raw_score) in temp_entries.iter_mut().zip(&col_scores) {
+                    entry.scores[col] = (raw_score - min) / (max - min);
                 }
             }
         }
@@ -472,7 +453,7 @@ impl App {
             .as_ref()
             .expect("VLC controller required for classification");
 
-        vlc_controller.start_playback(&abs_path, file_name)?;
+        vlc_controller.start_playback(abs_path, file_name)?;
         Ok(())
     }
 
@@ -497,7 +478,6 @@ impl App {
 
     // Displays detailed entry information including filename, tokens, and ngrams
     fn display_entry_details(&self, entry: &Entry) {
-        let abs_path = entry.path.abs_path();
         let token_map = self.tokenizer.as_ref().unwrap().token_map();
 
         // Display filename relative to M3U file location for build command
@@ -751,8 +731,8 @@ impl App {
 
             if score_args.json {
                 // JSON output
-                let json_output = serde_json::to_string_pretty(&dir_score_entries)
-                    .map_err(|e| Error::SerdeJson(e))?;
+                let json_output =
+                    serde_json::to_string_pretty(&dir_score_entries).map_err(Error::SerdeJson)?;
                 println!("{}", json_output);
             } else {
                 // Text output
@@ -804,8 +784,8 @@ impl App {
 
             if score_args.json {
                 // JSON output
-                let json_output = serde_json::to_string_pretty(&score_entries)
-                    .map_err(|e| Error::SerdeJson(e))?;
+                let json_output =
+                    serde_json::to_string_pretty(&score_entries).map_err(Error::SerdeJson)?;
                 println!("{}", json_output);
             } else {
                 // Text output

@@ -61,7 +61,7 @@ impl PairCounts {
 
     /// Returns a mutable reference to the correct shard for `item`,
     /// determined by hashing `item` modulo the number of shards.
-    fn get_map<'a, T: Hash + Copy>(&'a mut self, item: T) -> &'a mut HashMap<Pair, i64> {
+    fn get_map<T: Hash + Copy>(&mut self, item: T) -> &mut HashMap<Pair, i64> {
         let mut hasher = AHasher::default();
         item.hash(&mut hasher);
         // Modulo the result by the number of shards to pick the correct index.
@@ -127,7 +127,7 @@ impl PairTokenizer {
         // Transform each string into a sequence of tokens, creating any necessary tokens in the token_map.
         let mut strings: Vec<Tokens> = strings
             .into_iter()
-            .map(|s| Tokens::from_str_and_create(&s, &mut token_map))
+            .map(|s| Tokens::from_str_and_create(s, &mut token_map))
             .collect();
 
         if strings.is_empty() {
@@ -234,16 +234,14 @@ impl PairTokenizer {
     /// For best results, use the same corpus or one of similar distribution.
     pub fn tokenize(&self, s: &str) -> Tokens {
         // Create tokens, using "unknown" tokens if not present in the token_map training corpus.
-        let mut tokens = Tokens::from_str_or_unknown(&s, &self.token_map);
+        let mut tokens = Tokens::from_str_or_unknown(s, &self.token_map);
         // A temporary structure to apply merges one by one.
         let mut tmp = Tokens::default();
         // For each learned merge, apply it if `tokens` contains the pair.
         for (pair, merged) in self.merges.iter().cloned() {
-            if tokens.contains(&pair) {
-                if tmp.from_replace(&self.token_map, &tokens, pair, merged) {
-                    // Swap to finalize the replacement result.
-                    std::mem::swap(&mut tmp, &mut tokens);
-                }
+            if tokens.contains(&pair) && tmp.from_replace(&self.token_map, &tokens, pair, merged) {
+                // Swap to finalize the replacement result.
+                std::mem::swap(&mut tmp, &mut tokens);
             }
         }
         tokens

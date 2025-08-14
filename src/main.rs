@@ -215,7 +215,6 @@ struct ListArgs {
 fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
     // Load the original playlist
     let original_playlist = M3uPlaylist::open(original_path)?;
-    let original_root = original_playlist.root();
 
     // Create a new playlist at the target location
     let mut new_playlist = M3uPlaylist::open(new_path)?;

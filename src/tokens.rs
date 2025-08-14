@@ -41,7 +41,7 @@ impl Tokens {
             tokens.tokens.push(token);
         }
         tokens.tokens.push(token_map.eol());
-        tokens.calc_bloom(&token_map);
+        tokens.calc_bloom(token_map);
         tokens
     }
 
@@ -95,7 +95,7 @@ impl Tokens {
         self.tokens.len()
     }
 
-    pub fn as_slice<'a>(&'a self) -> &'a [Token] {
+    pub fn as_slice(&self) -> &[Token] {
         self.tokens.as_slice()
     }
 
@@ -178,22 +178,14 @@ impl TokenMap {
 
     pub fn create_token(&mut self, s: &str) -> Token {
         let token = Token(self.str_token.len().try_into().unwrap());
-        assert!(
-            self.str_token
-                .insert(s.to_string(), token.clone())
-                .is_none()
-        );
-        assert!(
-            self.token_str
-                .insert(token.clone(), s.to_string())
-                .is_none()
-        );
+        assert!(self.str_token.insert(s.to_string(), token).is_none());
+        assert!(self.token_str.insert(token, s.to_string()).is_none());
         token
     }
 
     pub fn get_or_create_token(&mut self, s: &str) -> Token {
         if let Some(token) = self.str_token.get(s) {
-            return *token;
+            *token
         } else {
             self.create_token(s)
         }
@@ -212,7 +204,7 @@ impl TokenMap {
         self.str_token.get(s).copied().unwrap_or_default()
     }
 
-    pub fn get_str<'a>(&'a self, token: Token) -> Option<&'a str> {
+    pub fn get_str(&self, token: Token) -> Option<&str> {
         self.token_str.get(&token).map(String::as_str)
     }
 

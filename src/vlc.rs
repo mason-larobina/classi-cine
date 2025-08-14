@@ -149,9 +149,8 @@ impl VlcBackground {
             }
             Ok(ControlMessage::Shutdown) => {
                 self.current_playback = None;
-                return;
             }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => (),
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
         }
     }
@@ -168,7 +167,7 @@ impl VlcBackground {
                             let mismatch = state
                                 .file_name
                                 .as_ref()
-                                .map_or(false, |expected| vlc_filename != *expected);
+                                .is_some_and(|expected| vlc_filename != *expected);
                             if mismatch {
                                 terminate = true;
                                 send_msg =
@@ -259,7 +258,7 @@ impl VlcBackground {
 
         debug!("Spawn {:?}", command);
 
-        let child = command.spawn().map_err(|e| Error::ProcessFailed(e))?;
+        let child = command.spawn().map_err(Error::ProcessFailed)?;
 
         let status_url = format!("http://:{password}@localhost:{port}/requests/status.json");
 
@@ -276,7 +275,7 @@ impl VlcBackground {
 
         debug!("Response: {}", text);
 
-        Ok(serde_json::from_str(&text).map_err(Error::SerdeJson)?)
+        serde_json::from_str(&text).map_err(Error::SerdeJson)
     }
 }
 

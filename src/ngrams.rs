@@ -1,7 +1,6 @@
 use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
 use ahash::{AHashMap, AHashSet};
-use num_cpus;
 use rayon::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -32,10 +31,10 @@ impl Ngrams {
         for n in 1..=windows {
             for window in tokens.as_slice().windows(n) {
                 let ngram = Ngram::new(window);
-                if let Some(allowed) = &allowed {
-                    if !allowed.contains(&ngram) {
-                        continue;
-                    }
+                if let Some(allowed) = &allowed
+                    && !allowed.contains(&ngram)
+                {
+                    continue;
                 }
                 self.0.push(ngram);
                 if let Some(d) = &mut debug {
@@ -47,7 +46,7 @@ impl Ngrams {
         self.0.dedup();
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Ngram> {
+    pub fn iter(&self) -> impl Iterator<Item = &Ngram> {
         self.0.iter()
     }
 
@@ -79,17 +78,14 @@ impl Ngrams {
                 }
                 local_counts
             })
-            .reduce(
-                || AHashMap::new(),
-                |mut acc, local_counts| {
-                    // Reduction: merge local counts into accumulator
-                    for (ngram, count) in local_counts {
-                        let counter = acc.entry(ngram).or_insert(0);
-                        *counter = counter.saturating_add(count);
-                    }
-                    acc
-                },
-            );
+            .reduce(AHashMap::new, |mut acc, local_counts| {
+                // Reduction: merge local counts into accumulator
+                for (ngram, count) in local_counts {
+                    let counter = acc.entry(ngram).or_insert(0);
+                    *counter = counter.saturating_add(count);
+                }
+                acc
+            });
 
         // Filter to frequent ngrams (count > 1)
         ngram_counts

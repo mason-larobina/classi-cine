@@ -56,11 +56,11 @@ impl M3uPlaylist {
 
     pub fn to_relative_path(&self, path: &Path) -> PathBuf {
         assert!(path.is_absolute());
-        let result = diff_paths(path, self.root()).unwrap_or_else(|| {
+
+        diff_paths(path, self.root()).unwrap_or_else(|| {
             warn!("Unable to diff path: {:?}", path);
             path.to_path_buf()
-        });
-        result
+        })
     }
 
     pub fn display_path(&self, abs_path: &AbsPath, context: &PathDisplayContext) -> String {

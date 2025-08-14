@@ -31,6 +31,7 @@ pub fn normalize_path(path: &Path) -> PathBuf {
 /// 3. Collapses consecutive special characters into single spaces
 /// 4. Removes apostrophes and trailing spaces
 /// 5. Maintains single path separators while cleaning surrounding spaces
+///
 /// Convert path to canonical form, falling back to absolute + normalized if path doesn't exist
 pub fn normalize(file: &Path) -> String {
     let file = file.to_string_lossy().to_lowercase();
