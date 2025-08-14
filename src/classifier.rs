@@ -180,7 +180,7 @@ impl Classifier for FileSizeClassifier {
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
-        calculate_log_score(item.file.size, self.offset, self.log_base, self.reverse)
+        calculate_log_score(item.size, self.offset, self.log_base, self.reverse)
     }
 }
 
@@ -276,7 +276,7 @@ impl Classifier for FileAgeClassifier {
     fn calculate_score(&self, item: &Entry) -> f64 {
         let age_seconds = self
             .now
-            .duration_since(item.file.created)
+            .duration_since(item.created)
             .unwrap_or_default()
             .as_secs();
         calculate_log_score(age_seconds, self.offset, self.log_base, self.reverse)

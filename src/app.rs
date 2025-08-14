@@ -4,7 +4,7 @@ use crate::classifier::{
 };
 use crate::ngrams::{Ngram, Ngrams};
 use crate::normalize;
-use crate::path::PathDisplayContext;
+use crate::path::{AbsPath, PathDisplayContext};
 use crate::playlist::{M3uPlaylist, Playlist, PlaylistEntry};
 use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
@@ -34,12 +34,15 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 use thread_priority::*;
 
 #[derive(Debug)]
 pub struct Entry {
-    pub file: walk::File,
+    pub path: AbsPath,
+    pub size: u64,
+    pub inode: u64,
+    pub created: SystemTime,
     pub normalized_path: String,
     pub parent_dir: Arc<PathBuf>, // Cached parent directory for efficient access
     pub tokens: Option<Tokens>,
@@ -292,7 +295,10 @@ impl App {
             };
 
             let entry = Entry {
-                file,
+                path: file.path,
+                size: file.size,
+                inode: file.inode,
+                created: file.created,
                 normalized_path,
                 parent_dir,
                 tokens: None,
@@ -456,7 +462,7 @@ impl App {
 
     // Starts VLC and gets classification from user
     fn play_file(&self, entry: &Entry) -> Result<(), Error> {
-        let abs_path = entry.file.path.abs_path();
+        let abs_path = entry.path.abs_path();
         let file_name = abs_path
             .file_name()
             .map(|n| n.to_string_lossy().to_string());
@@ -491,12 +497,12 @@ impl App {
 
     // Displays detailed entry information including filename, tokens, and ngrams
     fn display_entry_details(&self, entry: &Entry) {
-        let abs_path = entry.file.path.abs_path();
+        let abs_path = entry.path.abs_path();
         let token_map = self.tokenizer.as_ref().unwrap().token_map();
 
         // Display filename relative to M3U file location for build command
         let context = PathDisplayContext::build_context(self.playlist.root());
-        let display_path = self.playlist.display_path(&entry.file.path, &context);
+        let display_path = self.playlist.display_path(&entry.path, &context);
         println!("File: {}", display_path);
         let token_strs = entry.tokens.as_ref().unwrap().debug_strs(token_map);
         println!("Tokens: {:?}", token_strs);
@@ -552,7 +558,7 @@ impl App {
         entry: Entry,
         classification: vlc::Classification,
     ) -> Result<(), Error> {
-        let abs_path = entry.file.path.abs_path();
+        let abs_path = entry.path.abs_path();
 
         // Update dir size classifier
         if let Some(ref mut dir_classifier) = self.dir_size_classifier {
@@ -561,7 +567,7 @@ impl App {
 
         // Display path relative to M3U file location for build command logging
         let context = PathDisplayContext::build_context(self.playlist.root());
-        let display_path = self.playlist.display_path(&entry.file.path, &context);
+        let display_path = self.playlist.display_path(&entry.path, &context);
 
         match classification {
             vlc::Classification::Positive => {
@@ -710,7 +716,7 @@ impl App {
                 };
                 let dir_path = display_dir_path.display().to_string();
 
-                let size = std::fs::metadata(entry.file.path.abs_path())
+                let size = std::fs::metadata(entry.path.abs_path())
                     .map(|metadata| metadata.len())
                     .unwrap_or(0);
 
@@ -766,7 +772,7 @@ impl App {
             let mut score_entries: Vec<ScoreEntry> = Vec::new();
 
             for entry in &self.entries {
-                let abs_path = entry.file.path.abs_path();
+                let abs_path = entry.path.abs_path();
                 let total_score: f64 = entry.scores.iter().sum();
 
                 let size = if score_args.include_size {
@@ -778,7 +784,7 @@ impl App {
                 };
 
                 let context = PathDisplayContext::score_list_context(score_args.absolute);
-                let display_path = entry.file.path.to_string(&context);
+                let display_path = entry.path.to_string(&context);
 
                 score_entries.push(ScoreEntry {
                     score: total_score,
