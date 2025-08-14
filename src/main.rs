@@ -12,6 +12,7 @@ mod vlc;
 mod walk;
 
 use crate::app::App;
+use crate::path::PathDisplayContext;
 use crate::playlist::{M3uPlaylist, Playlist, PlaylistEntry};
 use clap::{Parser, Subcommand};
 use log::*;
@@ -227,18 +228,17 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
 
     // Process all entries in original order
     for entry in original_playlist.entries() {
-        let abs_path = original_root.join(entry.path());
-        let normalized_path = normalize::normalize_path(&abs_path);
+        let abs_path = entry.path().abs_path();
 
         // Add to new playlist based on entry type
         match entry {
             PlaylistEntry::Positive(_) => {
-                new_playlist.add_positive(&normalized_path)?;
-                debug!("Moved positive entry: {}", normalized_path.display());
+                new_playlist.add_positive(abs_path)?;
+                debug!("Moved positive entry: {}", abs_path.display());
             }
             PlaylistEntry::Negative(_) => {
-                new_playlist.add_negative(&normalized_path)?;
-                debug!("Moved negative entry: {}", normalized_path.display());
+                new_playlist.add_negative(abs_path)?;
+                debug!("Moved negative entry: {}", abs_path.display());
             }
         }
     }
@@ -259,42 +259,18 @@ enum ListFilter {
 
 fn list_entries(playlist_path: &Path, filter: ListFilter, absolute: bool) -> Result<(), Error> {
     let playlist = M3uPlaylist::open(playlist_path)?;
-    let root = playlist.root();
-    let current_dir = if !absolute {
-        Some(std::env::current_dir()?)
-    } else {
-        None
-    };
+
+    let context = PathDisplayContext::score_list_context(absolute);
 
     for entry in playlist.entries() {
         match (&filter, entry) {
             (ListFilter::Positive, PlaylistEntry::Positive(_)) => {
-                let path = entry.path();
-                let abs_path = root.join(path);
-
-                let display_path = if let Some(ref cwd) = current_dir {
-                    // Display relative to current directory
-                    pathdiff::diff_paths(&abs_path, cwd).unwrap_or_else(|| abs_path.clone())
-                } else {
-                    // Display absolute path
-                    abs_path
-                };
-
-                println!("{}", display_path.display());
+                let display_path = entry.path().to_string(&context);
+                println!("{}", display_path);
             }
             (ListFilter::Negative, PlaylistEntry::Negative(_)) => {
-                let path = entry.path();
-                let abs_path = root.join(path);
-
-                let display_path = if let Some(ref cwd) = current_dir {
-                    // Display relative to current directory
-                    pathdiff::diff_paths(&abs_path, cwd).unwrap_or_else(|| abs_path.clone())
-                } else {
-                    // Display absolute path
-                    abs_path
-                };
-
-                println!("{}", display_path.display());
+                let display_path = entry.path().to_string(&context);
+                println!("{}", display_path);
             }
             _ => {}
         }

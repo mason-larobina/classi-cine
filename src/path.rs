@@ -22,7 +22,7 @@ pub fn normalize_path(path: &Path) -> PathBuf {
 }
 
 /// Context-aware path wrapper that enforces correct path display modes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AbsPath(PathBuf);
 
 impl AbsPath {
@@ -35,16 +35,25 @@ impl AbsPath {
         &self.0
     }
 
+    pub fn exists(&self) -> bool {
+        self.0.exists()
+    }
+
     pub fn to_string(&self, context: &PathDisplayContext) -> String {
         match context {
-            PathDisplayContext::Absolute => {
-                self.0.to_string_lossy().to_string()
-            }
+            PathDisplayContext::Absolute => self.0.to_string_lossy().to_string(),
             PathDisplayContext::RelativeTo(base) => {
-                let display_path = pathdiff::diff_paths(&self.0, base).unwrap_or_else(|| self.0.clone());
+                let display_path =
+                    pathdiff::diff_paths(&self.0, base).unwrap_or_else(|| self.0.clone());
                 display_path.to_string_lossy().to_string()
             }
         }
+    }
+}
+
+impl AsRef<Path> for AbsPath {
+    fn as_ref(&self) -> &Path {
+        &self.0
     }
 }
 
@@ -74,4 +83,3 @@ impl PathDisplayContext {
         }
     }
 }
-

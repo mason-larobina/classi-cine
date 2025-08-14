@@ -1,3 +1,4 @@
+use crate::path::AbsPath;
 use log::*;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
@@ -9,8 +10,7 @@ use std::time::SystemTime;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct File {
-    pub dir: Arc<PathBuf>,
-    pub file_name: PathBuf,
+    pub path: AbsPath,
     pub size: u64,
     pub inode: u64,
     pub created: SystemTime,
@@ -48,16 +48,15 @@ impl Walk {
             std::env::current_dir().unwrap().join(dir)
         };
         let abs_dir = crate::normalize::normalize_path(&abs_dir);
-        let dir = Arc::new(abs_dir);
-        Self::inner_walk_dir(Arc::clone(&self.exts), Arc::clone(&self.tx), dir);
+        Self::inner_walk_dir(Arc::clone(&self.exts), Arc::clone(&self.tx), abs_dir);
     }
 
     pub fn into_rx(self) -> Receiver<File> {
         self.rx
     }
 
-    fn inner_walk_dir(exts: Arc<HashSet<OsString>>, tx: Arc<Sender<File>>, dir: Arc<PathBuf>) {
-        let entries = match std::fs::read_dir(&*dir) {
+    fn inner_walk_dir(exts: Arc<HashSet<OsString>>, tx: Arc<Sender<File>>, dir: PathBuf) {
+        let entries = match std::fs::read_dir(&dir) {
             Ok(entries) => entries,
             Err(e) => {
                 error!("Error reading directory {:?} {:?}", dir, e);
@@ -88,9 +87,8 @@ impl Walk {
             if ft.is_dir() {
                 let exts = Arc::clone(&exts);
                 let tx = Arc::clone(&tx);
-                let child_dir = Arc::new(path);
                 rayon::spawn(move || {
-                    Self::inner_walk_dir(exts, tx, child_dir);
+                    Self::inner_walk_dir(exts, tx, path);
                 });
             } else if ft.is_file() {
                 if let Some(ext) = path.extension().map(OsStr::to_ascii_lowercase) {
@@ -100,7 +98,6 @@ impl Walk {
                 } else {
                     continue;
                 }
-                let file_name = PathBuf::from(path.file_name().unwrap());
                 let created = match metadata.modified() {
                     Ok(time) => time,
                     Err(e) => {
@@ -108,9 +105,9 @@ impl Walk {
                         SystemTime::UNIX_EPOCH // Default to epoch if creation time is unavailable
                     }
                 };
+                let abs_path = AbsPath::from_abs_path(&path);
                 let file = File {
-                    dir: Arc::clone(&dir),
-                    file_name,
+                    path: abs_path,
                     size: metadata.len(),
                     inode: metadata.ino(),
                     created,

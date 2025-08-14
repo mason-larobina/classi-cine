@@ -4,6 +4,7 @@ use crate::classifier::{
 };
 use crate::ngrams::{Ngram, Ngrams};
 use crate::normalize;
+use crate::path::PathDisplayContext;
 use crate::playlist::{M3uPlaylist, Playlist, PlaylistEntry};
 use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
@@ -242,9 +243,8 @@ impl App {
 
             // Add all entries (both positive and negative) to the classified set
             for entry in self.playlist.entries() {
-                let abs_path = playlist_root.join(entry.path());
-                let normalized = normalize::normalize_path(&abs_path);
-                classified_paths.insert(normalized);
+                let abs_path = entry.path().abs_path().to_path_buf();
+                classified_paths.insert(abs_path);
             }
         }
 
@@ -259,21 +259,16 @@ impl App {
         while let Ok(file) = file_receiver.recv() {
             debug!("{:?}", file);
 
-            let file_path = file.dir.join(&file.file_name);
-            assert!(
-                file_path.is_absolute(),
-                "All internal file paths should be absolute"
-            );
-            let abs_file_path = file_path.clone();
-            let normalized_file_path = normalize::normalize_path(&abs_file_path);
+            let abs_file_path = file.path.abs_path();
+            let normalized_file_path = abs_file_path.to_path_buf();
 
             // Skip if already classified (only when include_classified is false)
             if !include_classified && classified_paths.contains(&normalized_file_path) {
-                debug!("Skipping already classified file: {:?}", file_path);
+                debug!("Skipping already classified file: {:?}", abs_file_path);
                 continue;
             }
 
-            let path_to_normalize = self.playlist.to_relative_path(&abs_file_path);
+            let path_to_normalize = self.playlist.to_relative_path(abs_file_path);
             let normalized_path = normalize::normalize(&path_to_normalize);
 
             let mut scores = vec![0.0; classifiers_len];
@@ -317,8 +312,8 @@ impl App {
 
         // Add paths from playlist classifications
         paths.extend(self.playlist.entries().iter().map(|e| {
-            let abs_path = self.playlist.root().join(e.path());
-            let path_to_normalize = self.playlist.to_relative_path(&abs_path);
+            let abs_path = e.path().abs_path();
+            let path_to_normalize = self.playlist.to_relative_path(abs_path);
             normalize::normalize(&path_to_normalize)
         }));
 
@@ -342,8 +337,8 @@ impl App {
             .map(|e| e.normalized_path.to_string())
             .collect();
         paths.extend(self.playlist.entries().iter().map(|e| {
-            let abs_path = self.playlist.root().join(e.path());
-            let path_to_normalize = self.playlist.to_relative_path(&abs_path);
+            let abs_path = e.path().abs_path();
+            let path_to_normalize = self.playlist.to_relative_path(abs_path);
             normalize::normalize(&path_to_normalize)
         }));
 
@@ -387,9 +382,8 @@ impl App {
 
         // Process all examples in a single loop
         for entry in self.playlist.entries().iter() {
-            let path = entry.path();
-            let abs_path = playlist_root.join(path);
-            let path_to_normalize = self.playlist.to_relative_path(&abs_path);
+            let abs_path = entry.path().abs_path();
+            let path_to_normalize = self.playlist.to_relative_path(abs_path);
             let normalized_path = normalize::normalize(&path_to_normalize);
             let tokens = tokenizer.tokenize(&normalized_path);
             // Original code used None for allowed ngrams during training
@@ -445,13 +439,10 @@ impl App {
 
     // Starts VLC and gets classification from user
     fn play_file(&self, entry: &Entry) -> Result<(), Error> {
-        let path = entry.file.dir.join(&entry.file.file_name);
-        assert!(
-            path.is_absolute(),
-            "All internal file paths should be absolute"
-        );
-        let abs_path = path;
-        let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
+        let abs_path = entry.file.path.abs_path();
+        let file_name = abs_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string());
 
         let vlc_controller = self
             .vlc_controller
@@ -483,12 +474,13 @@ impl App {
 
     // Displays detailed entry information including filename, tokens, and ngrams
     fn display_entry_details(&self, entry: &Entry) {
-        let path = entry.file.dir.join(&entry.file.file_name);
+        let abs_path = entry.file.path.abs_path();
         let token_map = self.tokenizer.as_ref().unwrap().token_map();
 
         // Display filename relative to M3U file location for build command
-        let display_path = self.playlist.to_relative_path(&path);
-        println!("File: {:?}", display_path);
+        let context = PathDisplayContext::build_context(self.playlist.root());
+        let display_path = self.playlist.display_path(&entry.file.path, &context);
+        println!("File: {}", display_path);
         let token_strs = entry.tokens.as_ref().unwrap().debug_strs(token_map);
         println!("Tokens: {:?}", token_strs);
 
@@ -543,12 +535,7 @@ impl App {
         entry: Entry,
         classification: vlc::Classification,
     ) -> Result<(), Error> {
-        let path = entry.file.dir.join(&entry.file.file_name);
-        assert!(
-            path.is_absolute(),
-            "All internal file paths should be absolute"
-        );
-        let abs_path = path;
+        let abs_path = entry.file.path.abs_path();
 
         // Update dir size classifier
         if let Some(ref mut dir_classifier) = self.dir_size_classifier {
@@ -556,20 +543,21 @@ impl App {
         }
 
         // Display path relative to M3U file location for build command logging
-        let display_path = self.playlist.to_relative_path(&abs_path);
+        let context = PathDisplayContext::build_context(self.playlist.root());
+        let display_path = self.playlist.display_path(&entry.file.path, &context);
 
         match classification {
             vlc::Classification::Positive => {
-                self.playlist.add_positive(&abs_path)?;
+                self.playlist.add_positive(abs_path)?;
                 self.naive_bayes
                     .train_positive(entry.ngrams.as_ref().unwrap());
-                info!("{:?} (POSITIVE)", display_path);
+                info!("{} (POSITIVE)", display_path);
             }
             vlc::Classification::Negative => {
-                self.playlist.add_negative(&abs_path)?;
+                self.playlist.add_negative(abs_path)?;
                 self.naive_bayes
                     .train_negative(entry.ngrams.as_ref().unwrap());
-                info!("{:?} (NEGATIVE)", display_path);
+                info!("{} (NEGATIVE)", display_path);
             }
             vlc::Classification::Skipped => unreachable!(), // Handled in poll_classification
         }
@@ -693,20 +681,20 @@ impl App {
             let mut dir_aggregates: HashMap<String, (f64, usize, u64)> = HashMap::new();
 
             for entry in &self.entries {
-                let path = entry.file.dir.join(&entry.file.file_name);
+                let abs_path = entry.file.path.abs_path();
                 let total_score: f64 = entry.scores.iter().sum();
 
-                let display_dir = if score_args.absolute {
-                    entry.file.dir.as_ref().clone()
+                let display_dir = abs_path.parent().unwrap();
+                let display_dir_path = if score_args.absolute {
+                    display_dir.to_path_buf()
                 } else {
-                    // Display relative to current directory
                     let current_dir = std::env::current_dir().unwrap();
-                    pathdiff::diff_paths(entry.file.dir.as_ref(), current_dir)
-                        .unwrap_or_else(|| entry.file.dir.as_ref().clone())
+                    pathdiff::diff_paths(display_dir, current_dir)
+                        .unwrap_or_else(|| display_dir.to_path_buf())
                 };
-                let dir_path = display_dir.display().to_string();
+                let dir_path = display_dir_path.display().to_string();
 
-                let size = std::fs::metadata(&path)
+                let size = std::fs::metadata(abs_path)
                     .map(|metadata| metadata.len())
                     .unwrap_or(0);
 
@@ -762,26 +750,23 @@ impl App {
             let mut score_entries: Vec<ScoreEntry> = Vec::new();
 
             for entry in &self.entries {
-                let path = entry.file.dir.join(&entry.file.file_name);
+                let abs_path = entry.file.path.abs_path();
                 let total_score: f64 = entry.scores.iter().sum();
 
                 let size = if score_args.include_size {
-                    std::fs::metadata(&path).map(|metadata| metadata.len()).ok()
+                    std::fs::metadata(abs_path)
+                        .map(|metadata| metadata.len())
+                        .ok()
                 } else {
                     None
                 };
 
-                let display_path = if score_args.absolute {
-                    path.clone()
-                } else {
-                    // Display relative to current directory
-                    let current_dir = std::env::current_dir().unwrap();
-                    pathdiff::diff_paths(&path, current_dir).unwrap_or_else(|| path.clone())
-                };
+                let context = PathDisplayContext::score_list_context(score_args.absolute);
+                let display_path = entry.file.path.to_string(&context);
 
                 score_entries.push(ScoreEntry {
                     score: total_score,
-                    filename: display_path.display().to_string(),
+                    filename: display_path,
                     size,
                 });
             }

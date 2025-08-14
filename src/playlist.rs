@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::path::{AbsPath, PathDisplayContext};
 use log::*;
 use pathdiff::diff_paths;
 use std::fs::{File, OpenOptions};
@@ -11,13 +12,13 @@ const NEGATIVE_PREFIX: &str = "#NEGATIVE:";
 /// Represents a playlist entry type
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlaylistEntry {
-    Positive(PathBuf),
-    Negative(PathBuf),
+    Positive(AbsPath),
+    Negative(AbsPath),
 }
 
 impl PlaylistEntry {
     /// Returns the path regardless of entry type
-    pub fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &AbsPath {
         match self {
             PlaylistEntry::Positive(path) => path,
             PlaylistEntry::Negative(path) => path,
@@ -39,27 +40,31 @@ pub trait Playlist {
 
 /// M3U playlist implementation that tracks positive/negative classifications
 pub struct M3uPlaylist {
-    path: PathBuf,
-    root: PathBuf,
+    path: AbsPath,
+    root: AbsPath,
     entries: Vec<PlaylistEntry>, // Single vector for all entries in order
 }
 
 impl M3uPlaylist {
     pub fn path(&self) -> &Path {
-        &self.path
+        self.path.abs_path()
     }
 
     pub fn root(&self) -> &Path {
-        &self.root
+        self.root.abs_path()
     }
 
     pub fn to_relative_path(&self, path: &Path) -> PathBuf {
         assert!(path.is_absolute());
         let result = diff_paths(path, self.root()).unwrap_or_else(|| {
-            warn!("Uable to diff path: {:?}", path);
+            warn!("Unable to diff path: {:?}", path);
             path.to_path_buf()
         });
         result
+    }
+
+    pub fn display_path(&self, abs_path: &AbsPath, context: &PathDisplayContext) -> String {
+        abs_path.to_string(context)
     }
 
     pub fn open(path: &Path) -> Result<Self, Error> {
@@ -69,11 +74,12 @@ impl M3uPlaylist {
         } else {
             std::env::current_dir()?.join(path)
         };
-        let path = crate::normalize::normalize_path(&path);
-        let root = path.parent().unwrap().to_path_buf();
+        let abs_path_buf = crate::normalize::normalize_path(&path);
+        let abs_path = AbsPath::from_abs_path(&abs_path_buf);
+        let root = AbsPath::from_abs_path(abs_path_buf.parent().unwrap());
 
         let mut playlist = Self {
-            path,
+            path: abs_path,
             root,
             entries: Vec::new(),
         };
@@ -106,12 +112,18 @@ impl M3uPlaylist {
                     // Negative classification (commented out)
                     if let Some(path_str) = line.strip_prefix(NEGATIVE_PREFIX) {
                         let rel_path = PathBuf::from(path_str.trim());
-                        playlist.entries.push(PlaylistEntry::Negative(rel_path));
+                        let abs_path = playlist.root().join(&rel_path);
+                        playlist
+                            .entries
+                            .push(PlaylistEntry::Negative(AbsPath::from_abs_path(&abs_path)));
                     }
                 } else if !line.starts_with('#') {
                     // Positive classification (regular entry)
                     let rel_path = PathBuf::from(line.trim());
-                    playlist.entries.push(PlaylistEntry::Positive(rel_path));
+                    let abs_path = playlist.root().join(&rel_path);
+                    playlist
+                        .entries
+                        .push(PlaylistEntry::Positive(AbsPath::from_abs_path(&abs_path)));
                 }
             }
         }
@@ -123,15 +135,17 @@ impl M3uPlaylist {
 impl Playlist for M3uPlaylist {
     fn add_positive(&mut self, abs_path: &Path) -> Result<(), Error> {
         let rel_path = self.to_relative_path(abs_path);
-        self.entries.push(PlaylistEntry::Positive(rel_path.clone()));
+        let abs_path = AbsPath::from_abs_path(abs_path);
+        self.entries.push(PlaylistEntry::Positive(abs_path));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
         writeln!(file, "{}", rel_path.display())?;
         Ok(())
     }
 
-    fn add_negative(&mut self, path: &Path) -> Result<(), Error> {
-        let rel_path = self.to_relative_path(path);
-        self.entries.push(PlaylistEntry::Negative(rel_path.clone()));
+    fn add_negative(&mut self, abs_path: &Path) -> Result<(), Error> {
+        let rel_path = self.to_relative_path(abs_path);
+        let abs_path = AbsPath::from_abs_path(abs_path);
+        self.entries.push(PlaylistEntry::Negative(abs_path));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
         writeln!(file, "{}{}", NEGATIVE_PREFIX, rel_path.display())?;
         Ok(())
@@ -170,10 +184,15 @@ mod tests {
 
         // 3. Test re-opening and loading entries
         let playlist = M3uPlaylist::open(&playlist_path)?;
-        assert_eq!(
-            playlist.entries(),
-            &[PlaylistEntry::Positive(PathBuf::from("music/track1.mp3"))]
-        );
+        let expected_abs_path = music_dir.join("track1.mp3");
+        let expected_abs_path = crate::normalize::normalize_path(&expected_abs_path);
+        assert_eq!(playlist.entries().len(), 1);
+        match &playlist.entries()[0] {
+            PlaylistEntry::Positive(path) => {
+                assert_eq!(path.abs_path(), expected_abs_path);
+            }
+            _ => panic!("Expected positive entry"),
+        }
 
         // 4. Test adding a negative entry
         let track2_path = music_dir.join("track2.mp3");

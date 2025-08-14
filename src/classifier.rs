@@ -196,7 +196,7 @@ pub struct DirSizeClassifier {
     /// Whether to reverse the scoring (more files = lower score)
     reverse: bool,
     /// Map of directory to file count
-    dir_counts: HashMap<Arc<PathBuf>, usize>,
+    dir_counts: HashMap<PathBuf, usize>,
 }
 
 impl DirSizeClassifier {
@@ -211,13 +211,13 @@ impl DirSizeClassifier {
     }
 
     pub fn add_entry(&mut self, entry: &Entry) {
-        *self.dir_counts.entry(entry.file.dir.clone()).or_default() += 1;
+        let dir = entry.file.path.abs_path().parent().unwrap().to_path_buf();
+        *self.dir_counts.entry(dir).or_default() += 1;
     }
 
     pub fn remove_entry(&mut self, entry: &Entry) {
-        if let std::collections::hash_map::Entry::Occupied(mut e) =
-            self.dir_counts.entry(entry.file.dir.clone())
-        {
+        let dir = entry.file.path.abs_path().parent().unwrap().to_path_buf();
+        if let std::collections::hash_map::Entry::Occupied(mut e) = self.dir_counts.entry(dir) {
             let count = e.get_mut();
             *count -= 1;
             if *count == 0 {
@@ -233,7 +233,8 @@ impl Classifier for DirSizeClassifier {
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
-        let count = self.dir_counts.get(&item.file.dir).copied().unwrap_or(0);
+        let dir = item.file.path.abs_path().parent().unwrap().to_path_buf();
+        let count = self.dir_counts.get(&dir).copied().unwrap_or(0);
         calculate_log_score(
             count as u64,
             self.offset as u64,
