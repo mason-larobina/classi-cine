@@ -1,4 +1,4 @@
-use crate::bloom::{Bloom, IntoMask};
+use crate::bloom::{Bloom, ToMask};
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -9,8 +9,8 @@ pub struct Token(pub(crate) u32);
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Pair(pub Token, pub Token);
 
-impl IntoMask for Pair {
-    fn into_mask(&self) -> u128 {
+impl ToMask for Pair {
+    fn to_mask(&self) -> u128 {
         Bloom::mask(self)
     }
 }
@@ -87,7 +87,7 @@ impl Tokens {
         self.tokens.len() != from.tokens.len()
     }
 
-    pub fn contains<M: IntoMask>(&self, e: &M) -> bool {
+    pub fn contains<M: ToMask>(&self, e: &M) -> bool {
         self.bloom.contains(e)
     }
 
