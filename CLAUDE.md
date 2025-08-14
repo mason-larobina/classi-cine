@@ -69,6 +69,17 @@ classification
 **Resource Management**: Automatic cleanup with `Drop` implementations for VLC
 processes
 
+### Path Handling Policy
+
+Classi-Cine follows a consistent path handling policy across all operations:
+
+- **Internal Processing**: All paths are stored and processed internally as absolute paths for consistency and reliability
+- **M3U Storage**: All paths stored in M3U playlist files are relative to the M3U file location for portability across systems
+- **Display in `build` Command**: File paths are displayed relative to the M3U file location during interactive classification
+- **Display in `score` and `list` Commands**: File paths are displayed relative to the current working directory by default, unless the `--absolute` flag is provided
+
+This policy ensures playlist portability while maintaining usability across different display contexts.
+
 ## CLI Usage
 
 ```bash
