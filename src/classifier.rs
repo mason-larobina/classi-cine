@@ -211,13 +211,15 @@ impl DirSizeClassifier {
     }
 
     pub fn add_entry(&mut self, entry: &Entry) {
-        let dir = entry.file.path.abs_path().parent().unwrap().to_path_buf();
-        *self.dir_counts.entry(dir).or_default() += 1;
+        let dir = Arc::clone(&entry.parent_dir);
+        *self.dir_counts.entry((*dir).clone()).or_default() += 1;
     }
 
     pub fn remove_entry(&mut self, entry: &Entry) {
-        let dir = entry.file.path.abs_path().parent().unwrap().to_path_buf();
-        if let std::collections::hash_map::Entry::Occupied(mut e) = self.dir_counts.entry(dir) {
+        let dir = Arc::clone(&entry.parent_dir);
+        if let std::collections::hash_map::Entry::Occupied(mut e) =
+            self.dir_counts.entry((*dir).clone())
+        {
             let count = e.get_mut();
             *count -= 1;
             if *count == 0 {
@@ -233,8 +235,8 @@ impl Classifier for DirSizeClassifier {
     }
 
     fn calculate_score(&self, item: &Entry) -> f64 {
-        let dir = item.file.path.abs_path().parent().unwrap().to_path_buf();
-        let count = self.dir_counts.get(&dir).copied().unwrap_or(0);
+        let dir = &*item.parent_dir;
+        let count = self.dir_counts.get(dir).copied().unwrap_or(0);
         calculate_log_score(
             count as u64,
             self.offset as u64,

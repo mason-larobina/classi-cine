@@ -32,6 +32,8 @@ use ratatui::{
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 use thread_priority::*;
 
@@ -39,6 +41,7 @@ use thread_priority::*;
 pub struct Entry {
     pub file: walk::File,
     pub normalized_path: String,
+    pub parent_dir: Arc<PathBuf>, // Cached parent directory for efficient access
     pub tokens: Option<Tokens>,
     pub ngrams: Option<Ngrams>,
     pub scores: Box<[f64]>, // One score per classifier
@@ -238,6 +241,9 @@ impl App {
         // Create set of already classified paths (convert relative paths to absolute)
         let mut classified_paths = HashSet::new();
 
+        // Cache for deduplicating Arc<PathBuf> parent directories
+        let mut parent_dir_cache: HashMap<PathBuf, Arc<PathBuf>> = HashMap::new();
+
         if !include_classified {
             let playlist_root = self.playlist.root();
 
@@ -275,9 +281,20 @@ impl App {
             scores.shrink_to_fit();
 
             // Initialize entry with scores array sized for all classifiers plus naive bayes
+            // Use deduplication to share Arc<PathBuf> for files in the same directory
+            let parent_path = file.path.abs_path().parent().unwrap().to_path_buf();
+            let parent_dir = if let Some(existing_arc) = parent_dir_cache.get(&parent_path) {
+                Arc::clone(existing_arc)
+            } else {
+                let new_arc = Arc::new(parent_path.clone());
+                parent_dir_cache.insert(parent_path, Arc::clone(&new_arc));
+                new_arc
+            };
+
             let entry = Entry {
                 file,
                 normalized_path,
+                parent_dir,
                 tokens: None,
                 ngrams: None,
                 scores: scores.into_boxed_slice(),
@@ -681,10 +698,9 @@ impl App {
             let mut dir_aggregates: HashMap<String, (f64, usize, u64)> = HashMap::new();
 
             for entry in &self.entries {
-                let abs_path = entry.file.path.abs_path();
                 let total_score: f64 = entry.scores.iter().sum();
 
-                let display_dir = abs_path.parent().unwrap();
+                let display_dir = &**entry.parent_dir;
                 let display_dir_path = if score_args.absolute {
                     display_dir.to_path_buf()
                 } else {
@@ -694,7 +710,7 @@ impl App {
                 };
                 let dir_path = display_dir_path.display().to_string();
 
-                let size = std::fs::metadata(abs_path)
+                let size = std::fs::metadata(entry.file.path.abs_path())
                     .map(|metadata| metadata.len())
                     .unwrap_or(0);
 
