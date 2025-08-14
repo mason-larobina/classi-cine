@@ -691,9 +691,7 @@ impl App {
                 let parent_dir_abs = AbsPath::from_abs_path(&**entry.parent_dir);
                 let dir_path = parent_dir_abs.to_string(&context);
 
-                let size = std::fs::metadata(&entry.path)
-                    .map(|metadata| metadata.len())
-                    .unwrap_or(0);
+                let size = entry.size;
 
                 let (total_score_sum, count, total_size) =
                     dir_aggregates.entry(dir_path).or_insert((0.0, 0, 0));
@@ -747,13 +745,10 @@ impl App {
             let mut score_entries: Vec<ScoreEntry> = Vec::new();
 
             for entry in &self.entries {
-                let abs_path = &entry.path;
                 let total_score: f64 = entry.scores.iter().sum();
 
                 let size = if score_args.include_size {
-                    std::fs::metadata(abs_path)
-                        .map(|metadata| metadata.len())
-                        .ok()
+                    Some(entry.size)
                 } else {
                     None
                 };
