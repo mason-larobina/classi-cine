@@ -678,6 +678,8 @@ impl App {
         // Display all files with their scores
         let score_args = self.score_args.as_ref().unwrap();
 
+        let context = PathDisplayContext::score_list_context(score_args.absolute);
+
         if score_args.by_dir {
             // Aggregate by directory
             let mut dir_aggregates: HashMap<String, (f64, usize, u64)> = HashMap::new();
@@ -685,15 +687,8 @@ impl App {
             for entry in &self.entries {
                 let total_score: f64 = entry.scores.iter().sum();
 
-                let display_dir = &**entry.parent_dir;
-                let display_dir_path = if score_args.absolute {
-                    display_dir.to_path_buf()
-                } else {
-                    let current_dir = std::env::current_dir().unwrap();
-                    pathdiff::diff_paths(display_dir, current_dir)
-                        .unwrap_or_else(|| display_dir.to_path_buf())
-                };
-                let dir_path = display_dir_path.display().to_string();
+                let parent_dir_abs = AbsPath::from_abs_path(&**entry.parent_dir);
+                let dir_path = parent_dir_abs.to_string(&context);
 
                 let size = std::fs::metadata(entry.path.abs_path())
                     .map(|metadata| metadata.len())
@@ -762,7 +757,6 @@ impl App {
                     None
                 };
 
-                let context = PathDisplayContext::score_list_context(score_args.absolute);
                 let display_path = entry.path.to_string(&context);
 
                 score_entries.push(ScoreEntry {
