@@ -175,7 +175,6 @@ mod tests {
         // 3. Test re-opening and loading entries
         let playlist = M3uPlaylist::open(&playlist_path)?;
         let expected_abs_path = music_dir.join("track1.mp3");
-        let expected_abs_path = crate::path::normalize_path(&expected_abs_path);
         assert_eq!(playlist.entries().len(), 1);
         match &playlist.entries()[0] {
             PlaylistEntry::Positive(path) => {
@@ -196,6 +195,90 @@ mod tests {
         let relative_playlist_path = Path::new("playlist.m3u");
         let playlist = M3uPlaylist::open(relative_playlist_path)?;
         assert_eq!(&**playlist.root(), expected_root);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_playlist_relative_path_normalization() -> Result<(), Error> {
+        let temp_dir = tempdir()?;
+
+        // Create complex directory structure
+        let music_dir = temp_dir.path().join("music");
+        let subdir = music_dir.join("subdir");
+        let other_dir = temp_dir.path().join("other");
+        std::fs::create_dir_all(&subdir)?;
+        std::fs::create_dir_all(&other_dir)?;
+
+        // Create test files
+        std::fs::write(music_dir.join("track1.mp3"), b"test")?;
+        std::fs::write(subdir.join("track2.mp3"), b"test")?;
+        std::fs::write(other_dir.join("track3.mp3"), b"test")?;
+
+        let playlist_path = temp_dir.path().join("playlist.m3u");
+        let mut playlist = M3uPlaylist::open(&playlist_path)?;
+
+        // Test 1: Path with current directory reference (./)
+        let path_with_dot = music_dir.join("./track1.mp3");
+        playlist.add_positive(&path_with_dot)?;
+
+        // Test 2: Path with parent directory reference (../)
+        let path_with_dotdot = subdir.join("../track1.mp3");
+        playlist.add_positive(&path_with_dotdot)?;
+
+        // Test 3: Complex path with multiple . and ..
+        let complex_path = subdir.join("./../../other/../music/./track1.mp3");
+        playlist.add_positive(&complex_path)?;
+
+        // Test 4: Path that goes up and then down to other directory
+        let cross_path = music_dir.join("../other/track3.mp3");
+        playlist.add_positive(&cross_path)?;
+
+        // Verify playlist content - all paths should be normalized to simple relative paths
+        let content = std::fs::read_to_string(&playlist_path)?;
+        println!("Playlist content:\n{}", content);
+
+        // Should contain normalized relative paths
+        assert!(content.contains("music/track1.mp3"));
+        assert!(content.contains("other/track3.mp3"));
+
+        // Should NOT contain any . or .. components
+        assert!(!content.contains("./"));
+        assert!(!content.contains("../"));
+
+        // Re-open playlist and verify entries are correctly normalized
+        let playlist = M3uPlaylist::open(&playlist_path)?;
+
+        // All entries should point to the same normalized absolute paths
+        let expected_track1 = music_dir.join("track1.mp3");
+        let expected_track3 = other_dir.join("track3.mp3");
+
+        let mut found_track1_count = 0;
+        let mut found_track3_count = 0;
+
+        for entry in playlist.entries() {
+            match entry {
+                PlaylistEntry::Positive(abs_path) => {
+                    let path_ref: &std::path::Path = abs_path.as_ref();
+                    if path_ref == expected_track1 {
+                        found_track1_count += 1;
+                    } else if path_ref == expected_track3 {
+                        found_track3_count += 1;
+                    }
+                }
+                _ => panic!("Expected only positive entries"),
+            }
+        }
+
+        // track1.mp3 should appear multiple times (added via different relative paths)
+        assert!(
+            found_track1_count > 1,
+            "track1.mp3 should be found multiple times due to different relative paths resolving to same file"
+        );
+        assert_eq!(
+            found_track3_count, 1,
+            "track3.mp3 should be found exactly once"
+        );
 
         Ok(())
     }
