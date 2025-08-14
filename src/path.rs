@@ -69,9 +69,8 @@ pub enum PathDisplayContext {
 
 impl PathDisplayContext {
     /// Create display context for build command (relative to playlist directory)
-    pub fn build_context(playlist_root: &Path) -> Self {
-        assert!(playlist_root.is_absolute());
-        Self::RelativeTo(normalize_path(playlist_root))
+    pub fn build_context(playlist_root: &AbsPath) -> Self {
+        Self::RelativeTo(playlist_root.0.clone())
     }
 
     /// Create display context for score/list commands

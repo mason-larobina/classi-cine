@@ -48,7 +48,7 @@ impl M3uPlaylist {
         &self.path
     }
 
-    pub fn root(&self) -> &Path {
+    pub fn root(&self) -> &AbsPath {
         &self.root
     }
 
@@ -162,7 +162,7 @@ mod tests {
         // 1. Test creating a new playlist and checking its root
         let mut playlist = M3uPlaylist::open(&playlist_path)?;
         let expected_root = crate::path::normalize_path(temp_dir.path());
-        assert_eq!(playlist.root(), expected_root);
+        assert_eq!(&**playlist.root(), expected_root);
         assert!(playlist.path().is_absolute());
 
         // 2. Test adding a file and checking the relative path
@@ -195,7 +195,7 @@ mod tests {
         std::env::set_current_dir(temp_dir.path())?;
         let relative_playlist_path = Path::new("playlist.m3u");
         let playlist = M3uPlaylist::open(relative_playlist_path)?;
-        assert_eq!(playlist.root(), expected_root);
+        assert_eq!(&**playlist.root(), expected_root);
 
         Ok(())
     }
