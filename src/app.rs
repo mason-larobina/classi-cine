@@ -259,7 +259,8 @@ impl App {
                 continue;
             }
 
-            let path_to_normalize = self.playlist.to_relative_path(abs_file_path);
+            let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
+            let path_to_normalize = file.path.to_string(&context);
             let normalized_path = normalize::normalize(&path_to_normalize);
 
             let mut scores = vec![0.0; classifiers_len];
@@ -315,9 +316,9 @@ impl App {
             .collect();
 
         // Add paths from playlist classifications
+        let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
         paths.extend(self.playlist.entries().iter().map(|e| {
-            let abs_path = e.path().abs_path();
-            let path_to_normalize = self.playlist.to_relative_path(abs_path);
+            let path_to_normalize = e.path().to_string(&context);
             normalize::normalize(&path_to_normalize)
         }));
 
@@ -340,9 +341,9 @@ impl App {
             .iter()
             .map(|e| e.normalized_path.to_string())
             .collect();
+        let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
         paths.extend(self.playlist.entries().iter().map(|e| {
-            let abs_path = e.path().abs_path();
-            let path_to_normalize = self.playlist.to_relative_path(abs_path);
+            let path_to_normalize = e.path().to_string(&context);
             normalize::normalize(&path_to_normalize)
         }));
 
@@ -384,9 +385,9 @@ impl App {
         let mut temp_ngrams = Ngrams::default();
 
         // Process all examples in a single loop
+        let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
         for entry in self.playlist.entries().iter() {
-            let abs_path = entry.path().abs_path();
-            let path_to_normalize = self.playlist.to_relative_path(abs_path);
+            let path_to_normalize = entry.path().to_string(&context);
             let normalized_path = normalize::normalize(&path_to_normalize);
             let tokens = tokenizer.tokenize(&normalized_path);
             // Original code used None for allowed ngrams during training

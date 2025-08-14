@@ -1,7 +1,5 @@
 use crate::Error;
 use crate::path::{AbsPath, PathDisplayContext};
-use log::*;
-use pathdiff::diff_paths;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -52,15 +50,6 @@ impl M3uPlaylist {
 
     pub fn root(&self) -> &Path {
         self.root.abs_path()
-    }
-
-    pub fn to_relative_path(&self, path: &Path) -> PathBuf {
-        assert!(path.is_absolute());
-
-        diff_paths(path, self.root()).unwrap_or_else(|| {
-            warn!("Unable to diff path: {:?}", path);
-            path.to_path_buf()
-        })
     }
 
     pub fn display_path(&self, abs_path: &AbsPath, context: &PathDisplayContext) -> String {
@@ -134,20 +123,22 @@ impl M3uPlaylist {
 
 impl Playlist for M3uPlaylist {
     fn add_positive(&mut self, abs_path: &Path) -> Result<(), Error> {
-        let rel_path = self.to_relative_path(abs_path);
         let abs_path = AbsPath::from_abs_path(abs_path);
+        let context = PathDisplayContext::RelativeTo(self.root.abs_path().to_path_buf());
+        let rel_path = abs_path.to_string(&context);
         self.entries.push(PlaylistEntry::Positive(abs_path));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
-        writeln!(file, "{}", rel_path.display())?;
+        writeln!(file, "{}", rel_path)?;
         Ok(())
     }
 
     fn add_negative(&mut self, abs_path: &Path) -> Result<(), Error> {
-        let rel_path = self.to_relative_path(abs_path);
         let abs_path = AbsPath::from_abs_path(abs_path);
+        let context = PathDisplayContext::RelativeTo(self.root.abs_path().to_path_buf());
+        let rel_path = abs_path.to_string(&context);
         self.entries.push(PlaylistEntry::Negative(abs_path));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
-        writeln!(file, "{}{}", NEGATIVE_PREFIX, rel_path.display())?;
+        writeln!(file, "{}{}", NEGATIVE_PREFIX, rel_path)?;
         Ok(())
     }
 
