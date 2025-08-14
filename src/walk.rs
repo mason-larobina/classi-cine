@@ -2,7 +2,6 @@ use crate::path::AbsPath;
 use log::*;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -12,7 +11,6 @@ use std::time::SystemTime;
 pub struct File {
     pub path: AbsPath,
     pub size: u64,
-    pub inode: u64,
     pub created: SystemTime,
 }
 
@@ -109,7 +107,6 @@ impl Walk {
                 let file = File {
                     path: abs_path,
                     size: metadata.len(),
-                    inode: metadata.ino(),
                     created,
                 };
                 tx.send(file).unwrap();

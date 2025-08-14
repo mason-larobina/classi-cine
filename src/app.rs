@@ -26,7 +26,6 @@ use thread_priority::*;
 pub struct Entry {
     pub path: AbsPath,
     pub size: u64,
-    pub inode: u64,
     pub created: SystemTime,
     pub normalized_path: String,
     pub parent_dir: Arc<PathBuf>, // Cached parent directory for efficient access
@@ -280,7 +279,6 @@ impl App {
             let entry = Entry {
                 path: file.path,
                 size: file.size,
-                inode: file.inode,
                 created: file.created,
                 normalized_path,
                 parent_dir,
