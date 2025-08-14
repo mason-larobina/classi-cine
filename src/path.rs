@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::path::Component;
 use std::path::{Path, PathBuf};
 
@@ -31,14 +32,6 @@ impl AbsPath {
         Self(normalize_path(abs_path))
     }
 
-    pub fn abs_path(&self) -> &Path {
-        &self.0
-    }
-
-    pub fn exists(&self) -> bool {
-        self.0.exists()
-    }
-
     pub fn to_string(&self, context: &PathDisplayContext) -> String {
         match context {
             PathDisplayContext::Absolute => self.0.to_string_lossy().to_string(),
@@ -53,6 +46,14 @@ impl AbsPath {
 
 impl AsRef<Path> for AbsPath {
     fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Deref for AbsPath {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
 }

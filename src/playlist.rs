@@ -45,11 +45,11 @@ pub struct M3uPlaylist {
 
 impl M3uPlaylist {
     pub fn path(&self) -> &Path {
-        self.path.abs_path()
+        &self.path
     }
 
     pub fn root(&self) -> &Path {
-        self.root.abs_path()
+        &self.root
     }
 
     pub fn display_path(&self, abs_path: &AbsPath, context: &PathDisplayContext) -> String {
@@ -124,7 +124,7 @@ impl M3uPlaylist {
 impl Playlist for M3uPlaylist {
     fn add_positive(&mut self, abs_path: &Path) -> Result<(), Error> {
         let abs_path = AbsPath::from_abs_path(abs_path);
-        let context = PathDisplayContext::RelativeTo(self.root.abs_path().to_path_buf());
+        let context = PathDisplayContext::RelativeTo(self.root.to_path_buf());
         let rel_path = abs_path.to_string(&context);
         self.entries.push(PlaylistEntry::Positive(abs_path));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
@@ -134,7 +134,7 @@ impl Playlist for M3uPlaylist {
 
     fn add_negative(&mut self, abs_path: &Path) -> Result<(), Error> {
         let abs_path = AbsPath::from_abs_path(abs_path);
-        let context = PathDisplayContext::RelativeTo(self.root.abs_path().to_path_buf());
+        let context = PathDisplayContext::RelativeTo(self.root.to_path_buf());
         let rel_path = abs_path.to_string(&context);
         self.entries.push(PlaylistEntry::Negative(abs_path));
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(playlist.entries().len(), 1);
         match &playlist.entries()[0] {
             PlaylistEntry::Positive(path) => {
-                assert_eq!(path.abs_path(), expected_abs_path);
+                assert_eq!(path.as_ref(), expected_abs_path);
             }
             _ => panic!("Expected positive entry"),
         }

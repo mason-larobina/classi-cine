@@ -25,10 +25,11 @@ use thread_priority::*;
 #[derive(Debug)]
 pub struct Entry {
     pub path: AbsPath,
+    // Cached arc parent directory for efficient use
+    pub parent_dir: Arc<PathBuf>,
     pub size: u64,
     pub created: SystemTime,
     pub normalized_path: String,
-    pub parent_dir: Arc<PathBuf>, // Cached parent directory for efficient access
     pub tokens: Option<Tokens>,
     pub ngrams: Option<Ngrams>,
     pub scores: Box<[f64]>, // One score per classifier
@@ -234,7 +235,7 @@ impl App {
         if !include_classified {
             // Add all entries (both positive and negative) to the classified set
             for entry in self.playlist.entries() {
-                let abs_path = entry.path().abs_path().to_path_buf();
+                let abs_path = entry.path().to_path_buf();
                 classified_paths.insert(abs_path);
             }
         }
@@ -250,8 +251,8 @@ impl App {
         while let Ok(file) = file_receiver.recv() {
             debug!("{:?}", file);
 
-            let abs_file_path = file.path.abs_path();
-            let normalized_file_path = abs_file_path.to_path_buf();
+            let abs_file_path = &file.path;
+            let normalized_file_path = file.path.to_path_buf();
 
             // Skip if already classified (only when include_classified is false)
             if !include_classified && classified_paths.contains(&normalized_file_path) {
@@ -268,7 +269,7 @@ impl App {
 
             // Initialize entry with scores array sized for all classifiers plus naive bayes
             // Use deduplication to share Arc<PathBuf> for files in the same directory
-            let parent_path = file.path.abs_path().parent().unwrap().to_path_buf();
+            let parent_path = file.path.parent().unwrap().to_path_buf();
             let parent_dir = if let Some(existing_arc) = parent_dir_cache.get(&parent_path) {
                 Arc::clone(existing_arc)
             } else {
@@ -442,7 +443,7 @@ impl App {
 
     // Starts VLC and gets classification from user
     fn play_file(&self, entry: &Entry) -> Result<(), Error> {
-        let abs_path = entry.path.abs_path();
+        let abs_path = &entry.path;
         let file_name = abs_path
             .file_name()
             .map(|n| n.to_string_lossy().to_string());
@@ -537,7 +538,7 @@ impl App {
         entry: Entry,
         classification: vlc::Classification,
     ) -> Result<(), Error> {
-        let abs_path = entry.path.abs_path();
+        let abs_path = &entry.path;
 
         // Update dir size classifier
         if let Some(ref mut dir_classifier) = self.dir_size_classifier {
@@ -690,7 +691,7 @@ impl App {
                 let parent_dir_abs = AbsPath::from_abs_path(&**entry.parent_dir);
                 let dir_path = parent_dir_abs.to_string(&context);
 
-                let size = std::fs::metadata(entry.path.abs_path())
+                let size = std::fs::metadata(&entry.path)
                     .map(|metadata| metadata.len())
                     .unwrap_or(0);
 
@@ -746,7 +747,7 @@ impl App {
             let mut score_entries: Vec<ScoreEntry> = Vec::new();
 
             for entry in &self.entries {
-                let abs_path = entry.path.abs_path();
+                let abs_path = &entry.path;
                 let total_score: f64 = entry.scores.iter().sum();
 
                 let size = if score_args.include_size {

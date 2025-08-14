@@ -227,7 +227,7 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
 
     // Process all entries in original order
     for entry in original_playlist.entries() {
-        let abs_path = entry.path().abs_path();
+        let abs_path = entry.path();
 
         // Add to new playlist based on entry type
         match entry {
