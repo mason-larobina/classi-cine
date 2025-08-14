@@ -260,11 +260,11 @@ impl App {
             debug!("{:?}", file);
 
             let file_path = file.dir.join(&file.file_name);
-            let abs_file_path = if file_path.is_absolute() {
-                file_path.clone()
-            } else {
-                std::env::current_dir().unwrap().join(&file_path)
-            };
+            assert!(
+                file_path.is_absolute(),
+                "All internal file paths should be absolute"
+            );
+            let abs_file_path = file_path.clone();
             let normalized_file_path = normalize::normalize_path(&abs_file_path);
 
             // Skip if already classified (only when include_classified is false)
@@ -446,11 +446,11 @@ impl App {
     // Starts VLC and gets classification from user
     fn play_file(&self, entry: &Entry) -> Result<(), Error> {
         let path = entry.file.dir.join(&entry.file.file_name);
-        let abs_path = if path.is_absolute() {
-            path.clone()
-        } else {
-            std::env::current_dir().unwrap().join(&path)
-        };
+        assert!(
+            path.is_absolute(),
+            "All internal file paths should be absolute"
+        );
+        let abs_path = path;
         let file_name = Some(entry.file.file_name.to_string_lossy().to_string());
 
         let vlc_controller = self
@@ -486,8 +486,9 @@ impl App {
         let path = entry.file.dir.join(&entry.file.file_name);
         let token_map = self.tokenizer.as_ref().unwrap().token_map();
 
-        // Display filename and normalized form
-        println!("File: {:?}", path);
+        // Display filename relative to M3U file location for build command
+        let display_path = self.playlist.to_relative_path(&path);
+        println!("File: {:?}", display_path);
         let token_strs = entry.tokens.as_ref().unwrap().debug_strs(token_map);
         println!("Tokens: {:?}", token_strs);
 
@@ -543,29 +544,32 @@ impl App {
         classification: vlc::Classification,
     ) -> Result<(), Error> {
         let path = entry.file.dir.join(&entry.file.file_name);
-        let abs_path = if path.is_absolute() {
-            path.clone()
-        } else {
-            std::env::current_dir().unwrap().join(&path)
-        };
+        assert!(
+            path.is_absolute(),
+            "All internal file paths should be absolute"
+        );
+        let abs_path = path;
 
         // Update dir size classifier
         if let Some(ref mut dir_classifier) = self.dir_size_classifier {
             dir_classifier.remove_entry(&entry);
         }
 
+        // Display path relative to M3U file location for build command logging
+        let display_path = self.playlist.to_relative_path(&abs_path);
+
         match classification {
             vlc::Classification::Positive => {
                 self.playlist.add_positive(&abs_path)?;
                 self.naive_bayes
                     .train_positive(entry.ngrams.as_ref().unwrap());
-                info!("{:?} (POSITIVE)", path);
+                info!("{:?} (POSITIVE)", display_path);
             }
             vlc::Classification::Negative => {
                 self.playlist.add_negative(&abs_path)?;
                 self.naive_bayes
                     .train_negative(entry.ngrams.as_ref().unwrap());
-                info!("{:?} (NEGATIVE)", path);
+                info!("{:?} (NEGATIVE)", display_path);
             }
             vlc::Classification::Skipped => unreachable!(), // Handled in poll_classification
         }
@@ -691,7 +695,16 @@ impl App {
             for entry in &self.entries {
                 let path = entry.file.dir.join(&entry.file.file_name);
                 let total_score: f64 = entry.scores.iter().sum();
-                let dir_path = entry.file.dir.display().to_string();
+
+                let display_dir = if score_args.absolute {
+                    entry.file.dir.as_ref().clone()
+                } else {
+                    // Display relative to current directory
+                    let current_dir = std::env::current_dir().unwrap();
+                    pathdiff::diff_paths(entry.file.dir.as_ref(), current_dir)
+                        .unwrap_or_else(|| entry.file.dir.as_ref().clone())
+                };
+                let dir_path = display_dir.display().to_string();
 
                 let size = std::fs::metadata(&path)
                     .map(|metadata| metadata.len())
@@ -758,9 +771,17 @@ impl App {
                     None
                 };
 
+                let display_path = if score_args.absolute {
+                    path.clone()
+                } else {
+                    // Display relative to current directory
+                    let current_dir = std::env::current_dir().unwrap();
+                    pathdiff::diff_paths(&path, current_dir).unwrap_or_else(|| path.clone())
+                };
+
                 score_entries.push(ScoreEntry {
                     score: total_score,
-                    filename: path.display().to_string(),
+                    filename: display_path.display().to_string(),
                     size,
                 });
             }

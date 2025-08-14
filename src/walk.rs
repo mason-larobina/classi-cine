@@ -41,7 +41,14 @@ impl Walk {
     }
 
     pub fn walk_dir(&self, dir: &Path) {
-        let dir = Arc::new(dir.to_path_buf());
+        // Ensure all directory paths are absolute for internal processing
+        let abs_dir = if dir.is_absolute() {
+            dir.to_path_buf()
+        } else {
+            std::env::current_dir().unwrap().join(dir)
+        };
+        let abs_dir = crate::normalize::normalize_path(&abs_dir);
+        let dir = Arc::new(abs_dir);
         Self::inner_walk_dir(Arc::clone(&self.exts), Arc::clone(&self.tx), dir);
     }
 

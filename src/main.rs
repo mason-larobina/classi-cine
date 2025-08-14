@@ -153,6 +153,9 @@ struct ScoreArgs {
     /// Group results by directory and aggregate scores
     #[clap(long)]
     by_dir: bool,
+    /// Display absolute paths instead of relative to current directory
+    #[clap(long)]
+    absolute: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -202,6 +205,9 @@ struct FileAgeArgs {
 struct ListArgs {
     /// M3U playlist file
     playlist: PathBuf,
+    /// Display absolute paths instead of relative to current directory
+    #[clap(long)]
+    absolute: bool,
 }
 
 fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
@@ -250,20 +256,44 @@ enum ListFilter {
     Negative,
 }
 
-fn list_entries(playlist_path: &Path, filter: ListFilter) -> Result<(), Error> {
+fn list_entries(playlist_path: &Path, filter: ListFilter, absolute: bool) -> Result<(), Error> {
     let playlist = M3uPlaylist::open(playlist_path)?;
     let root = playlist.root();
+    let current_dir = if !absolute {
+        Some(std::env::current_dir()?)
+    } else {
+        None
+    };
+
     for entry in playlist.entries() {
         match (&filter, entry) {
             (ListFilter::Positive, PlaylistEntry::Positive(_)) => {
                 let path = entry.path();
                 let abs_path = root.join(path);
-                println!("{}", abs_path.display());
+
+                let display_path = if let Some(ref cwd) = current_dir {
+                    // Display relative to current directory
+                    pathdiff::diff_paths(&abs_path, cwd).unwrap_or_else(|| abs_path.clone())
+                } else {
+                    // Display absolute path
+                    abs_path
+                };
+
+                println!("{}", display_path.display());
             }
             (ListFilter::Negative, PlaylistEntry::Negative(_)) => {
                 let path = entry.path();
                 let abs_path = root.join(path);
-                println!("{}", abs_path.display());
+
+                let display_path = if let Some(ref cwd) = current_dir {
+                    // Display relative to current directory
+                    pathdiff::diff_paths(&abs_path, cwd).unwrap_or_else(|| abs_path.clone())
+                } else {
+                    // Display absolute path
+                    abs_path
+                };
+
+                println!("{}", display_path.display());
             }
             _ => {}
         }
@@ -298,10 +328,18 @@ fn main() -> Result<(), Error> {
             app.run_score()?;
         }
         Command::ListPositive(list_args) => {
-            list_entries(&list_args.playlist, ListFilter::Positive)?;
+            list_entries(
+                &list_args.playlist,
+                ListFilter::Positive,
+                list_args.absolute,
+            )?;
         }
         Command::ListNegative(list_args) => {
-            list_entries(&list_args.playlist, ListFilter::Negative)?;
+            list_entries(
+                &list_args.playlist,
+                ListFilter::Negative,
+                list_args.absolute,
+            )?;
         }
         Command::Move(move_args) => {
             move_playlist(&move_args.original, &move_args.new)?;

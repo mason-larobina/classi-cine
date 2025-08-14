@@ -1,7 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with
-code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Build and Development Commands
 
@@ -13,8 +12,7 @@ code in this repository.
 
 ## Project Architecture
 
-Classi-Cine is a Rust CLI tool that uses machine learning to build smart video
-playlists by learning user preferences through VLC playback feedback.
+Classi-Cine is a Rust CLI tool that uses machine learning to build smart video playlists by learning user preferences through VLC playback feedback.
 
 ### Core Components
 
@@ -22,18 +20,15 @@ playlists by learning user preferences through VLC playback feedback.
 
 - `App` struct orchestrates the entire classification workflow
 - Manages multiple classifiers, tokenization, and VLC integration
-- Main phases: file collection → tokenization → ngram generation → training →
-  classification loop
+- Main phases: file collection → tokenization → ngram generation → training → classification loop
 
 **Classification System (`classifier.rs`)**:
 
-- **NaiveBayesClassifier**: Core ML classifier using ngram frequencies with
-  Laplace smoothing
+- **NaiveBayesClassifier**: Core ML classifier using ngram frequencies with Laplace smoothing
 - **FileSizeClassifier**: Logarithmic scoring based on file sizes
 - **DirSizeClassifier**: Scoring based on directory file counts
 - **FileAgeClassifier**: Scoring based on file creation time
-- All classifiers implement the `Classifier` trait with `calculate_score()`
-  method
+- All classifiers implement the `Classifier` trait with `calculate_score()` method
 
 **VLC Integration (`vlc.rs`)**:
 
@@ -50,24 +45,19 @@ playlists by learning user preferences through VLC playback feedback.
 
 **Data Management**:
 
-- `M3uPlaylist` (`playlist.rs`): M3U playlist format handling with relative path
-  management
+- `M3uPlaylist` (`playlist.rs`): M3U playlist format handling with relative path management
 - `Walk` (`walk.rs`): Parallel file system traversal with video file filtering
 - `normalize.rs`: Path normalization utilities
 
 ### Key Design Patterns
 
-**Multi-threaded Architecture**: VLC control runs in background thread
-communicating via channels (`mpsc`)
+**Multi-threaded Architecture**: VLC control runs in background thread communicating via channels (`mpsc`)
 
-**Classifier Composition**: Multiple classifiers with normalized scores combined
-for final ranking
+**Classifier Composition**: Multiple classifiers with normalized scores combined for final ranking
 
-**Incremental Learning**: Naive Bayes classifier updates with each user
-classification
+**Incremental Learning**: Naive Bayes classifier updates with each user classification
 
-**Resource Management**: Automatic cleanup with `Drop` implementations for VLC
-processes
+**Resource Management**: Automatic cleanup with `Drop` implementations for VLC processes
 
 ### Path Handling Policy
 
@@ -90,9 +80,7 @@ classi-cine list-negative <playlist.m3u>                      # List negatively 
 classi-cine move <original.m3u> <new.m3u>                     # Move playlist and rebase paths
 ```
 
-The `score` command uses existing classifications in the playlist to train all
-classifiers, then ranks discovered files by their combined scores without
-requiring interactive VLC classification.
+The `score` command uses existing classifications in the playlist to train all classifiers, then ranks discovered files by their combined scores without requiring interactive VLC classification.
 
 Key options for `build`:
 
