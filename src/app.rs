@@ -15,7 +15,9 @@ use crate::{BuildArgs, ScoreArgs};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{
+        self, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    },
 };
 use log::*;
 use rand::Rng;
@@ -81,6 +83,7 @@ pub struct App {
     list_state: ListState,
     currently_playing: Option<usize>,
     should_quit: bool,
+    terminal_height: u16,
 }
 
 // Helper struct for timing
@@ -185,6 +188,9 @@ impl App {
             .as_ref()
             .map(|args| vlc::VlcController::new(args.vlc.clone()));
 
+        // Get initial terminal height
+        let terminal_height = terminal::size().map(|(_, h)| h).unwrap_or(20);
+
         Self {
             common_args,
             build_args,
@@ -201,6 +207,7 @@ impl App {
             list_state: ListState::default(),
             currently_playing: None,
             should_quit: false,
+            terminal_height,
         }
     }
 
@@ -736,41 +743,47 @@ impl App {
 
     fn handle_tui_events(&mut self) -> Result<bool, Error> {
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            self.should_quit = true;
+            match event::read()? {
+                Event::Key(key) => {
+                    if key.kind == KeyEventKind::Press {
+                        match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => {
+                                self.should_quit = true;
+                            }
+                            KeyCode::Char('c')
+                                if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                            {
+                                self.should_quit = true;
+                            }
+                            KeyCode::Down => {
+                                self.tui_next();
+                            }
+                            KeyCode::Up => {
+                                self.tui_previous();
+                            }
+                            KeyCode::Enter => {
+                                self.tui_select_current()?;
+                            }
+                            KeyCode::PageUp => {
+                                self.tui_page_up();
+                            }
+                            KeyCode::PageDown => {
+                                self.tui_page_down();
+                            }
+                            KeyCode::Home => {
+                                self.tui_home();
+                            }
+                            KeyCode::End => {
+                                self.tui_end();
+                            }
+                            _ => {}
                         }
-                        KeyCode::Char('c')
-                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
-                        {
-                            self.should_quit = true;
-                        }
-                        KeyCode::Down => {
-                            self.tui_next();
-                        }
-                        KeyCode::Up => {
-                            self.tui_previous();
-                        }
-                        KeyCode::Enter => {
-                            self.tui_select_current()?;
-                        }
-                        KeyCode::PageUp => {
-                            self.tui_page_up();
-                        }
-                        KeyCode::PageDown => {
-                            self.tui_page_down();
-                        }
-                        KeyCode::Home => {
-                            self.tui_home();
-                        }
-                        KeyCode::End => {
-                            self.tui_end();
-                        }
-                        _ => {}
                     }
                 }
+                Event::Resize(_, height) => {
+                    self.terminal_height = height;
+                }
+                _ => {}
             }
         }
         Ok(self.should_quit)
@@ -810,7 +823,7 @@ impl App {
 
     fn tui_page_up(&mut self) {
         if !self.entries.is_empty() {
-            let page_size = 10; // Number of items to jump
+            let page_size = std::cmp::max(1, self.terminal_height / 2) as usize; // Half terminal height
             let i = match self.list_state.selected() {
                 Some(i) => {
                     if i < page_size {
@@ -827,7 +840,7 @@ impl App {
 
     fn tui_page_down(&mut self) {
         if !self.entries.is_empty() {
-            let page_size = 10; // Number of items to jump
+            let page_size = std::cmp::max(1, self.terminal_height / 2) as usize; // Half terminal height
             let i = match self.list_state.selected() {
                 Some(i) => {
                     let new_pos = i + page_size;

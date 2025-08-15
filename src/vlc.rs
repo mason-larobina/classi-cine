@@ -155,7 +155,7 @@ impl VlcBackground {
                 false // Signal shutdown
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => false, // Channel disconnected, shutdown
-            Err(std::sync::mpsc::TryRecvError::Empty) => true, // No message, continue
+            Err(std::sync::mpsc::TryRecvError::Empty) => true,         // No message, continue
         }
     }
 
