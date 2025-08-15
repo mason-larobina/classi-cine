@@ -13,13 +13,27 @@ use crate::vlc;
 use crate::walk::Walk;
 use crate::{BuildArgs, ScoreArgs};
 
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
 use log::*;
 use rand::Rng;
+use ratatui::{
+    Frame, Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, ListState},
+};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use thread_priority::*;
 
 #[derive(Debug)]
@@ -65,6 +79,10 @@ pub struct App {
     visualizer: viz::ScoreVisualizer,
     playlist: M3uPlaylist,
     vlc_controller: Option<vlc::VlcController>,
+    // TUI state
+    list_state: ListState,
+    currently_playing: Option<usize>,
+    should_quit: bool,
 }
 
 // Helper struct for timing
@@ -186,6 +204,9 @@ impl App {
             visualizer,
             playlist,
             vlc_controller,
+            list_state: ListState::default(),
+            currently_playing: None,
+            should_quit: false,
         }
     }
 
@@ -660,9 +681,272 @@ impl App {
         });
     }
 
+    // TUI-related methods
+    fn setup_terminal(&self) -> Result<Terminal<CrosstermBackend<io::Stdout>>, Error> {
+        enable_raw_mode()?;
+        let mut stdout = io::stdout();
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        let backend = CrosstermBackend::new(stdout);
+        Ok(Terminal::new(backend)?)
+    }
+
+    fn restore_terminal(
+        &self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> Result<(), Error> {
+        disable_raw_mode()?;
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+        terminal.show_cursor()?;
+        Ok(())
+    }
+
+    fn draw_tui(&mut self, f: &mut Frame) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints([Constraint::Min(0)].as_ref())
+            .split(f.area());
+
+        let items: Vec<ListItem> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                let filename = entry
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+
+                let style = if Some(i) == self.currently_playing {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+
+                let content = Line::from(Span::styled(filename, style));
+                ListItem::new(content)
+            })
+            .collect();
+
+        let list = List::new(items)
+            .block(
+                Block::default()
+                    .title("Video Files - Auto-playing (↑/↓: navigate, Enter: play selected, Esc/q: quit)")
+                    .borders(Borders::ALL),
+            )
+            .highlight_style(
+                Style::default()
+                    .bg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("► ");
+
+        f.render_stateful_widget(list, chunks[0], &mut self.list_state);
+    }
+
+    fn handle_tui_events(&mut self) -> Result<bool, Error> {
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => {
+                            self.should_quit = true;
+                        }
+                        KeyCode::Char('c')
+                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                        {
+                            self.should_quit = true;
+                        }
+                        KeyCode::Down => {
+                            self.tui_next();
+                        }
+                        KeyCode::Up => {
+                            self.tui_previous();
+                        }
+                        KeyCode::Enter => {
+                            self.tui_select_current()?;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Ok(self.should_quit)
+    }
+
+    fn tui_next(&mut self) {
+        if !self.entries.is_empty() {
+            let i = match self.list_state.selected() {
+                Some(i) => {
+                    if i >= self.entries.len() - 1 {
+                        0
+                    } else {
+                        i + 1
+                    }
+                }
+                None => 0,
+            };
+            self.list_state.select(Some(i));
+        }
+    }
+
+    fn tui_previous(&mut self) {
+        if !self.entries.is_empty() {
+            let i = match self.list_state.selected() {
+                Some(i) => {
+                    if i == 0 {
+                        self.entries.len() - 1
+                    } else {
+                        i - 1
+                    }
+                }
+                None => 0,
+            };
+            self.list_state.select(Some(i));
+        }
+    }
+
+    fn tui_select_current(&mut self) -> Result<(), Error> {
+        if let Some(selected) = self.list_state.selected() {
+            if selected < self.entries.len() {
+                let entry = &self.entries[selected];
+                let file_name = entry
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string());
+
+                if let Some(ref vlc_controller) = self.vlc_controller {
+                    vlc_controller.start_playback(&entry.path, file_name)?;
+                    self.currently_playing = Some(selected);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn tui_auto_select_next(&mut self) -> Result<(), Error> {
+        // First, update classification scores and sort entries (same as classification_loop)
+        time_it!("Update classification scores", {
+            self.calculate_scores_and_sort_entries();
+        });
+
+        // Use the same selection logic as the original classification_loop
+        let selected_entry_idx = if let Some(build_args) = &self.build_args {
+            if let Some(random_top_n) = build_args.random_top_n {
+                // Random selection from top-n entries
+                if self.entries.is_empty() {
+                    return Ok(());
+                }
+                let top_n = std::cmp::min(random_top_n, self.entries.len());
+                let mut rng = rand::rng();
+                let start_idx = self.entries.len() - top_n;
+                rng.random_range(start_idx..self.entries.len())
+            } else {
+                // Default batch behavior: take from the end (highest scores)
+                // For TUI, we'll just take the single highest scoring entry
+                if self.entries.is_empty() {
+                    return Ok(());
+                }
+                self.entries.len() - 1
+            }
+        } else {
+            // Fallback (shouldn't happen in build mode)
+            if self.entries.is_empty() {
+                return Ok(());
+            }
+            self.entries.len() - 1
+        };
+
+        // Update list selection and start playback
+        self.list_state.select(Some(selected_entry_idx));
+
+        let entry = &self.entries[selected_entry_idx];
+        let file_name = entry
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string());
+
+        if let Some(ref vlc_controller) = self.vlc_controller {
+            vlc_controller.start_playback(&entry.path, file_name)?;
+            self.currently_playing = Some(selected_entry_idx);
+        }
+
+        Ok(())
+    }
+
+    fn tui_handle_classification(&mut self) -> Result<(), Error> {
+        if let Some(playing_idx) = self.currently_playing {
+            if let Some(ref vlc_controller) = self.vlc_controller {
+                match vlc_controller.try_recv_classification() {
+                    Ok(Some(classification)) => {
+                        if playing_idx < self.entries.len() {
+                            let entry = self.entries.remove(playing_idx);
+                            self.process_classification_result(entry, classification)?;
+
+                            self.currently_playing = None;
+
+                            // Auto-select and play next entry using build command logic
+                            if !self.entries.is_empty() {
+                                self.tui_auto_select_next()?;
+                            } else {
+                                self.list_state.select(None);
+                                self.should_quit = true;
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // No classification yet, continue
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn run_tui_build(&mut self) -> Result<(), Error> {
+        // Auto-select and play first file using build command logic
+        if !self.entries.is_empty() {
+            self.tui_auto_select_next()?;
+        }
+
+        let mut terminal = self.setup_terminal()?;
+
+        let result = (|| -> Result<(), Error> {
+            loop {
+                terminal.draw(|f| self.draw_tui(f))?;
+
+                if self.handle_tui_events()? {
+                    break;
+                }
+
+                self.tui_handle_classification()?;
+
+                if self.entries.is_empty() {
+                    break;
+                }
+            }
+            Ok(())
+        })();
+
+        self.restore_terminal(&mut terminal)?;
+        result
+    }
+
     pub fn run_build(&mut self) -> Result<(), Error> {
         self.init();
-        self.classification_loop()?;
+
+        // For now, use TUI mode for build
+        self.run_tui_build()?;
 
         Ok(())
     }
