@@ -721,7 +721,7 @@ impl App {
         let list = List::new(items)
             .block(
                 Block::default()
-                    .title("Video Files - Auto-playing (↑/↓: navigate, Enter: play selected, Esc/q: quit)")
+                    .title("Video Files (↑/↓: navigate, PgUp/PgDn: page, Home/End: first/last, Enter: play, Esc/q: quit)")
                     .borders(Borders::ALL),
             )
             .highlight_style(
@@ -755,6 +755,18 @@ impl App {
                         }
                         KeyCode::Enter => {
                             self.tui_select_current()?;
+                        }
+                        KeyCode::PageUp => {
+                            self.tui_page_up();
+                        }
+                        KeyCode::PageDown => {
+                            self.tui_page_down();
+                        }
+                        KeyCode::Home => {
+                            self.tui_home();
+                        }
+                        KeyCode::End => {
+                            self.tui_end();
                         }
                         _ => {}
                     }
@@ -793,6 +805,53 @@ impl App {
                 None => 0,
             };
             self.list_state.select(Some(i));
+        }
+    }
+
+    fn tui_page_up(&mut self) {
+        if !self.entries.is_empty() {
+            let page_size = 10; // Number of items to jump
+            let i = match self.list_state.selected() {
+                Some(i) => {
+                    if i < page_size {
+                        0
+                    } else {
+                        i - page_size
+                    }
+                }
+                None => 0,
+            };
+            self.list_state.select(Some(i));
+        }
+    }
+
+    fn tui_page_down(&mut self) {
+        if !self.entries.is_empty() {
+            let page_size = 10; // Number of items to jump
+            let i = match self.list_state.selected() {
+                Some(i) => {
+                    let new_pos = i + page_size;
+                    if new_pos >= self.entries.len() {
+                        self.entries.len() - 1
+                    } else {
+                        new_pos
+                    }
+                }
+                None => 0,
+            };
+            self.list_state.select(Some(i));
+        }
+    }
+
+    fn tui_home(&mut self) {
+        if !self.entries.is_empty() {
+            self.list_state.select(Some(0));
+        }
+    }
+
+    fn tui_end(&mut self) {
+        if !self.entries.is_empty() {
+            self.list_state.select(Some(self.entries.len() - 1));
         }
     }
 
