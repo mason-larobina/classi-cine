@@ -848,20 +848,19 @@ impl App {
             for (i, classifier) in classifiers.iter().enumerate() {
                 if i < bar_chunks.len() && i < entry.scores.len() {
                     let score = entry.scores[i];
-                    let normalized_score = ((score + 1.0) / 2.0).clamp(0.0, 1.0); // Normalize to 0-1 range
+                    let normalized_score = score.clamp(0.0, 1.0); // Scores should already be normalized 0-1
 
-                    // Split each row into label and gauge areas
+                    // Split each row into name and gauge areas
                     let row_chunks = Layout::default()
                         .direction(Direction::Horizontal)
                         .constraints([Constraint::Length(16), Constraint::Min(0)])
                         .split(bar_chunks[i]);
 
-                    // Render label
-                    let label_text = format!("{}: {:.3}", classifier.name(), score);
-                    let label = Paragraph::new(label_text).style(Style::default());
-                    f.render_widget(label, row_chunks[0]);
+                    // Render classifier name
+                    let name_label = Paragraph::new(classifier.name()).style(Style::default());
+                    f.render_widget(name_label, row_chunks[0]);
 
-                    // Render gauge
+                    // Render gauge with score as label
                     let color = if score > 0.0 {
                         Color::Green
                     } else {
@@ -870,7 +869,8 @@ impl App {
                     let gauge = Gauge::default()
                         .block(Block::default())
                         .gauge_style(Style::default().fg(color))
-                        .ratio(normalized_score);
+                        .ratio(normalized_score)
+                        .label(format!("{:.3}", score));
 
                     f.render_widget(gauge, row_chunks[1]);
                 }
