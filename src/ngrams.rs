@@ -8,7 +8,7 @@ use std::hash::{Hash, Hasher};
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Copy, Clone)]
 pub struct Ngram(pub(crate) u64);
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Ngrams(Vec<Ngram>);
 
 impl Ngram {

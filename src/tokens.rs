@@ -15,7 +15,7 @@ impl ToMask for Pair {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Tokens {
     bloom: Bloom,
     tokens: Vec<Token>,

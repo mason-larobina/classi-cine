@@ -24,10 +24,10 @@ use rand::Rng;
 use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Wrap},
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -37,7 +37,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use thread_priority::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Entry {
     pub path: AbsPath,
     // Cached arc parent directory for efficient use
@@ -696,12 +696,21 @@ impl App {
     }
 
     fn draw_tui(&mut self, f: &mut Frame) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
+        // Create horizontal split: left for file list, right for debug info
+        let main_chunks = Layout::default()
+            .direction(Direction::Horizontal)
             .margin(1)
-            .constraints([Constraint::Min(0)].as_ref())
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
             .split(f.area());
 
+        // Draw file list on the left
+        self.draw_file_list(f, main_chunks[0]);
+
+        // Draw debug panel on the right
+        self.draw_debug_panel(f, main_chunks[1]);
+    }
+
+    fn draw_file_list(&mut self, f: &mut Frame, area: Rect) {
         let context = PathDisplayContext::build_context(self.playlist.root());
         let items: Vec<ListItem> = self
             .entries
@@ -728,7 +737,7 @@ impl App {
         let list = List::new(items)
             .block(
                 Block::default()
-                    .title("Video Files (↑/↓: navigate, PgUp/PgDn: page, Home/End: first/last, Enter: play, Esc/q: quit)")
+                    .title("File List (↑/↓: navigate, Enter: play, Esc/q: quit)")
                     .borders(Borders::ALL),
             )
             .highlight_style(
@@ -738,7 +747,212 @@ impl App {
             )
             .highlight_symbol("► ");
 
-        f.render_stateful_widget(list, chunks[0], &mut self.list_state);
+        f.render_stateful_widget(list, area, &mut self.list_state);
+    }
+
+    fn draw_debug_panel(&mut self, f: &mut Frame, area: Rect) {
+        // Get the currently selected entry
+        let selected_entry = if let Some(selected_idx) = self.list_state.selected() {
+            if selected_idx < self.entries.len() {
+                Some(self.entries[selected_idx].clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(entry) = selected_entry {
+            // Split debug panel into sections
+            let debug_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    [
+                        Constraint::Length(6), // Path info (full path + tokenized)
+                        Constraint::Length(5), // Classifier scores
+                        Constraint::Min(0),    // N-grams
+                    ]
+                    .as_ref(),
+                )
+                .split(area);
+
+            self.draw_path_info(f, debug_chunks[0], &entry);
+            self.draw_classifier_scores(f, debug_chunks[1], &entry);
+            self.draw_ngrams(f, debug_chunks[2], &entry);
+        } else {
+            // No selection - show empty panel
+            let block = Block::default().title("Debug Info").borders(Borders::ALL);
+            f.render_widget(block, area);
+        }
+    }
+
+    fn draw_path_info(&mut self, f: &mut Frame, area: Rect, entry: &Entry) {
+        let mut lines = Vec::new();
+
+        // Add full path
+        let full_path = entry.path.to_string_lossy().to_string();
+        lines.push(Line::from(Span::styled(
+            format!("Path: {:?}", full_path),
+            Style::default(),
+        )));
+
+        // Add tokenized path
+        let tokenized_text = if let Some(ref tokens) = entry.tokens {
+            if let Some(tokenizer) = &self.tokenizer {
+                let token_map = tokenizer.token_map();
+                let token_strs: Vec<&str> = tokens
+                    .as_slice()
+                    .iter()
+                    .map(|t| token_map.get_str(*t).unwrap_or("<unknown>"))
+                    .collect();
+                format!("Tokens: {:?}", token_strs)
+            } else {
+                "Tokens: No tokenizer available".to_string()
+            }
+        } else {
+            "Tokens: No tokens available".to_string()
+        };
+
+        lines.push(Line::from(Span::styled(tokenized_text, Style::default())));
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title("Path Information")
+                    .borders(Borders::ALL),
+            )
+            .wrap(Wrap { trim: false });
+        f.render_widget(paragraph, area);
+    }
+
+    fn draw_classifier_scores(&mut self, f: &mut Frame, area: Rect, entry: &Entry) {
+        let classifiers = self.get_classifiers();
+        let classifier_names = ["naive_bayes", "file_size", "dir_size", "file_age"];
+
+        // Create vertical layout for progress bars
+        let score_area = Block::default()
+            .title("Classifier Scores")
+            .borders(Borders::ALL)
+            .inner(area);
+
+        f.render_widget(
+            Block::default()
+                .title("Classifier Scores")
+                .borders(Borders::ALL),
+            area,
+        );
+
+        if score_area.height >= 4 {
+            let bar_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Length(1); 4])
+                .split(score_area);
+
+            for (i, (_classifier, name)) in
+                classifiers.iter().zip(classifier_names.iter()).enumerate()
+            {
+                if i < bar_chunks.len() && i < entry.scores.len() {
+                    let score = entry.scores[i];
+                    let normalized_score = ((score + 1.0) / 2.0).clamp(0.0, 1.0); // Normalize to 0-1 range
+
+                    let color = if score > 0.0 {
+                        Color::Green
+                    } else {
+                        Color::Red
+                    };
+                    let gauge = Gauge::default()
+                        .block(Block::default())
+                        .gauge_style(Style::default().fg(color))
+                        .ratio(normalized_score)
+                        .label(format!("{}: {:.3}", name, score));
+
+                    f.render_widget(gauge, bar_chunks[i]);
+                }
+            }
+        }
+    }
+
+    fn draw_ngrams(&mut self, f: &mut Frame, area: Rect, entry: &Entry) {
+        if let Some(ref tokens) = entry.tokens {
+            if let Some(tokenizer) = &self.tokenizer {
+                let token_map = tokenizer.token_map();
+
+                // Regenerate ngram tokens (same method as existing debug code)
+                let mut ngram_tokens: Vec<Vec<Token>> = Vec::new();
+                {
+                    let mut tmp_ngrams = Ngrams::default();
+                    tmp_ngrams.windows(
+                        tokens,
+                        self.common_args.windows,
+                        self.frequent_ngrams.as_ref(),
+                        Some(&mut ngram_tokens),
+                    );
+                    ngram_tokens.sort();
+                    ngram_tokens.dedup();
+                }
+
+                // Get ngram scores
+                let mut ngram_scores = Vec::new();
+                for window in ngram_tokens.into_iter() {
+                    let ngram = Ngram::new(&window);
+                    let score = self.naive_bayes.ngram_score(ngram);
+                    ngram_scores.push((window, score));
+                }
+
+                // Sort by absolute score (most influential first)
+                ngram_scores.sort_by(|a, b| {
+                    b.1.abs()
+                        .partial_cmp(&a.1.abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                // Take top 20 for display
+                ngram_scores.truncate(20);
+
+                let ngram_lines: Vec<Line> = ngram_scores
+                    .iter()
+                    .map(|(tokens, score)| {
+                        let token_strs: Vec<&str> = tokens
+                            .iter()
+                            .map(|t| token_map.get_str(*t).unwrap())
+                            .collect();
+                        let ngram_text = token_strs.join(" ");
+
+                        let color = if *score > 0.0 {
+                            Color::Green
+                        } else {
+                            Color::Red
+                        };
+                        let bar_length = (score.abs() * 10.0) as usize;
+                        let bar = "█".repeat(bar_length.min(10));
+                        let line_text = format!(
+                            "{:20} {:10} {:6.3}",
+                            ngram_text.chars().take(20).collect::<String>(),
+                            bar,
+                            score
+                        );
+                        Line::from(Span::styled(line_text, Style::default().fg(color)))
+                    })
+                    .collect();
+
+                let paragraph = Paragraph::new(ngram_lines)
+                    .block(
+                        Block::default()
+                            .title("Top N-grams (sorted by influence)")
+                            .borders(Borders::ALL),
+                    )
+                    .wrap(Wrap { trim: false });
+                f.render_widget(paragraph, area);
+            } else {
+                let paragraph = Paragraph::new("No tokenizer available")
+                    .block(Block::default().title("N-grams").borders(Borders::ALL));
+                f.render_widget(paragraph, area);
+            }
+        } else {
+            let paragraph = Paragraph::new("No tokens available")
+                .block(Block::default().title("N-grams").borders(Borders::ALL));
+            f.render_widget(paragraph, area);
+        }
     }
 
     fn handle_tui_events(&mut self) -> Result<bool, Error> {

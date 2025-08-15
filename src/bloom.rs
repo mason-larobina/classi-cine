@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 
 /// A simple Bloom filter implementation using a 128-bit mask
 /// Provides fast approximate set membership testing
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Bloom(u128);
 
 /// Trait for types that can be converted into a Bloom filter mask
