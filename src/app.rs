@@ -912,8 +912,8 @@ impl App {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 });
 
-                // Take top 20 for display
-                ngram_scores.truncate(20);
+                // Take top 50 for display
+                ngram_scores.truncate(50);
 
                 let ngram_lines: Vec<Line> = ngram_scores
                     .iter()
@@ -922,7 +922,6 @@ impl App {
                             .iter()
                             .map(|t| token_map.get_str(*t).unwrap())
                             .collect();
-                        let ngram_text = token_strs.join(" ");
 
                         let color = if *score > 0.0 {
                             Color::Green
@@ -931,12 +930,7 @@ impl App {
                         };
                         let bar_length = (score.abs() * 10.0) as usize;
                         let bar = "█".repeat(bar_length.min(10));
-                        let line_text = format!(
-                            "{:20} {:10} {:6.3}",
-                            ngram_text.chars().take(20).collect::<String>(),
-                            bar,
-                            score
-                        );
+                        let line_text = format!("{:6.3} {:10} {:?}", score, bar, token_strs);
                         Line::from(Span::styled(line_text, Style::default().fg(color)))
                     })
                     .collect();
