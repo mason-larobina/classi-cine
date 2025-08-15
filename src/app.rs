@@ -53,11 +53,8 @@ struct DirScoreEntry {
 
 pub struct App {
     common_args: crate::CommonArgs,
-    vlc_args: Option<crate::VlcArgs>,
+    build_args: Option<crate::BuildArgs>,
     score_args: Option<crate::ScoreArgs>,
-    batch_size: usize,
-    random_top_n: Option<usize>,
-    include_classified: bool,
     entries: Vec<Entry>,
     tokenizer: Option<PairTokenizer>,
     frequent_ngrams: Option<ahash::AHashSet<Ngram>>,
@@ -105,11 +102,8 @@ impl App {
     pub fn new(build_args: BuildArgs, playlist: M3uPlaylist) -> Self {
         Self::new_common(
             build_args.common.clone(),
-            Some(build_args.vlc.clone()),
+            Some(build_args.clone()),
             None, // no score args for build command
-            build_args.batch,
-            build_args.random_top_n,
-            false, // never include classified files for build command
             playlist,
         )
     }
@@ -119,20 +113,14 @@ impl App {
             score_args.common.clone(),
             None,
             Some(score_args.clone()),
-            1,    // batch_size not used for scoring
-            None, // random_top_n not used for scoring
-            score_args.include_classified,
             playlist,
         )
     }
 
     fn new_common(
         common_args: crate::CommonArgs,
-        vlc_args: Option<crate::VlcArgs>,
+        build_args: Option<crate::BuildArgs>,
         score_args: Option<crate::ScoreArgs>,
-        batch_size: usize,
-        random_top_n: Option<usize>,
-        include_classified: bool,
         playlist: M3uPlaylist,
     ) -> Self {
         info!("{:#?}", common_args);
@@ -180,17 +168,14 @@ impl App {
             None
         };
 
-        let vlc_controller = vlc_args
+        let vlc_controller = build_args
             .as_ref()
-            .map(|args| vlc::VlcController::new(args.clone()));
+            .map(|args| vlc::VlcController::new(args.vlc.clone()));
 
         Self {
             common_args,
-            vlc_args,
+            build_args,
             score_args,
-            batch_size,
-            random_top_n,
-            include_classified,
             entries: Vec::new(),
             tokenizer: None,
             frequent_ngrams: None,
@@ -225,13 +210,18 @@ impl App {
         classifiers
     }
 
-    fn collect_files(&mut self, include_classified: bool) {
+    fn collect_files(&mut self) {
         // Create set of already classified paths (convert relative paths to absolute)
         let mut classified_paths = HashSet::new();
 
         // Cache for deduplicating Arc<PathBuf> parent directories
         let mut parent_dir_cache: HashMap<PathBuf, Arc<PathBuf>> = HashMap::new();
 
+        let include_classified = self
+            .score_args
+            .as_ref()
+            .map(|args| args.include_classified)
+            .unwrap_or(false);
         if !include_classified {
             // Add all entries (both positive and negative) to the classified set
             for entry in self.playlist.entries() {
@@ -575,24 +565,33 @@ impl App {
                 self.calculate_scores_and_sort_entries();
             });
 
-            let entries_to_process: Vec<Entry> = if let Some(random_top_n) = self.random_top_n {
-                // Random selection from top-n entries (single entry)
+            let entries_to_process: Vec<Entry> = if let Some(build_args) = &self.build_args {
+                if let Some(random_top_n) = build_args.random_top_n {
+                    // Random selection from top-n entries (single entry)
+                    if self.entries.is_empty() {
+                        Vec::new()
+                    } else {
+                        let top_n = std::cmp::min(random_top_n, self.entries.len());
+                        let mut rng = rand::rng();
+                        let start_idx = self.entries.len() - top_n;
+                        let selected_idx = rng.random_range(start_idx..self.entries.len());
+                        vec![self.entries.remove(selected_idx)]
+                    }
+                } else {
+                    // Default batch behavior: take from the end (highest scores)
+                    let num_to_process =
+                        std::cmp::min(self.entries.len(), std::cmp::max(build_args.batch, 1));
+                    self.entries
+                        .drain(self.entries.len() - num_to_process..)
+                        .collect()
+                }
+            } else {
+                // For score command, process one entry
                 if self.entries.is_empty() {
                     Vec::new()
                 } else {
-                    let top_n = std::cmp::min(random_top_n, self.entries.len());
-                    let mut rng = rand::rng();
-                    let start_idx = self.entries.len() - top_n;
-                    let selected_idx = rng.random_range(start_idx..self.entries.len());
-                    vec![self.entries.remove(selected_idx)]
+                    vec![self.entries.remove(self.entries.len() - 1)]
                 }
-            } else {
-                // Default batch behavior: take from the end (highest scores)
-                let num_to_process =
-                    std::cmp::min(self.entries.len(), std::cmp::max(self.batch_size, 1));
-                self.entries
-                    .drain(self.entries.len() - num_to_process..)
-                    .collect()
             };
 
             for entry in entries_to_process {
@@ -623,7 +622,7 @@ impl App {
                         Ok(None) => {
                             // No update yet, sleep and try again
                             std::thread::sleep(std::time::Duration::from_millis(
-                                self.vlc_args.as_ref().unwrap().vlc_poll_interval,
+                                self.build_args.as_ref().unwrap().vlc.vlc_poll_interval,
                             ));
                         }
                         Err(e) => {
@@ -645,7 +644,7 @@ impl App {
         self.set_threads_to_min_priority();
 
         time_it!("File Reading and Collection", {
-            self.collect_files(self.include_classified);
+            self.collect_files();
         });
 
         time_it!("Tokenization", {
