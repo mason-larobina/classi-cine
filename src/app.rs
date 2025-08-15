@@ -141,7 +141,6 @@ impl App {
     ) -> Self {
         info!("{:#?}", common_args);
 
-
         // Initialize optional classifiers based on args
         let file_size_classifier = if let Some(log_base) = common_args.file_size.file_size_bias {
             assert!(log_base.abs() > 1.0, "File size log base must be > 1.0");
@@ -436,11 +435,11 @@ impl App {
             }
         }
 
-        // Sort entries by total score ascending
+        // Sort entries by total score descending (highest scores first)
         temp_entries.sort_by(|a, b| {
             let a_sum = a.scores.iter().sum::<f64>();
             let b_sum = b.scores.iter().sum::<f64>();
-            a_sum.partial_cmp(&b_sum).expect("Invalid score comparison")
+            b_sum.partial_cmp(&a_sum).expect("Invalid score comparison")
         });
 
         // Swap back the processed entries
@@ -553,7 +552,6 @@ impl App {
             dir_classifier.remove_entry(&entry);
         }
 
-
         match classification {
             vlc::Classification::Positive => {
                 self.playlist.add_positive(abs_path)?;
@@ -574,9 +572,9 @@ impl App {
     // Handles the main classification loop
     fn classification_loop(&mut self) -> Result<(), Error> {
         while !self.entries.is_empty() {
-            time_it!("Update classification scores", {
-                self.calculate_scores_and_sort_entries();
-            });
+            //time_it!("Update classification scores", {
+            self.calculate_scores_and_sort_entries();
+            //});
 
             let entries_to_process: Vec<Entry> = if let Some(build_args) = &self.build_args {
                 if let Some(random_top_n) = build_args.random_top_n {
@@ -612,7 +610,6 @@ impl App {
 
                 // Display detailed information about the entry
                 self.display_entry_details(&entry);
-
 
                 if let Err(e) = self.play_file(&entry) {
                     error!("Failed to start VLC playback: {:?}", e);
@@ -698,16 +695,15 @@ impl App {
             .constraints([Constraint::Min(0)].as_ref())
             .split(f.area());
 
+        let context = PathDisplayContext::build_context(self.playlist.root());
         let items: Vec<ListItem> = self
             .entries
             .iter()
             .enumerate()
             .map(|(i, entry)| {
-                let filename = entry
-                    .path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "Unknown".to_string());
+                let filename = self.playlist.display_path(&entry.path, &context);
+                let total_score: f64 = entry.scores.iter().sum();
+                let display_text = format!("{:.3} {}", total_score, filename);
 
                 let style = if Some(i) == self.currently_playing {
                     Style::default()
@@ -717,7 +713,7 @@ impl App {
                     Style::default()
                 };
 
-                let content = Line::from(Span::styled(filename, style));
+                let content = Line::from(Span::styled(display_text, style));
                 ListItem::new(content)
             })
             .collect();
@@ -820,9 +816,9 @@ impl App {
 
     fn tui_auto_select_next(&mut self) -> Result<(), Error> {
         // First, update classification scores and sort entries (same as classification_loop)
-        time_it!("Update classification scores", {
-            self.calculate_scores_and_sort_entries();
-        });
+        //time_it!("Update classification scores", {
+        self.calculate_scores_and_sort_entries();
+        //});
 
         // Use the same selection logic as the original classification_loop
         let selected_entry_idx = if let Some(build_args) = &self.build_args {
@@ -833,15 +829,14 @@ impl App {
                 }
                 let top_n = std::cmp::min(random_top_n, self.entries.len());
                 let mut rng = rand::rng();
-                let start_idx = self.entries.len() - top_n;
-                rng.random_range(start_idx..self.entries.len())
+                rng.random_range(0..top_n)
             } else {
-                // Default batch behavior: take from the end (highest scores)
+                // Default batch behavior: take from the start (highest scores in descending order)
                 // For TUI, we'll just take the single highest scoring entry
                 if self.entries.is_empty() {
                     return Ok(());
                 }
-                self.entries.len() - 1
+                0
             }
         } else {
             // Fallback (shouldn't happen in build mode)
