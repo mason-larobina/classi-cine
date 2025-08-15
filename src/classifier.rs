@@ -29,7 +29,18 @@ pub trait Classifier {
     fn calculate_score(&self, entry: &Entry) -> f64;
 }
 
-/// Classifies based on ngram frequencies in positive/negative examples
+/// Classifies based on ngram presence in positive/negative examples
+///
+/// # Classification Model
+///
+/// This implementation uses a **Bernoulli Naive Bayes** approach where only the
+/// presence or absence of each ngram matters, not the frequency of occurrence.
+/// The ngram generation process (in `ngrams.rs`) deduplicates ngrams within each
+/// file path, ensuring each unique ngram contributes exactly once per document.
+///
+/// This is appropriate for path classification since repeated path elements
+/// are normalized to binary features, focusing on "what path patterns exist"
+/// rather than "how often they repeat within a single path".
 pub struct NaiveBayesClassifier {
     /// Ngram counts for positive examples
     positive_counts: HashMap<Ngram, u32>,
