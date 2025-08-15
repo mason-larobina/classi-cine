@@ -7,7 +7,6 @@ mod path;
 mod playlist;
 mod tokenize;
 mod tokens;
-mod viz;
 mod vlc;
 mod walk;
 

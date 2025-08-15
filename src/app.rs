@@ -8,7 +8,6 @@ use crate::path::{AbsPath, PathDisplayContext};
 use crate::playlist::{M3uPlaylist, Playlist, PlaylistEntry};
 use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
-use crate::viz;
 use crate::vlc;
 use crate::walk::Walk;
 use crate::{BuildArgs, ScoreArgs};
@@ -76,7 +75,6 @@ pub struct App {
     dir_size_classifier: Option<DirSizeClassifier>,
     file_age_classifier: Option<FileAgeClassifier>,
     naive_bayes: NaiveBayesClassifier,
-    visualizer: viz::ScoreVisualizer,
     playlist: M3uPlaylist,
     vlc_controller: Option<vlc::VlcController>,
     // TUI state
@@ -143,8 +141,6 @@ impl App {
     ) -> Self {
         info!("{:#?}", common_args);
 
-        // Initialize visualizer
-        let visualizer = viz::ScoreVisualizer::default();
 
         // Initialize optional classifiers based on args
         let file_size_classifier = if let Some(log_base) = common_args.file_size.file_size_bias {
@@ -201,7 +197,6 @@ impl App {
             dir_size_classifier,
             file_age_classifier,
             naive_bayes: NaiveBayesClassifier::new(false),
-            visualizer,
             playlist,
             vlc_controller,
             list_state: ListState::default(),
@@ -494,9 +489,10 @@ impl App {
         // Display filename relative to M3U file location for build command
         let context = PathDisplayContext::build_context(self.playlist.root());
         let display_path = self.playlist.display_path(&entry.path, &context);
-        println!("File: {}", display_path);
+        // Display file info as debug logs instead of println to avoid TUI interference
+        debug!("File: {}", display_path);
         let token_strs = entry.tokens.as_ref().unwrap().debug_strs(token_map);
-        println!("Tokens: {:?}", token_strs);
+        debug!("Tokens: {:?}", token_strs);
 
         let mut ngram_tokens: Vec<Vec<Token>> = Vec::new();
         {
@@ -521,16 +517,17 @@ impl App {
         // Sort tuples by absolute score descending
         ngram_scores.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
 
-        // Display top 50 ngrams by absolute score
-        println!("Top ngrams by absolute score:");
+        // Log top 50 ngrams as debug instead of printing to avoid TUI interference
+        debug!("Top ngrams by absolute score:");
+        let mut ngram_debug = String::new();
         for (tokens, score) in ngram_scores.iter().take(50) {
             let token_strs: Vec<&str> = tokens
                 .iter()
                 .map(|t| token_map.get_str(*t).unwrap())
                 .collect();
-            print!("{:?}: {:.3}, ", token_strs, score);
+            ngram_debug.push_str(&format!("{:?}: {:.3}, ", token_strs, score));
         }
-        println!();
+        debug!("{}", ngram_debug);
 
         // Display classifier scores
         let score_details: Vec<String> = self
@@ -556,22 +553,17 @@ impl App {
             dir_classifier.remove_entry(&entry);
         }
 
-        // Display path relative to M3U file location for build command logging
-        let context = PathDisplayContext::build_context(self.playlist.root());
-        let display_path = self.playlist.display_path(&entry.path, &context);
 
         match classification {
             vlc::Classification::Positive => {
                 self.playlist.add_positive(abs_path)?;
                 self.naive_bayes
                     .train_positive(entry.ngrams.as_ref().unwrap());
-                info!("{} (POSITIVE)", display_path);
             }
             vlc::Classification::Negative => {
                 self.playlist.add_negative(abs_path)?;
                 self.naive_bayes
                     .train_negative(entry.ngrams.as_ref().unwrap());
-                info!("{} (NEGATIVE)", display_path);
             }
             vlc::Classification::Skipped => unreachable!(), // Handled in poll_classification
         }
@@ -617,15 +609,10 @@ impl App {
 
             for entry in entries_to_process {
                 // Get classifier names
-                let classifier_names: Vec<&str> =
-                    self.get_classifiers().iter().map(|c| c.name()).collect();
 
                 // Display detailed information about the entry
                 self.display_entry_details(&entry);
 
-                // Display visualizations
-                self.visualizer
-                    .display_distributions(&self.entries, &entry, &classifier_names);
 
                 if let Err(e) = self.play_file(&entry) {
                     error!("Failed to start VLC playback: {:?}", e);
