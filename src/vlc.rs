@@ -108,9 +108,11 @@ impl VlcBackground {
         }
     }
 
-    fn run(&mut self) {
+    fn run(&mut self) -> bool {
         loop {
-            self.handle_control();
+            if !self.handle_control() {
+                return false; // Shutdown requested
+            }
 
             self.poll_status();
 
@@ -121,7 +123,7 @@ impl VlcBackground {
         }
     }
 
-    fn handle_control(&mut self) {
+    fn handle_control(&mut self) -> bool {
         match self.control_rx.try_recv() {
             Ok(ControlMessage::StartPlayback { path, file_name }) => {
                 // If there's a current playback, kill it and send Skipped
@@ -146,12 +148,14 @@ impl VlcBackground {
                             .unwrap();
                     }
                 }
+                true
             }
             Ok(ControlMessage::Shutdown) => {
                 self.current_playback = None;
+                false // Signal shutdown
             }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => (),
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => false, // Channel disconnected, shutdown
+            Err(std::sync::mpsc::TryRecvError::Empty) => true, // No message, continue
         }
     }
 
