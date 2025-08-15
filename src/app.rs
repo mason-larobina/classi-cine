@@ -769,7 +769,7 @@ impl App {
                 .constraints(
                     [
                         Constraint::Length(6), // Path info (full path + tokenized)
-                        Constraint::Length(5), // Classifier scores
+                        Constraint::Length(6), // Classifier scores
                         Constraint::Min(0),    // N-grams
                     ]
                     .as_ref(),
@@ -827,34 +827,41 @@ impl App {
 
     fn draw_classifier_scores(&mut self, f: &mut Frame, area: Rect, entry: &Entry) {
         let classifiers = self.get_classifiers();
-        let classifier_names = ["naive_bayes", "file_size", "dir_size", "file_age"];
 
-        // Create vertical layout for progress bars
-        let score_area = Block::default()
+        // Create the block with border
+        let block = Block::default()
             .title("Classifier Scores")
-            .borders(Borders::ALL)
-            .inner(area);
+            .borders(Borders::ALL);
 
-        f.render_widget(
-            Block::default()
-                .title("Classifier Scores")
-                .borders(Borders::ALL),
-            area,
-        );
+        // Get the inner area after accounting for the border
+        let score_area = block.inner(area);
 
-        if score_area.height >= 4 {
+        // Render the block with border
+        f.render_widget(block, area);
+
+        if score_area.height >= classifiers.len() as u16 {
             let bar_chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Length(1); 4])
+                .constraints(vec![Constraint::Length(1); classifiers.len()])
                 .split(score_area);
 
-            for (i, (_classifier, name)) in
-                classifiers.iter().zip(classifier_names.iter()).enumerate()
-            {
+            for (i, classifier) in classifiers.iter().enumerate() {
                 if i < bar_chunks.len() && i < entry.scores.len() {
                     let score = entry.scores[i];
                     let normalized_score = ((score + 1.0) / 2.0).clamp(0.0, 1.0); // Normalize to 0-1 range
 
+                    // Split each row into label and gauge areas
+                    let row_chunks = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([Constraint::Length(16), Constraint::Min(0)])
+                        .split(bar_chunks[i]);
+
+                    // Render label
+                    let label_text = format!("{}: {:.3}", classifier.name(), score);
+                    let label = Paragraph::new(label_text).style(Style::default());
+                    f.render_widget(label, row_chunks[0]);
+
+                    // Render gauge
                     let color = if score > 0.0 {
                         Color::Green
                     } else {
@@ -863,10 +870,9 @@ impl App {
                     let gauge = Gauge::default()
                         .block(Block::default())
                         .gauge_style(Style::default().fg(color))
-                        .ratio(normalized_score)
-                        .label(format!("{}: {:.3}", name, score));
+                        .ratio(normalized_score);
 
-                    f.render_widget(gauge, bar_chunks[i]);
+                    f.render_widget(gauge, row_chunks[1]);
                 }
             }
         }
