@@ -10,6 +10,9 @@ pub fn normalize_path(path: &Path) -> PathBuf {
             Component::ParentDir => {
                 if let Some(Component::Normal(_)) = stack.last() {
                     stack.pop();
+                } else if !matches!(stack.first(), Some(Component::RootDir)) {
+                    // Only add .. if we're not at root and can't pop a normal component
+                    stack.push(component);
                 }
             }
             other => stack.push(other),
@@ -106,6 +109,70 @@ mod tests {
         // Path with trailing slash
         let trailing = Path::new("a/b/");
         assert_eq!(normalize_path(trailing), PathBuf::from("a/b/"));
+    }
+
+    #[test]
+    fn path_normalization_edge_cases() {
+        // Parent directory at root level
+        let root_parent = Path::new("/../");
+        assert_eq!(normalize_path(root_parent), PathBuf::from("/"));
+
+        // Multiple parent directories at root
+        let multiple_root_parent = Path::new("/../../");
+        assert_eq!(normalize_path(multiple_root_parent), PathBuf::from("/"));
+
+        // Parent directory with insufficient components
+        let insufficient_parent = Path::new("a/../../b");
+        assert_eq!(normalize_path(insufficient_parent), PathBuf::from("../b"));
+
+        // Multiple consecutive parent directories
+        let multiple_parent = Path::new("../../../file.txt");
+        assert_eq!(normalize_path(multiple_parent), PathBuf::from("../../../file.txt"));
+
+        // Double slash (empty components)
+        let double_slash = Path::new("a//b");
+        assert_eq!(normalize_path(double_slash), PathBuf::from("a/b"));
+
+        // Root path variations
+        let root = Path::new("/");
+        assert_eq!(normalize_path(root), PathBuf::from("/"));
+
+        let root_current = Path::new("/.");
+        assert_eq!(normalize_path(root_current), PathBuf::from("/"));
+
+        let root_current_slash = Path::new("/./");
+        assert_eq!(normalize_path(root_current_slash), PathBuf::from("/"));
+
+        // Current directory only
+        let current_only = Path::new(".");
+        assert_eq!(normalize_path(current_only), PathBuf::from(""));
+
+        let current_slash = Path::new("./");
+        assert_eq!(normalize_path(current_slash), PathBuf::from(""));
+
+        // Mixed current and parent at root
+        let mixed_root = Path::new("/./../");
+        assert_eq!(normalize_path(mixed_root), PathBuf::from("/"));
+
+        // Complex mixing with insufficient components
+        let complex_insufficient = Path::new("./../../.././a/b/../c");
+        assert_eq!(normalize_path(complex_insufficient), PathBuf::from("../../../a/c"));
+
+        // Empty path after normalization
+        let cancel_out = Path::new("a/../");
+        assert_eq!(normalize_path(cancel_out), PathBuf::from(""));
+
+        // Parent directories that can't be resolved
+        let unresolvable = Path::new("../../..");
+        assert_eq!(normalize_path(unresolvable), PathBuf::from("../../.."));
+
+        // Mix of current and normal directories
+        let mixed_current = Path::new("./a/./b/./c");
+        assert_eq!(normalize_path(mixed_current), PathBuf::from("a/b/c"));
+
+        // Root with file after parent navigation
+        let root_file_parent = Path::new("/a/../b");
+        assert_eq!(normalize_path(root_file_parent), PathBuf::from("/b"));
     }
 
     #[test]
