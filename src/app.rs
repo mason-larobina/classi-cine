@@ -453,99 +453,6 @@ impl App {
         std::mem::swap(&mut self.entries, &mut temp_entries);
     }
 
-    // Starts VLC and gets classification from user
-    fn play_file(&self, entry: &Entry) -> Result<(), Error> {
-        let abs_path = &entry.path;
-        let file_name = abs_path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string());
-
-        let vlc_controller = self
-            .vlc_controller
-            .as_ref()
-            .expect("VLC controller required for classification");
-
-        vlc_controller.start_playback(abs_path, file_name)?;
-        Ok(())
-    }
-
-    fn poll_classification(&self) -> Result<Option<vlc::Classification>, Error> {
-        let vlc_controller = self
-            .vlc_controller
-            .as_ref()
-            .expect("VLC controller required for classification");
-
-        match vlc_controller.try_recv_classification() {
-            Ok(Some(classification)) => {
-                if matches!(classification, vlc::Classification::Skipped) {
-                    Ok(None)
-                } else {
-                    Ok(Some(classification))
-                }
-            }
-            Ok(None) => Ok(None), // No classification yet
-            Err(e) => Err(e),
-        }
-    }
-
-    // Displays detailed entry information including filename, tokens, and ngrams
-    fn display_entry_details(&self, entry: &Entry) {
-        let token_map = self.tokenizer.as_ref().unwrap().token_map();
-
-        // Display filename relative to M3U file location for build command
-        let context = PathDisplayContext::build_context(self.playlist.root());
-        let display_path = self.playlist.display_path(&entry.path, &context);
-        // Display file info as debug logs instead of println to avoid TUI interference
-        debug!("File: {}", display_path);
-        let token_strs = entry.tokens.as_ref().unwrap().debug_strs(token_map);
-        debug!("Tokens: {:?}", token_strs);
-
-        let mut ngram_tokens: Vec<Vec<Token>> = Vec::new();
-        {
-            let mut tmp_ngrams = Ngrams::default();
-            tmp_ngrams.windows(
-                entry.tokens.as_ref().unwrap(),
-                self.common_args.windows,
-                self.frequent_ngrams.as_ref(),
-                Some(&mut ngram_tokens),
-            );
-            ngram_tokens.sort();
-            ngram_tokens.dedup();
-        }
-
-        let mut ngram_scores = Vec::new();
-        for window in ngram_tokens.into_iter() {
-            let ngram = Ngram::new(&window);
-            let score = self.naive_bayes.ngram_score(ngram);
-            ngram_scores.push((window, score));
-        }
-
-        // Sort tuples by absolute score descending
-        ngram_scores.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
-
-        // Log top 50 ngrams as debug instead of printing to avoid TUI interference
-        debug!("Top ngrams by absolute score:");
-        let mut ngram_debug = String::new();
-        for (tokens, score) in ngram_scores.iter().take(50) {
-            let token_strs: Vec<&str> = tokens
-                .iter()
-                .map(|t| token_map.get_str(*t).unwrap())
-                .collect();
-            ngram_debug.push_str(&format!("{:?}: {:.3}, ", token_strs, score));
-        }
-        debug!("{}", ngram_debug);
-
-        // Display classifier scores
-        let score_details: Vec<String> = self
-            .get_classifiers()
-            .iter()
-            .enumerate()
-            .map(|(i, c)| format!("{}: {:.3}", c.name(), entry.scores[i]))
-            .collect();
-
-        info!("Classifier scores: {}", score_details.join(", "));
-    }
-
     // Updates classifiers and playlist with the classification result
     fn process_classification_result(
         &mut self,
@@ -573,82 +480,6 @@ impl App {
             vlc::Classification::Skipped => unreachable!(), // Handled in poll_classification
         }
 
-        Ok(())
-    }
-
-    // Handles the main classification loop
-    fn classification_loop(&mut self) -> Result<(), Error> {
-        while !self.entries.is_empty() {
-            //time_it!("Update classification scores", {
-            self.calculate_scores_and_sort_entries();
-            //});
-
-            let entries_to_process: Vec<Entry> = if let Some(build_args) = &self.build_args {
-                if let Some(random_top_n) = build_args.random_top_n {
-                    // Random selection from top-n entries (single entry)
-                    if self.entries.is_empty() {
-                        Vec::new()
-                    } else {
-                        let top_n = std::cmp::min(random_top_n, self.entries.len());
-                        let mut rng = rand::rng();
-                        let start_idx = self.entries.len() - top_n;
-                        let selected_idx = rng.random_range(start_idx..self.entries.len());
-                        vec![self.entries.remove(selected_idx)]
-                    }
-                } else {
-                    // Default batch behavior: take from the end (highest scores)
-                    let num_to_process =
-                        std::cmp::min(self.entries.len(), std::cmp::max(build_args.batch, 1));
-                    self.entries
-                        .drain(self.entries.len() - num_to_process..)
-                        .collect()
-                }
-            } else {
-                // For score command, process one entry
-                if self.entries.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![self.entries.remove(self.entries.len() - 1)]
-                }
-            };
-
-            for entry in entries_to_process {
-                // Get classifier names
-
-                // Display detailed information about the entry
-                self.display_entry_details(&entry);
-
-                if let Err(e) = self.play_file(&entry) {
-                    error!("Failed to start VLC playback: {:?}", e);
-                    continue;
-                }
-
-                // Wait for classification with polling
-                let mut classification = None;
-                loop {
-                    match self.poll_classification() {
-                        Ok(Some(c)) => {
-                            classification = Some(c);
-                            break;
-                        }
-                        Ok(None) => {
-                            // No update yet, sleep and try again
-                            std::thread::sleep(std::time::Duration::from_millis(
-                                self.build_args.as_ref().unwrap().vlc.vlc_poll_interval,
-                            ));
-                        }
-                        Err(e) => {
-                            error!("Classification error: {:?}", e);
-                            break;
-                        }
-                    }
-                }
-
-                if let Some(classification) = classification {
-                    self.process_classification_result(entry, classification)?;
-                }
-            }
-        }
         Ok(())
     }
 
@@ -1039,13 +870,7 @@ impl App {
         if !self.entries.is_empty() {
             let page_size = std::cmp::max(1, self.terminal_height / 2) as usize; // Half terminal height
             let i = match self.list_state.selected() {
-                Some(i) => {
-                    if i < page_size {
-                        0
-                    } else {
-                        i - page_size
-                    }
-                }
+                Some(i) => i.saturating_sub(page_size),
                 None => 0,
             };
             self.list_state.select(Some(i));
@@ -1083,18 +908,18 @@ impl App {
     }
 
     fn tui_select_current(&mut self) -> Result<(), Error> {
-        if let Some(selected) = self.list_state.selected() {
-            if selected < self.entries.len() {
-                let entry = &self.entries[selected];
-                let file_name = entry
-                    .path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string());
+        if let Some(selected) = self.list_state.selected()
+            && selected < self.entries.len()
+        {
+            let entry = &self.entries[selected];
+            let file_name = entry
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string());
 
-                if let Some(ref vlc_controller) = self.vlc_controller {
-                    vlc_controller.start_playback(&entry.path, file_name)?;
-                    self.currently_playing = Some(selected);
-                }
+            if let Some(ref vlc_controller) = self.vlc_controller {
+                vlc_controller.start_playback(&entry.path, file_name)?;
+                self.currently_playing = Some(selected);
             }
         }
         Ok(())
@@ -1150,31 +975,31 @@ impl App {
     }
 
     fn tui_handle_classification(&mut self) -> Result<(), Error> {
-        if let Some(playing_idx) = self.currently_playing {
-            if let Some(ref vlc_controller) = self.vlc_controller {
-                match vlc_controller.try_recv_classification() {
-                    Ok(Some(classification)) => {
-                        if playing_idx < self.entries.len() {
-                            let entry = self.entries.remove(playing_idx);
-                            self.process_classification_result(entry, classification)?;
+        if let Some(playing_idx) = self.currently_playing
+            && let Some(ref vlc_controller) = self.vlc_controller
+        {
+            match vlc_controller.try_recv_classification() {
+                Ok(Some(classification)) => {
+                    if playing_idx < self.entries.len() {
+                        let entry = self.entries.remove(playing_idx);
+                        self.process_classification_result(entry, classification)?;
 
-                            self.currently_playing = None;
+                        self.currently_playing = None;
 
-                            // Auto-select and play next entry using build command logic
-                            if !self.entries.is_empty() {
-                                self.tui_auto_select_next()?;
-                            } else {
-                                self.list_state.select(None);
-                                self.should_quit = true;
-                            }
+                        // Auto-select and play next entry using build command logic
+                        if !self.entries.is_empty() {
+                            self.tui_auto_select_next()?;
+                        } else {
+                            self.list_state.select(None);
+                            self.should_quit = true;
                         }
                     }
-                    Ok(None) => {
-                        // No classification yet, continue
-                    }
-                    Err(e) => {
-                        return Err(e);
-                    }
+                }
+                Ok(None) => {
+                    // No classification yet, continue
+                }
+                Err(e) => {
+                    return Err(e);
                 }
             }
         }
@@ -1239,7 +1064,7 @@ impl App {
             for entry in &self.entries {
                 let total_score: f64 = entry.scores.iter().sum();
 
-                let parent_dir_abs = AbsPath::from_abs_path(&**entry.parent_dir);
+                let parent_dir_abs = AbsPath::from_abs_path(&entry.parent_dir);
                 let dir_path = parent_dir_abs.to_string(&context);
 
                 let size = entry.size;

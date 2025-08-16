@@ -208,7 +208,7 @@ impl PairTokenizer {
                         continue;
                     }
                     // Attempt to replace all occurrences of `pair` with the merged token in `s`.
-                    if tmp.from_replace(token_map_ref, s, pair, merged) {
+                    if tmp.replace_with(token_map_ref, s, pair, merged) {
                         // If replacements occurred, we adjust the pair counts accordingly.
                         for p in s.pairs(token_map_ref) {
                             delta.update_pair(p, -1);
@@ -239,7 +239,7 @@ impl PairTokenizer {
         let mut tmp = Tokens::default();
         // For each learned merge, apply it if `tokens` contains the pair.
         for (pair, merged) in self.merges.iter().cloned() {
-            if tokens.contains(&pair) && tmp.from_replace(&self.token_map, &tokens, pair, merged) {
+            if tokens.contains(&pair) && tmp.replace_with(&self.token_map, &tokens, pair, merged) {
                 // Swap to finalize the replacement result.
                 std::mem::swap(&mut tmp, &mut tokens);
             }
@@ -281,8 +281,8 @@ mod tests {
     #[test]
     fn test_pair_tokenizer_basic() {
         // Use repeated input to exceed the minimum frequency threshold
-        let training = vec!["hello world"; 10];
-        let pt = PairTokenizer::new(training.iter().map(|s| *s));
+        let training = ["hello world"; 10];
+        let pt = PairTokenizer::new(training.iter().copied());
         let tokens = pt.tokenize("hello world");
         // Checking if the round trip matches
         assert_eq!(

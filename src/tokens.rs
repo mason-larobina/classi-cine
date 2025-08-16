@@ -60,7 +60,7 @@ impl Tokens {
         tokens
     }
 
-    pub fn from_replace(
+    pub fn replace_with(
         &mut self,
         token_map: &TokenMap,
         from: &Tokens,
@@ -111,6 +111,7 @@ impl Tokens {
         })
     }
 
+    #[cfg(test)]
     pub fn debug_strs<'a>(&'a self, map: &'a TokenMap) -> Vec<&'a str> {
         let mut comps = Vec::new();
         for t in &self.tokens {
