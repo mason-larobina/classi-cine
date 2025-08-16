@@ -87,6 +87,7 @@ impl PathDisplayContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
 
     #[test]
     fn path_normalization() {
@@ -105,5 +106,87 @@ mod tests {
         // Path with trailing slash
         let trailing = Path::new("a/b/");
         assert_eq!(normalize_path(trailing), PathBuf::from("a/b/"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn abspath_rejects_relative_path() {
+        let rel_path = Path::new("relative/path.txt");
+        AbsPath::from_abs_path(rel_path);
+    }
+
+    #[test]
+    fn abspath_normalization() {
+        let unnormalized = Path::new("/home/user/../user/./file.txt");
+        let abspath = AbsPath::from_abs_path(unnormalized);
+        assert_eq!(abspath.as_ref(), Path::new("/home/user/file.txt"));
+    }
+
+    #[test]
+    fn abspath_absolute_display() {
+        let abs_path = Path::new("/home/user/documents/file.txt");
+        let abspath = AbsPath::from_abs_path(abs_path);
+        let context = PathDisplayContext::Absolute;
+        assert_eq!(abspath.to_string(&context), "/home/user/documents/file.txt");
+    }
+
+    #[test]
+    fn abspath_relative_display() {
+        let abs_path = Path::new("/home/user/documents/file.txt");
+        let abspath = AbsPath::from_abs_path(abs_path);
+        let base = PathBuf::from("/home/user");
+        let context = PathDisplayContext::RelativeTo(base);
+        assert_eq!(abspath.to_string(&context), "documents/file.txt");
+    }
+
+    #[test]
+    fn abspath_relative_display_parent() {
+        let abs_path = Path::new("/home/user/file.txt");
+        let abspath = AbsPath::from_abs_path(abs_path);
+        let base = PathBuf::from("/home/user/documents");
+        let context = PathDisplayContext::RelativeTo(base);
+        assert_eq!(abspath.to_string(&context), "../file.txt");
+    }
+
+    #[test]
+    fn abspath_relative_display_no_common_path() {
+        let abs_path = Path::new("/var/log/file.txt");
+        let abspath = AbsPath::from_abs_path(abs_path);
+        let base = PathBuf::from("/home/user");
+        let context = PathDisplayContext::RelativeTo(base);
+        assert_eq!(abspath.to_string(&context), "../../var/log/file.txt");
+    }
+
+    #[test]
+    fn path_display_context_build() {
+        let playlist_root = AbsPath::from_abs_path(Path::new("/home/user/playlists"));
+        let context = PathDisplayContext::build_context(&playlist_root);
+        match context {
+            PathDisplayContext::RelativeTo(base) => {
+                assert_eq!(base, PathBuf::from("/home/user/playlists"));
+            }
+            _ => panic!("Expected RelativeTo context"),
+        }
+    }
+
+    #[test]
+    fn path_display_context_score_list_absolute() {
+        let context = PathDisplayContext::score_list_context(true);
+        match context {
+            PathDisplayContext::Absolute => {}
+            _ => panic!("Expected Absolute context"),
+        }
+    }
+
+    #[test]
+    fn path_display_context_score_list_relative() {
+        let context = PathDisplayContext::score_list_context(false);
+        let current_dir = env::current_dir().expect("Unable to get current dir");
+        match context {
+            PathDisplayContext::RelativeTo(base) => {
+                assert_eq!(base, current_dir);
+            }
+            _ => panic!("Expected RelativeTo context"),
+        }
     }
 }
