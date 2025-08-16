@@ -127,7 +127,10 @@ mod tests {
 
         // Multiple consecutive parent directories
         let multiple_parent = Path::new("../../../file.txt");
-        assert_eq!(normalize_path(multiple_parent), PathBuf::from("../../../file.txt"));
+        assert_eq!(
+            normalize_path(multiple_parent),
+            PathBuf::from("../../../file.txt")
+        );
 
         // Double slash (empty components)
         let double_slash = Path::new("a//b");
@@ -156,7 +159,10 @@ mod tests {
 
         // Complex mixing with insufficient components
         let complex_insufficient = Path::new("./../../.././a/b/../c");
-        assert_eq!(normalize_path(complex_insufficient), PathBuf::from("../../../a/c"));
+        assert_eq!(
+            normalize_path(complex_insufficient),
+            PathBuf::from("../../../a/c")
+        );
 
         // Empty path after normalization
         let cancel_out = Path::new("a/../");
