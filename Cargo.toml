@@ -1,6 +1,6 @@
 [package]
 name = "classi-cine"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2024"
 repository = "https://github.com/mason-larobina/classi-cine"
 readme = "README.md"
