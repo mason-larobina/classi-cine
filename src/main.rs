@@ -130,6 +130,9 @@ struct BuildArgs {
     /// Select next entry randomly from top-n scored entries to break out of local optima (mutually exclusive with --batch)
     #[clap(long)]
     random_top_n: Option<usize>,
+    /// Iterate top-scored entries and select the first where rand() <= p (mutually exclusive with --batch)
+    #[clap(long, value_parser = clap::value_parser!(f64))]
+    selection_p: Option<f64>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -291,6 +294,18 @@ fn main() -> Result<(), Error> {
                 return Err(Error::PlaylistError(
                     "--batch and --random-top-n are mutually exclusive".to_string(),
                 ));
+            }
+            if build_args.batch > 1 && build_args.selection_p.is_some() {
+                return Err(Error::PlaylistError(
+                    "--batch and --selection-p are mutually exclusive".to_string(),
+                ));
+            }
+            if let Some(p) = build_args.selection_p {
+                if !(0.0..=1.0).contains(&p) {
+                    return Err(Error::PlaylistError(
+                        "--selection-p must be in [0.0, 1.0]".to_string(),
+                    ));
+                }
             }
 
             let playlist = M3uPlaylist::open(&build_args.common.playlist)?;

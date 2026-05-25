@@ -933,24 +933,23 @@ impl App {
 
         // Use the same selection logic as the original classification_loop
         let selected_entry_idx = if let Some(build_args) = &self.build_args {
+            if self.entries.is_empty() {
+                return Ok(());
+            }
             if let Some(random_top_n) = build_args.random_top_n {
-                // Random selection from top-n entries
-                if self.entries.is_empty() {
-                    return Ok(());
-                }
                 let top_n = std::cmp::min(random_top_n, self.entries.len());
                 let mut rng = rand::rng();
                 rng.random_range(0..top_n)
+            } else if let Some(p) = build_args.selection_p {
+                let mut rng = rand::rng();
+                self.entries
+                    .iter()
+                    .position(|_| rng.random::<f64>() <= p)
+                    .unwrap_or(0)
             } else {
-                // Default batch behavior: take from the start (highest scores in descending order)
-                // For TUI, we'll just take the single highest scoring entry
-                if self.entries.is_empty() {
-                    return Ok(());
-                }
                 0
             }
         } else {
-            // Fallback (shouldn't happen in build mode)
             if self.entries.is_empty() {
                 return Ok(());
             }
