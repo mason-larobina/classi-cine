@@ -84,6 +84,7 @@ pub struct App {
     currently_playing: Option<usize>,
     should_quit: bool,
     terminal_height: u16,
+    tui_max_entries: usize,
 }
 
 // Helper struct for timing
@@ -184,6 +185,11 @@ impl App {
             None
         };
 
+        let tui_max_entries = build_args
+            .as_ref()
+            .map(|args| args.tui_max_entries)
+            .unwrap_or(usize::MAX);
+
         let vlc_controller = build_args
             .as_ref()
             .map(|args| vlc::VlcController::new(args.vlc.clone()));
@@ -208,6 +214,7 @@ impl App {
             currently_playing: None,
             should_quit: false,
             terminal_height,
+            tui_max_entries,
         }
     }
 
@@ -541,11 +548,20 @@ impl App {
         self.draw_debug_panel(f, main_chunks[1]);
     }
 
+    fn tui_len(&self) -> usize {
+        let anchor = self.currently_playing.unwrap_or(0);
+        (anchor + 1001)
+            .max(self.tui_max_entries)
+            .min(self.entries.len())
+    }
+
     fn draw_file_list(&mut self, f: &mut Frame, area: Rect) {
         let context = PathDisplayContext::build_context(self.playlist.root());
+        let visible = self.tui_len();
         let items: Vec<ListItem> = self
             .entries
             .iter()
+            .take(visible)
             .enumerate()
             .map(|(i, entry)| {
                 let filename = self.playlist.display_path(&entry.path, &context);
@@ -565,10 +581,22 @@ impl App {
             })
             .collect();
 
+        let title = if self.entries.len() > visible {
+            format!(
+                "File List (showing {}/{}) (↑/↓: navigate, Enter: play, Esc/q: quit)",
+                visible,
+                self.entries.len()
+            )
+        } else {
+            format!(
+                "File List ({}) (↑/↓: navigate, Enter: play, Esc/q: quit)",
+                self.entries.len()
+            )
+        };
         let list = List::new(items)
             .block(
                 Block::default()
-                    .title("File List (↑/↓: navigate, Enter: play, Esc/q: quit)")
+                    .title(title)
                     .borders(Borders::ALL),
             )
             .highlight_style(
@@ -835,10 +863,11 @@ impl App {
     }
 
     fn tui_next(&mut self) {
-        if !self.entries.is_empty() {
+        let len = self.tui_len();
+        if len > 0 {
             let i = match self.list_state.selected() {
                 Some(i) => {
-                    if i >= self.entries.len() - 1 {
+                    if i >= len - 1 {
                         0
                     } else {
                         i + 1
@@ -851,11 +880,12 @@ impl App {
     }
 
     fn tui_previous(&mut self) {
-        if !self.entries.is_empty() {
+        let len = self.tui_len();
+        if len > 0 {
             let i = match self.list_state.selected() {
                 Some(i) => {
                     if i == 0 {
-                        self.entries.len() - 1
+                        len - 1
                     } else {
                         i - 1
                     }
@@ -867,8 +897,8 @@ impl App {
     }
 
     fn tui_page_up(&mut self) {
-        if !self.entries.is_empty() {
-            let page_size = std::cmp::max(1, self.terminal_height / 2) as usize; // Half terminal height
+        if self.tui_len() > 0 {
+            let page_size = std::cmp::max(1, self.terminal_height / 2) as usize;
             let i = match self.list_state.selected() {
                 Some(i) => i.saturating_sub(page_size),
                 None => 0,
@@ -878,13 +908,14 @@ impl App {
     }
 
     fn tui_page_down(&mut self) {
-        if !self.entries.is_empty() {
-            let page_size = std::cmp::max(1, self.terminal_height / 2) as usize; // Half terminal height
+        let len = self.tui_len();
+        if len > 0 {
+            let page_size = std::cmp::max(1, self.terminal_height / 2) as usize;
             let i = match self.list_state.selected() {
                 Some(i) => {
                     let new_pos = i + page_size;
-                    if new_pos >= self.entries.len() {
-                        self.entries.len() - 1
+                    if new_pos >= len {
+                        len - 1
                     } else {
                         new_pos
                     }
@@ -896,20 +927,21 @@ impl App {
     }
 
     fn tui_home(&mut self) {
-        if !self.entries.is_empty() {
+        if self.tui_len() > 0 {
             self.list_state.select(Some(0));
         }
     }
 
     fn tui_end(&mut self) {
-        if !self.entries.is_empty() {
-            self.list_state.select(Some(self.entries.len() - 1));
+        let len = self.tui_len();
+        if len > 0 {
+            self.list_state.select(Some(len - 1));
         }
     }
 
     fn tui_select_current(&mut self) -> Result<(), Error> {
         if let Some(selected) = self.list_state.selected()
-            && selected < self.entries.len()
+            && selected < self.tui_len()
         {
             let entry = &self.entries[selected];
             let file_name = entry
@@ -956,7 +988,6 @@ impl App {
             self.entries.len() - 1
         };
 
-        // Update list selection and start playback
         self.list_state.select(Some(selected_entry_idx));
 
         let entry = &self.entries[selected_entry_idx];

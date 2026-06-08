@@ -124,6 +124,9 @@ struct BuildArgs {
     common: CommonArgs,
     #[command(flatten)]
     vlc: VlcArgs,
+    /// Maximum number of entries visible in the TUI list (does not affect internal processing)
+    #[clap(long, default_value_t = 10000)]
+    tui_max_entries: usize,
     /// Number of entries to classify in each batch iteration
     #[clap(long, default_value_t = 1)]
     batch: usize,
