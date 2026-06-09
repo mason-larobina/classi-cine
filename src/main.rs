@@ -127,9 +127,6 @@ struct BuildArgs {
     /// Number of entries to classify in each batch iteration
     #[clap(long, default_value_t = 1)]
     batch: usize,
-    /// Select next entry randomly from top-n scored entries to break out of local optima (mutually exclusive with --batch)
-    #[clap(long)]
-    random_top_n: Option<usize>,
     /// Iterate top-scored entries and select the first where rand() <= p (mutually exclusive with --batch)
     #[clap(long, value_parser = clap::value_parser!(f64))]
     selection_p: Option<f64>,
@@ -290,11 +287,6 @@ fn main() -> Result<(), Error> {
     match args.command {
         Command::Build(ref build_args) => {
             // Validate mutually exclusive options
-            if build_args.batch > 1 && build_args.random_top_n.is_some() {
-                return Err(Error::PlaylistError(
-                    "--batch and --random-top-n are mutually exclusive".to_string(),
-                ));
-            }
             if build_args.batch > 1 && build_args.selection_p.is_some() {
                 return Err(Error::PlaylistError(
                     "--batch and --selection-p are mutually exclusive".to_string(),

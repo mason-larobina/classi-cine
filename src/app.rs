@@ -958,11 +958,7 @@ impl App {
             if self.entries.is_empty() {
                 return Ok(());
             }
-            if let Some(random_top_n) = build_args.random_top_n {
-                let top_n = std::cmp::min(random_top_n, self.entries.len());
-                let mut rng = rand::rng();
-                rng.random_range(0..top_n)
-            } else if let Some(p) = build_args.selection_p {
+            if let Some(p) = build_args.selection_p {
                 let mut rng = rand::rng();
                 self.entries
                     .iter()
