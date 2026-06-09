@@ -84,7 +84,6 @@ pub struct App {
     currently_playing: Option<usize>,
     should_quit: bool,
     terminal_height: u16,
-    tui_max_entries: usize,
 }
 
 // Helper struct for timing
@@ -185,11 +184,6 @@ impl App {
             None
         };
 
-        let tui_max_entries = build_args
-            .as_ref()
-            .map(|args| args.tui_max_entries)
-            .unwrap_or(usize::MAX);
-
         let vlc_controller = build_args
             .as_ref()
             .map(|args| vlc::VlcController::new(args.vlc.clone()));
@@ -214,7 +208,6 @@ impl App {
             currently_playing: None,
             should_quit: false,
             terminal_height,
-            tui_max_entries,
         }
     }
 
@@ -549,26 +542,33 @@ impl App {
     }
 
     fn tui_len(&self) -> usize {
-        let anchor = self.currently_playing.unwrap_or(0);
-        (anchor + 1001)
-            .max(self.tui_max_entries)
-            .min(self.entries.len())
+        self.entries.len()
     }
 
     fn draw_file_list(&mut self, f: &mut Frame, area: Rect) {
         let context = PathDisplayContext::build_context(self.playlist.root());
-        let visible = self.tui_len();
-        let items: Vec<ListItem> = self
-            .entries
+
+        // Only build ListItems for a window of entries around the selection
+        // cursor rather than the whole list, which may contain 100k+ entries.
+        // ratatui then positions the viewport within this window; we translate
+        // its window-local offset back to a global offset afterwards so the
+        // list_state remains the global source of truth.
+        let sel = self.list_state.selected().unwrap_or(0);
+        let view_h = area.height.saturating_sub(2) as usize; // minus borders
+        let buffer = view_h.max(1); // headroom each side for smooth scrolling
+        let start = sel.saturating_sub(buffer);
+        let end = (sel + buffer + view_h.max(1)).min(self.entries.len());
+
+        let items: Vec<ListItem> = self.entries[start..end]
             .iter()
-            .take(visible)
             .enumerate()
             .map(|(i, entry)| {
+                let global_idx = start + i;
                 let filename = self.playlist.display_path(&entry.path, &context);
                 let total_score: f64 = entry.scores.iter().sum();
                 let display_text = format!("{:.3} {}", total_score, filename);
 
-                let style = if Some(i) == self.currently_playing {
+                let style = if Some(global_idx) == self.currently_playing {
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD)
@@ -581,24 +581,12 @@ impl App {
             })
             .collect();
 
-        let title = if self.entries.len() > visible {
-            format!(
-                "File List (showing {}/{}) (↑/↓: navigate, Enter: play, Esc/q: quit)",
-                visible,
-                self.entries.len()
-            )
-        } else {
-            format!(
-                "File List ({}) (↑/↓: navigate, Enter: play, Esc/q: quit)",
-                self.entries.len()
-            )
-        };
+        let title = format!(
+            "File List ({}) (↑/↓: navigate, Enter: play, Esc/q: quit)",
+            self.entries.len()
+        );
         let list = List::new(items)
-            .block(
-                Block::default()
-                    .title(title)
-                    .borders(Borders::ALL),
-            )
+            .block(Block::default().title(title).borders(Borders::ALL))
             .highlight_style(
                 Style::default()
                     .bg(Color::Blue)
@@ -606,7 +594,13 @@ impl App {
             )
             .highlight_symbol("► ");
 
-        f.render_stateful_widget(list, area, &mut self.list_state);
+        // Render with a local state in window-local coordinates, then map the
+        // offset ratatui computed back into a global offset.
+        let mut local = ListState::default();
+        local.select(Some(sel - start));
+        *local.offset_mut() = self.list_state.offset().saturating_sub(start);
+        f.render_stateful_widget(list, area, &mut local);
+        *self.list_state.offset_mut() = start + local.offset();
     }
 
     fn draw_debug_panel(&mut self, f: &mut Frame, area: Rect) {
@@ -914,11 +908,7 @@ impl App {
             let i = match self.list_state.selected() {
                 Some(i) => {
                     let new_pos = i + page_size;
-                    if new_pos >= len {
-                        len - 1
-                    } else {
-                        new_pos
-                    }
+                    if new_pos >= len { len - 1 } else { new_pos }
                 }
                 None => 0,
             };
