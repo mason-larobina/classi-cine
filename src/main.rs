@@ -124,10 +124,7 @@ struct BuildArgs {
     common: CommonArgs,
     #[command(flatten)]
     vlc: VlcArgs,
-    /// Number of entries to classify in each batch iteration
-    #[clap(long, default_value_t = 1)]
-    batch: usize,
-    /// Iterate top-scored entries and select the first where rand() <= p (mutually exclusive with --batch)
+    /// Iterate top-scored entries and select the first where rand() <= p
     #[clap(long, value_parser = clap::value_parser!(f64))]
     selection_p: Option<f64>,
 }
@@ -286,12 +283,7 @@ fn main() -> Result<(), Error> {
 
     match args.command {
         Command::Build(ref build_args) => {
-            // Validate mutually exclusive options
-            if build_args.batch > 1 && build_args.selection_p.is_some() {
-                return Err(Error::PlaylistError(
-                    "--batch and --selection-p are mutually exclusive".to_string(),
-                ));
-            }
+            // Validate selection probability range
             if let Some(p) = build_args.selection_p {
                 if !(0.0..=1.0).contains(&p) {
                     return Err(Error::PlaylistError(

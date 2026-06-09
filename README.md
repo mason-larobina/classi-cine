@@ -130,7 +130,6 @@ Options:
       --fullscreen                      Fullscreen VLC playback
       --vlc-timeout <VLC_TIMEOUT>       Timeout in seconds for VLC startup [default: 60]
       --vlc-poll-interval <VLC_POLL_INTERVAL> Polling interval in milliseconds for VLC status checks [default: 100]
-      --batch <BATCH>                   Number of entries to classify in each batch iteration [default: 1]
       --selection-p <SELECTION_P>       Iterate top-scored entries and select the first where rand() <= p
   -h, --help                            Print help
 ```
