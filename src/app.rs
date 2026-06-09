@@ -37,6 +37,41 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use thread_priority::*;
 
+/// Format a byte count as a compact human-readable string (binary units).
+fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["B", "K", "M", "G", "T", "P"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        return format!("{}{}", bytes, UNITS[unit]); // whole bytes, no decimal
+    }
+    // Keep ~3 significant figures so precision is consistent across magnitudes
+    // (e.g. "700M", "50.5M", "1.10G") instead of always showing one decimal.
+    let decimals = |s: f64| {
+        if s >= 100.0 {
+            0
+        } else if s >= 10.0 {
+            1
+        } else {
+            2
+        }
+    };
+    // If rounding to the chosen precision would reach 1024, promote a unit so
+    // we show e.g. "1.00G" rather than "1024M".
+    let mut d = decimals(size);
+    let factor = 10f64.powi(d as i32);
+    if (size * factor).round() / factor >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+        d = decimals(size);
+    }
+    format!("{:.*}{}", d, size, UNITS[unit])
+}
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub path: AbsPath,
@@ -566,7 +601,12 @@ impl App {
                 let global_idx = start + i;
                 let filename = self.playlist.display_path(&entry.path, &context);
                 let total_score: f64 = entry.scores.iter().sum();
-                let display_text = format!("{:.3} {}", total_score, filename);
+                let display_text = format!(
+                    "{:.3} {:>6} {}",
+                    total_score,
+                    human_size(entry.size),
+                    filename
+                );
 
                 let style = if Some(global_idx) == self.currently_playing {
                     Style::default()
@@ -1189,5 +1229,45 @@ impl App {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::human_size;
+
+    #[test]
+    fn human_size_bytes() {
+        assert_eq!(human_size(0), "0B");
+        assert_eq!(human_size(1), "1B");
+        assert_eq!(human_size(1023), "1023B");
+    }
+
+    #[test]
+    fn human_size_three_sig_figs() {
+        assert_eq!(human_size(1024), "1.00K");
+        assert_eq!(human_size(1536), "1.50K"); // 1.5 KiB
+        assert_eq!(human_size(10 * 1024), "10.0K");
+        assert_eq!(human_size(100 * 1024), "100K");
+        assert_eq!(human_size(700 * 1024 * 1024), "700M");
+    }
+
+    #[test]
+    fn human_size_promotes_on_rounding() {
+        // 1023 MiB stays in M (top of the unit's range).
+        assert_eq!(human_size(1023 * 1024 * 1024), "1023M");
+        // A value that rounds to 1024 promotes to the next unit.
+        let almost_gib = (1023.7 * 1024.0 * 1024.0) as u64;
+        assert_eq!(human_size(almost_gib), "1.00G");
+        // 1024 MiB is exactly 1 GiB.
+        assert_eq!(human_size(1024 * 1024 * 1024), "1.00G");
+    }
+
+    #[test]
+    fn human_size_large_units() {
+        assert_eq!(human_size(1024u64.pow(4)), "1.00T");
+        assert_eq!(human_size(1024u64.pow(5)), "1.00P");
+        // Caps at the largest unit instead of overflowing.
+        assert_eq!(human_size(5 * 1024u64.pow(5)), "5.00P");
     }
 }
