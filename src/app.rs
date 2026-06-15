@@ -13,6 +13,7 @@ use crate::walk::Walk;
 use crate::{BuildArgs, ScoreArgs};
 
 use crossterm::{
+    cursor::Show,
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{
@@ -36,6 +37,59 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use thread_priority::*;
+
+/// RAII guard owning the TUI terminal. Setting it up enables raw mode and the
+/// alternate screen and suppresses stderr logging; dropping it (on normal
+/// return, `?`, or unwinding from a panic) restores the terminal.
+struct TerminalGuard {
+    terminal: Terminal<CrosstermBackend<io::Stdout>>,
+}
+
+impl TerminalGuard {
+    fn new() -> Result<Self, Error> {
+        enable_raw_mode()?;
+        let mut stdout = io::stdout();
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        // The TUI now owns the terminal; suppress stderr logging until restored.
+        crate::logging::set_tui_active(true);
+        let backend = CrosstermBackend::new(stdout);
+        Ok(Self {
+            terminal: Terminal::new(backend)?,
+        })
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        restore_terminal();
+    }
+}
+
+/// Restore the terminal to its normal state: leave raw mode and the alternate
+/// screen, re-show the cursor, and resume stderr logging. Errors are ignored
+/// because this runs on cleanup and panic paths where they can't be propagated,
+/// and the operation is idempotent so it's safe to call more than once.
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(
+        io::stdout(),
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        Show
+    );
+    crate::logging::set_tui_active(false);
+}
+
+/// Install a panic hook that restores the terminal before delegating to the
+/// previous hook. Without this the default panic message would be printed into
+/// the alternate screen and lost when the terminal is torn down.
+pub fn install_panic_hook() {
+    let original = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        restore_terminal();
+        original(info);
+    }));
+}
 
 /// Format a byte count as a compact human-readable string (binary units).
 fn human_size(bytes: u64) -> String {
@@ -536,33 +590,6 @@ impl App {
         time_it!("Train naive bayes classifier", {
             self.train_naive_bayes_classifier();
         });
-    }
-
-    // TUI-related methods
-    fn setup_terminal(&self) -> Result<Terminal<CrosstermBackend<io::Stdout>>, Error> {
-        enable_raw_mode()?;
-        let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-        // The TUI now owns the terminal; suppress stderr logging until restored.
-        crate::logging::set_tui_active(true);
-        let backend = CrosstermBackend::new(stdout);
-        Ok(Terminal::new(backend)?)
-    }
-
-    fn restore_terminal(
-        &self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    ) -> Result<(), Error> {
-        disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
-        terminal.show_cursor()?;
-        // Terminal handed back; resume stderr logging.
-        crate::logging::set_tui_active(false);
-        Ok(())
     }
 
     fn draw_tui(&mut self, f: &mut Frame) {
@@ -1072,11 +1099,12 @@ impl App {
             self.tui_auto_select_next()?;
         }
 
-        let mut terminal = self.setup_terminal()?;
+        // The guard restores the terminal when dropped, on every exit path.
+        let mut guard = TerminalGuard::new()?;
 
         let result = (|| -> Result<(), Error> {
             loop {
-                terminal.draw(|f| self.draw_tui(f))?;
+                guard.terminal.draw(|f| self.draw_tui(f))?;
 
                 if self.handle_tui_events()? {
                     break;
@@ -1091,11 +1119,15 @@ impl App {
             Ok(())
         })();
 
-        self.restore_terminal(&mut terminal)?;
+        drop(guard);
         result
     }
 
     pub fn run_build(&mut self) -> Result<(), Error> {
+        // Restore the terminal if a panic unwinds through the TUI loop, so the
+        // panic message lands on a clean screen instead of the alternate one.
+        install_panic_hook();
+
         self.init();
 
         // For now, use TUI mode for build
