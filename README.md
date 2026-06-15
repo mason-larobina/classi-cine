@@ -65,14 +65,9 @@ Just like text autocomplete learns from what you type, Classi-Cine learns from w
 
 ## Recipe: Cull a Folder of Clips
 
-A favorite use is the inverse of building a "keep" list: quickly triaging a messy
-folder of clips and deleting the ones you don't want.
+A favorite use is the inverse of building a "keep" list: quickly triaging a messy folder of clips and deleting the ones you don't want.
 
-The trick is to flip the meaning of the labels. Classi-Cine marks stopped videos as
-positive, so let **positive mean "delete"** - press stop (s) on clips you want gone
-and pause (space) on the keepers. As you classify, the playlist learns the patterns
-of the unwanted clips and surfaces more of them, so culling gets faster the longer
-you go.
+The trick is to flip the meaning of the labels. Classi-Cine marks stopped videos as positive, so let **positive mean "delete"** - press stop (s) on clips you want gone and pause (space) on the keepers. As you classify, the playlist learns the patterns of the unwanted clips and surfaces more of them, so culling gets faster the longer you go.
 
 ```bash
 # Classify clips into delete.m3u: stop (s) = delete, pause (space) = keep
