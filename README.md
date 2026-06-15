@@ -97,13 +97,14 @@ Usage: classi-cine [OPTIONS] <COMMAND>
 Commands:
   build          Build playlist through interactive classification
   score          Score files using trained classifiers without interactive classification
-  list-positive  List classified files
-  list-negative  
+  list-positive  List positively classified files
+  list-negative  List negatively classified files
   move           Move playlist to a new location and rebase paths
   help           Print this message or the help of the given subcommand(s)
 
 Options:
       --log-level <LOG_LEVEL>  [default: info]
+      --log-file <LOG_FILE>    Write log output to this file. When set, logs always go to the file, even while the interactive TUI is running (which suppresses stderr logs)
   -h, --help                   Print help
 ```
 
@@ -125,7 +126,7 @@ Options:
       --file-size-offset <FILE_SIZE_OFFSET> Offset to add to file size before log scaling [default: 1048576]
       --dir-size-bias <DIR_SIZE_BIAS>   Bias scoring based on directory sizes (log base, > 1.0). Negative reverses bias
       --dir-size-offset <DIR_SIZE_OFFSET> Offset to add to directory size before log scaling [default: 0]
-      --file-age-bias <FILE_AGE_BIAS>   Bias scoring based on file age (log base, > 1.0). Negative reverses bias
+      --file-age-bias <FILE_AGE_BIAS>   Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score)
       --file-age-offset <FILE_AGE_OFFSET> Offset to add to file age in seconds before log scaling [default: 86400]
       --fullscreen                      Fullscreen VLC playback
       --vlc-timeout <VLC_TIMEOUT>       Timeout in seconds for VLC startup [default: 60]
@@ -152,7 +153,7 @@ Options:
       --file-size-offset <FILE_SIZE_OFFSET> Offset to add to file size before log scaling [default: 1048576]
       --dir-size-bias <DIR_SIZE_BIAS>   Bias scoring based on directory sizes (log base, > 1.0). Negative reverses bias
       --dir-size-offset <DIR_SIZE_OFFSET> Offset to add to directory size before log scaling [default: 0]
-      --file-age-bias <FILE_AGE_BIAS>   Bias scoring based on file age (log base, > 1.0). Negative reverses bias
+      --file-age-bias <FILE_AGE_BIAS>   Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score)
       --file-age-offset <FILE_AGE_OFFSET> Offset to add to file age in seconds before log scaling [default: 86400]
       --include-classified              Include already classified files in the score listing
       --no-header                       Skip header output for machine-readable format

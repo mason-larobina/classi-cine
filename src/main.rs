@@ -86,8 +86,9 @@ enum Command {
     Build(BuildArgs),
     /// Score files using trained classifiers without interactive classification
     Score(ScoreArgs),
-    /// List classified files
+    /// List positively classified files
     ListPositive(ListArgs),
+    /// List negatively classified files
     ListNegative(ListArgs),
     /// Move playlist to a new location and rebase paths
     Move(MoveArgs),
