@@ -6,25 +6,25 @@
 
 [![Rust](https://github.com/mason-larobina/classi-cine/actions/workflows/rust.yml/badge.svg)](https://github.com/mason-larobina/classi-cine/actions/workflows/rust.yml)
 
-**Stop scrolling through thousands of videos.** Classi-Cine is like autocomplete for video selection - it predicts what you want to watch next based on your feedback, helping you rapidly build the perfect playlist for your current mood.
+**Autocomplete, but for your video library.** Classi-Cine watches which videos you keep and which you skip, then predicts what you'll want next - so you build the perfect playlist in a few clicks instead of scrolling for an hour.
 
 ## The Problem
 
-You have a large video collection but finding what matches your current mood is tedious:
+A big video collection is only useful if you can find the right thing in it - and usually you can't:
 
-- Manually browsing through hundreds or thousands of files
-- Remembering which episodes or clips you enjoyed
-- No quick way to find "videos like this one"
-- Building playlists by hand takes forever
+- Scrolling through hundreds or thousands of files to find one
+- Trying to remember which episodes or clips were actually good
+- No quick way to say "more like this one"
+- Hand-building playlists that take longer than watching them
 
 ## The Solution
 
-Classi-Cine plays 20-questions with your video collection to rapidly zero in on what you want:
+Classi-Cine plays a fast round of accept/reject to home in on what you want:
 
-1. **Point it at your video directories** - Let it discover your collection
-1. **It suggests videos, you accept/reject** - Like/dislike using VLC controls (stop = accept, pause = reject)
-1. **Watch recommendations improve in real-time** - Each decision teaches the AI what you're looking for
-1. **Build your perfect playlist faster** - Find content that matches your current mood in minutes, not hours
+1. **Point it at your video directories** - it discovers your whole collection
+1. **It suggests, you decide** - accept or reject each pick with VLC controls (stop = keep, pause = skip)
+1. **Suggestions sharpen as you go** - every decision teaches it your taste
+1. **Walk away with a finished playlist** - built in minutes, not an afternoon
 
 Perfect for:
 
@@ -44,23 +44,23 @@ classi-cine build my-playlist.m3u ~/Videos ~/Movies
 
 # The TUI shows AI predictions ranked by relevance
 # Press Enter to preview in VLC
-# Stop (s) to accept and add to playlist, pause (space) to reject
+# Stop (s) to keep and add to playlist, pause (space) to skip
 # Watch suggestions get smarter with each decision!
 ```
 
 ## How It Works
 
-Like autocomplete for text, Classi-Cine learns patterns from your video collection and predicts what you want next:
+Just like text autocomplete learns from what you type, Classi-Cine learns from what you keep:
 
-1. **Analyzes your entire collection** - Understands file names, folder structure, sizes, and ages
-1. **Uses machine learning** - Multiple AI classifiers work together to score every video
-1. **Learns from your feedback** - Each accept/reject teaches it more about your preferences
-1. **Predicts better matches** - Rankings improve in real-time as you build your playlist
+1. **Reads your whole collection** - file names, folder structure, sizes, and ages
+1. **Scores every video** - several lightweight classifiers rank each candidate
+1. **Learns from each call** - every keep/skip updates its model of your taste
+1. **Re-ranks in real time** - the next suggestion is always its best guess
 
-**Simple VLC Integration:**
+**Simple VLC integration:**
 
-- Stop video (s key) = "Yes, add this to my playlist"
-- Pause video (space) = "No, this doesn't fit"
+- Stop video (s key) = "Yes, keep this in my playlist"
+- Pause video (space) = "No, skip it"
 - Standard M3U playlists work in any media player
 
 ## Installation
@@ -198,7 +198,7 @@ Options:
 
 ## Technical Details
 
-For developers and ML enthusiasts, Classi-Cine uses several sophisticated techniques:
+Under the hood, Classi-Cine combines several techniques to turn your keep/skip calls into accurate rankings:
 
 **Multi-Classifier Architecture:**
 
