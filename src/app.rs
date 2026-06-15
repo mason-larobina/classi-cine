@@ -543,6 +543,8 @@ impl App {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        // The TUI now owns the terminal; suppress stderr logging until restored.
+        crate::logging::set_tui_active(true);
         let backend = CrosstermBackend::new(stdout);
         Ok(Terminal::new(backend)?)
     }
@@ -558,6 +560,8 @@ impl App {
             DisableMouseCapture
         )?;
         terminal.show_cursor()?;
+        // Terminal handed back; resume stderr logging.
+        crate::logging::set_tui_active(false);
         Ok(())
     }
 

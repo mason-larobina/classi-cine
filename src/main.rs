@@ -1,6 +1,7 @@
 mod app;
 mod bloom;
 mod classifier;
+mod logging;
 mod ngrams;
 mod normalize;
 mod path;
@@ -72,6 +73,11 @@ struct Args {
 
     #[clap(long, default_value = "info")]
     log_level: String,
+
+    /// Write log output to this file. When set, logs always go to the file,
+    /// even while the interactive TUI is running (which suppresses stderr logs).
+    #[clap(long)]
+    log_file: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -276,10 +282,7 @@ fn list_entries(playlist_path: &Path, filter: ListFilter, absolute: bool) -> Res
 fn main() -> Result<(), Error> {
     let args = Args::parse();
 
-    if std::env::var("RUST_LOG").is_err() {
-        unsafe { std::env::set_var("RUST_LOG", &args.log_level) };
-    }
-    env_logger::init();
+    logging::init(&args.log_level, args.log_file.as_deref())?;
 
     match args.command {
         Command::Build(ref build_args) => {
