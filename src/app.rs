@@ -21,7 +21,7 @@ use crossterm::{
     },
 };
 use log::*;
-use rand::Rng;
+use rand::RngExt;
 use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
