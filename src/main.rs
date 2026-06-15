@@ -288,12 +288,12 @@ fn main() -> Result<(), Error> {
     match args.command {
         Command::Build(ref build_args) => {
             // Validate selection probability range
-            if let Some(p) = build_args.selection_p {
-                if !(0.0..=1.0).contains(&p) {
-                    return Err(Error::PlaylistError(
-                        "--selection-p must be in [0.0, 1.0]".to_string(),
-                    ));
-                }
+            if let Some(p) = build_args.selection_p
+                && !(0.0..=1.0).contains(&p)
+            {
+                return Err(Error::PlaylistError(
+                    "--selection-p must be in [0.0, 1.0]".to_string(),
+                ));
             }
 
             let playlist = M3uPlaylist::open(&build_args.common.playlist)?;

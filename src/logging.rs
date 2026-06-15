@@ -27,10 +27,10 @@ struct LogSink {
 
 impl Write for LogSink {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if let Some(file) = &self.file {
-            if let Ok(mut f) = file.lock() {
-                let _ = f.write_all(buf);
-            }
+        if let Some(file) = &self.file
+            && let Ok(mut f) = file.lock()
+        {
+            let _ = f.write_all(buf);
         }
         if !tui_active() {
             let _ = io::stderr().write_all(buf);
@@ -39,10 +39,10 @@ impl Write for LogSink {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        if let Some(file) = &self.file {
-            if let Ok(mut f) = file.lock() {
-                let _ = f.flush();
-            }
+        if let Some(file) = &self.file
+            && let Ok(mut f) = file.lock()
+        {
+            let _ = f.flush();
         }
         if !tui_active() {
             let _ = io::stderr().flush();
