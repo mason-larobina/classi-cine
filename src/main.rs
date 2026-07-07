@@ -13,7 +13,7 @@ mod walk;
 
 use crate::app::App;
 use crate::path::PathDisplayContext;
-use crate::playlist::{M3uPlaylist, Playlist, PlaylistEntry};
+use crate::playlist::{M3uPlaylist, Playlist};
 use clap::{Parser, Subcommand};
 use log::*;
 use std::path::{Path, PathBuf};
@@ -235,21 +235,19 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
         new_playlist.path().display()
     );
 
-    // Process all entries in original order
+    // Process all entries in original order, preserving their original
+    // `added` timestamps and scores.
     for entry in original_playlist.entries() {
-        let abs_path = entry.path();
-
-        // Add to new playlist based on entry type
-        match entry {
-            PlaylistEntry::Positive(_) => {
-                new_playlist.add_positive(abs_path)?;
-                debug!("Moved positive entry: {}", abs_path.display());
-            }
-            PlaylistEntry::Negative(_) => {
-                new_playlist.add_negative(abs_path)?;
-                debug!("Moved negative entry: {}", abs_path.display());
-            }
-        }
+        new_playlist.add_entry(entry)?;
+        debug!(
+            "Moved {} entry: {}",
+            if entry.is_positive() {
+                "positive"
+            } else {
+                "negative"
+            },
+            entry.path().display()
+        );
     }
 
     println!(
@@ -272,16 +270,13 @@ fn list_entries(playlist_path: &Path, filter: ListFilter, absolute: bool) -> Res
     let context = PathDisplayContext::score_list_context(absolute);
 
     for entry in playlist.entries() {
-        match (&filter, entry) {
-            (ListFilter::Positive, PlaylistEntry::Positive(_)) => {
-                let display_path = entry.path().to_string(&context);
-                println!("{}", display_path);
-            }
-            (ListFilter::Negative, PlaylistEntry::Negative(_)) => {
-                let display_path = entry.path().to_string(&context);
-                println!("{}", display_path);
-            }
-            _ => {}
+        let matches = match &filter {
+            ListFilter::Positive => entry.is_positive(),
+            ListFilter::Negative => entry.is_negative(),
+        };
+        if matches {
+            let display_path = entry.path().to_string(&context);
+            println!("{}", display_path);
         }
     }
     Ok(())

@@ -5,7 +5,7 @@ use crate::classifier::{
 use crate::ngrams::{Ngram, Ngrams};
 use crate::normalize;
 use crate::path::{AbsPath, PathDisplayContext};
-use crate::playlist::{M3uPlaylist, Playlist, PlaylistEntry};
+use crate::playlist::{M3uPlaylist, Playlist};
 use crate::tokenize::PairTokenizer;
 use crate::tokens::{Token, Tokens};
 use crate::vlc;
@@ -513,9 +513,10 @@ impl App {
             );
 
             // Train based on entry type
-            match entry {
-                PlaylistEntry::Positive(_) => self.naive_bayes.train_positive(&temp_ngrams),
-                PlaylistEntry::Negative(_) => self.naive_bayes.train_negative(&temp_ngrams),
+            if entry.is_positive() {
+                self.naive_bayes.train_positive(&temp_ngrams);
+            } else {
+                self.naive_bayes.train_negative(&temp_ngrams);
             }
         }
     }
