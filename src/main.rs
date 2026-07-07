@@ -238,7 +238,8 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
     // Process all entries in original order, preserving their original
     // `added` timestamps and scores.
     for entry in original_playlist.entries() {
-        new_playlist.add_entry(entry)?;
+        let abs = entry.abs_path(original_playlist.root());
+        new_playlist.add_entry(&abs, entry.added, entry.score())?;
         debug!(
             "Moved {} entry: {}",
             if entry.is_positive() {
@@ -246,7 +247,7 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
             } else {
                 "negative"
             },
-            entry.path().display()
+            abs.display()
         );
     }
 
@@ -275,7 +276,7 @@ fn list_entries(playlist_path: &Path, filter: ListFilter, absolute: bool) -> Res
             ListFilter::Negative => entry.is_negative(),
         };
         if matches {
-            let display_path = entry.path().to_string(&context);
+            let display_path = entry.abs_path(playlist.root()).to_string(&context);
             println!("{}", display_path);
         }
     }

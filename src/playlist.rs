@@ -3,7 +3,7 @@ use crate::path::{AbsPath, PathDisplayContext};
 use chrono::Utc;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const M3U_HEADER: &str = "#EXTM3U";
 /// Prefix for the structured metadata comment line, e.g. `#{...}`.
@@ -14,8 +14,12 @@ pub const SCORE_POSITIVE: i32 = 1;
 /// Negative classification score.
 pub const SCORE_NEGATIVE: i32 = -1;
 
-/// Structured metadata for a playlist entry, serialized as JSON inside an M3U
-/// comment line of the form `#{<json>}`.
+/// A single playlist entry: classification metadata that doubles as the
+/// in-memory entry record.
+///
+/// `file` is stored relative to the playlist root on disk. The absolute path
+/// is not cached; callers regenerate it on demand via [`abs_path`](Self::abs_path),
+/// which joins `file` against the playlist's root.
 ///
 /// Fields use short serialized keys (aliased to their long form on
 /// deserialization for backward compatibility) to minimize per-entry overhead:
@@ -36,41 +40,26 @@ pub struct EntryMeta {
     pub score: i32,
 }
 
-/// A single playlist entry carrying its absolute path and classification metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlaylistEntry {
-    path: AbsPath,
-    meta: EntryMeta,
-}
-
-impl PlaylistEntry {
-    pub fn new(path: AbsPath, meta: EntryMeta) -> Self {
-        Self { path, meta }
-    }
-
-    /// Returns the absolute path regardless of entry type.
-    pub fn path(&self) -> &AbsPath {
-        &self.path
-    }
-
-    /// Returns the classification metadata.
-    pub fn meta(&self) -> &EntryMeta {
-        &self.meta
+impl EntryMeta {
+    /// Returns the absolute path of this entry, derived by joining `file`
+    /// against the playlist `root`. Not cached: regenerated on each call.
+    pub fn abs_path(&self, root: &AbsPath) -> AbsPath {
+        AbsPath::from_abs_path(&root.join(&self.file))
     }
 
     /// Returns the classification score (+1 positive, -1 negative).
     pub fn score(&self) -> i32 {
-        self.meta.score
+        self.score
     }
 
     /// Returns true if this is a positive classification.
     pub fn is_positive(&self) -> bool {
-        self.meta.score > 0
+        self.score > 0
     }
 
     /// Returns true if this is a negative classification.
     pub fn is_negative(&self) -> bool {
-        self.meta.score < 0
+        self.score < 0
     }
 }
 
@@ -82,19 +71,20 @@ pub trait Playlist {
     /// Add a negative classification (records the current time as `added`).
     fn add_negative(&mut self, path: &Path) -> Result<(), Error>;
 
-    /// Append an existing entry, preserving its original `added` time and score.
-    /// The stored `file` path is recomputed relative to this playlist's root.
-    fn add_entry(&mut self, entry: &PlaylistEntry) -> Result<(), Error>;
+    /// Append an existing entry, preserving its original `added` time and
+    /// score. The absolute `path` is rebased so the stored `file` path is
+    /// recomputed relative to this playlist's root.
+    fn add_entry(&mut self, path: &AbsPath, added: i64, score: i32) -> Result<(), Error>;
 
     /// Get all entries in order
-    fn entries(&self) -> &[PlaylistEntry];
+    fn entries(&self) -> &[EntryMeta];
 }
 
 /// M3U playlist implementation that tracks positive/negative classifications
 pub struct M3uPlaylist {
     path: AbsPath,
     root: AbsPath,
-    entries: Vec<PlaylistEntry>, // Single vector for all entries in order
+    entries: Vec<EntryMeta>, // Single vector for all entries in order
 }
 
 impl M3uPlaylist {
@@ -159,10 +149,6 @@ impl M3uPlaylist {
                     let json_str = format!("{{{}", json_str);
                     let meta: EntryMeta = serde_json::from_str(&json_str)?;
 
-                    let rel_path = PathBuf::from(&meta.file);
-                    let abs_entry = playlist.root().join(&rel_path);
-                    let abs_entry = AbsPath::from_abs_path(&abs_entry);
-
                     // Positive entries are followed by a bare filename line (so
                     // other M3U-aware apps still pick them up). Consume it here.
                     if meta.score > 0
@@ -174,18 +160,67 @@ impl M3uPlaylist {
                         }
                     }
 
-                    playlist.entries.push(PlaylistEntry::new(abs_entry, meta));
+                    playlist.entries.push(meta);
                 }
                 // Any other line (bare filename, other comments) is ignored: the
                 // new format stores everything needed in the `#{...}` meta line.
             }
         }
 
+        // Reconcile the on-disk file with the in-memory entries so that the M3U
+        // invariant holds: every entry carries a `#{...}` metadata line, and a
+        // bare filename line is present *only* for positive entries whose file
+        // still exists on disk. This keeps the playlist usable by VLC (which
+        // only understands the bare filename lines) by dropping references to
+        // deleted files and re-adding references to files that reappeared.
+        playlist.reconcile()?;
+
         Ok(playlist)
+    }
+
+    /// Rewrite the playlist file from the in-memory entries, enforcing the M3U
+    /// invariant:
+    /// - Every entry (positive or negative) emits a `#{...}` metadata line.
+    /// - A bare filename line is emitted only for positive entries whose file
+    ///   currently exists on disk.
+    ///
+    /// The file is only touched when the rendered content differs from what is
+    /// already on disk, so opening an already-consistent playlist is a no-op.
+    fn reconcile(&self) -> Result<(), Error> {
+        let context = PathDisplayContext::RelativeTo(self.root.to_path_buf());
+        let mut rendered = String::new();
+        rendered.push_str(M3U_HEADER);
+        rendered.push('\n');
+        for entry in &self.entries {
+            let abs_path = entry.abs_path(&self.root);
+            let rel_path = abs_path.to_string(&context);
+            let mut meta = entry.clone();
+            meta.file = rel_path.clone();
+            let json = serde_json::to_string(&meta)?;
+            rendered.push('#');
+            rendered.push_str(&json);
+            rendered.push('\n');
+            // Bare filename lines are reserved for alive positive entries so
+            // that VLC only references content that still exists.
+            if entry.is_positive() && abs_path.as_ref().exists() {
+                rendered.push_str(&rel_path);
+                rendered.push('\n');
+            }
+        }
+
+        let existing = std::fs::read_to_string(&self.path).unwrap_or_default();
+        if existing != rendered {
+            std::fs::write(&self.path, &rendered)?;
+        }
+        Ok(())
     }
 
     /// Write an entry to disk and record it. The `file` field is recomputed
     /// relative to this playlist's root from the supplied absolute path.
+    ///
+    /// This appends a new line pair; the full-file invariant (bare filename
+    /// lines only for alive positive entries) is re-established by
+    /// [`reconcile`](Self::reconcile) on the next [`open`](Self::open).
     fn append_entry(&mut self, abs_path: &AbsPath, score: i32, added: i64) -> Result<(), Error> {
         let context = PathDisplayContext::RelativeTo(self.root.to_path_buf());
         let rel_path = abs_path.to_string(&context);
@@ -198,12 +233,14 @@ impl M3uPlaylist {
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
         writeln!(file, "#{}", json)?;
         // Positive entries are duplicated as a bare filename line so that the
-        // playlist remains usable by other M3U-aware applications.
-        if score > 0 {
+        // playlist remains usable by other M3U-aware applications. If the file
+        // does not exist yet (e.g. it hasn't been created on disk), the bare
+        // line is omitted; it will be re-added by `reconcile` once the file
+        // appears.
+        if score > 0 && abs_path.as_ref().exists() {
             writeln!(file, "{}", rel_path)?;
         }
-        self.entries
-            .push(PlaylistEntry::new(abs_path.clone(), meta));
+        self.entries.push(meta);
         Ok(())
     }
 }
@@ -221,13 +258,13 @@ impl Playlist for M3uPlaylist {
         self.append_entry(&abs_path, SCORE_NEGATIVE, added)
     }
 
-    fn add_entry(&mut self, entry: &PlaylistEntry) -> Result<(), Error> {
+    fn add_entry(&mut self, path: &AbsPath, added: i64, score: i32) -> Result<(), Error> {
         // Preserve the original `added` timestamp and score, but recompute the
         // `file` path relative to this playlist's root.
-        self.append_entry(entry.path(), entry.score(), entry.meta().added)
+        self.append_entry(path, score, added)
     }
 
-    fn entries(&self) -> &[PlaylistEntry] {
+    fn entries(&self) -> &[EntryMeta] {
         &self.entries
     }
 }
@@ -252,8 +289,10 @@ mod tests {
         assert!(playlist.path().is_absolute());
 
         // 2. Test adding a positive entry: should emit a meta line and a
-        // duplicated filename line.
+        // duplicated filename line. Create the file so the bare-line invariant
+        // (positive && exists) is satisfied.
         let track1_path = music_dir.join("track1.mp3");
+        std::fs::write(&track1_path, b"test")?;
         playlist.add_positive(&track1_path)?;
 
         let content = std::fs::read_to_string(&playlist_path)?;
@@ -271,10 +310,11 @@ mod tests {
         assert!(entry.is_positive());
         assert!(!entry.is_negative());
         assert_eq!(entry.score(), 1);
-        assert_eq!(entry.path().as_ref(), expected_abs_path);
+        assert_eq!(entry.abs_path(playlist.root()).as_ref(), expected_abs_path);
 
         // 4. Test adding a negative entry: meta line only, no filename line.
         let track2_path = music_dir.join("track2.mp3");
+        std::fs::write(&track2_path, b"test")?;
         let mut playlist = M3uPlaylist::open(&playlist_path)?;
         playlist.add_negative(&track2_path)?;
         let content = std::fs::read_to_string(&playlist_path)?;
@@ -356,7 +396,8 @@ mod tests {
         let mut found_track3_count = 0;
 
         for entry in playlist.entries() {
-            let path_ref: &std::path::Path = entry.path().as_ref();
+            let abs = entry.abs_path(playlist.root());
+            let path_ref: &std::path::Path = abs.as_ref();
             if path_ref == expected_track1 {
                 found_track1_count += 1;
             } else if path_ref == expected_track3 {
@@ -389,25 +430,98 @@ mod tests {
 
         let track1 = music_dir.join("track1.mp3");
         let track2 = music_dir.join("track2.mp3");
+        std::fs::write(&track1, b"test")?;
+        std::fs::write(&track2, b"test")?;
         original.add_positive(&track1)?;
         original.add_negative(&track2)?;
 
-        let original_added_pos = original.entries()[0].meta().added.clone();
-        let original_added_neg = original.entries()[1].meta().added.clone();
+        let original_added_pos = original.entries()[0].added.clone();
+        let original_added_neg = original.entries()[1].added.clone();
 
         // Move to a new playlist (at the same root so relative paths are stable).
         let new_path = temp_dir.path().join("moved.m3u");
         let mut moved = M3uPlaylist::open(&new_path)?;
         for entry in original.entries() {
-            moved.add_entry(entry)?;
+            let abs = entry.abs_path(original.root());
+            moved.add_entry(&abs, entry.added, entry.score())?;
         }
 
         assert_eq!(moved.entries().len(), 2);
         assert!(moved.entries()[0].is_positive());
         assert!(moved.entries()[1].is_negative());
         // `added` timestamps must survive the move.
-        assert_eq!(moved.entries()[0].meta().added, original_added_pos);
-        assert_eq!(moved.entries()[1].meta().added, original_added_neg);
+        assert_eq!(moved.entries()[0].added, original_added_pos);
+        assert_eq!(moved.entries()[1].added, original_added_neg);
+
+        Ok(())
+    }
+
+    /// The bare filename line is reserved for positive entries whose file
+    /// still exists on disk. On open we reconcile: deleted files drop their
+    /// bare line, and files that reappear get their bare line re-added.
+    #[test]
+    fn test_reconcile_bare_lines_with_existence() -> Result<(), Error> {
+        let temp_dir = tempdir()?;
+        let music_dir = temp_dir.path().join("music");
+        std::fs::create_dir(&music_dir)?;
+
+        let track1 = music_dir.join("track1.mp3");
+        let track2 = music_dir.join("track2.mp3");
+        std::fs::write(&track1, b"test")?;
+        std::fs::write(&track2, b"test")?;
+
+        let playlist_path = temp_dir.path().join("playlist.m3u");
+        let mut playlist = M3uPlaylist::open(&playlist_path)?;
+        playlist.add_positive(&track1)?;
+        playlist.add_positive(&track2)?;
+
+        // Both files exist: both bare lines should be present.
+        let content = std::fs::read_to_string(&playlist_path)?;
+        assert!(content.contains("\nmusic/track1.mp3\n"));
+        assert!(content.contains("\nmusic/track2.mp3\n"));
+
+        // Delete track1. On reopen, its bare line must be dropped while the
+        // `#{...}` metadata line is preserved (so the classification survives
+        // for training).
+        std::fs::remove_file(&track1)?;
+        let playlist = M3uPlaylist::open(&playlist_path)?;
+        let content = std::fs::read_to_string(&playlist_path)?;
+        assert!(!content.contains("\nmusic/track1.mp3\n"));
+        assert!(content.contains("\nmusic/track2.mp3\n"));
+        // Both entries are still loaded in memory.
+        assert_eq!(playlist.entries().len(), 2);
+        assert!(playlist.entries()[0].is_positive());
+        assert!(playlist.entries()[1].is_positive());
+
+        // Re-create track1. On reopen its bare line is re-added so VLC picks
+        // it up again.
+        std::fs::write(&track1, b"test")?;
+        let _playlist = M3uPlaylist::open(&playlist_path)?;
+        let content = std::fs::read_to_string(&playlist_path)?;
+        assert!(content.contains("\nmusic/track1.mp3\n"));
+        assert!(content.contains("\nmusic/track2.mp3\n"));
+
+        Ok(())
+    }
+
+    /// Opening an already-consistent playlist is a no-op on disk.
+    #[test]
+    fn test_reconcile_is_noop_when_consistent() -> Result<(), Error> {
+        let temp_dir = tempdir()?;
+        let music_dir = temp_dir.path().join("music");
+        std::fs::create_dir(&music_dir)?;
+
+        let track1 = music_dir.join("track1.mp3");
+        std::fs::write(&track1, b"test")?;
+
+        let playlist_path = temp_dir.path().join("playlist.m3u");
+        let mut playlist = M3uPlaylist::open(&playlist_path)?;
+        playlist.add_positive(&track1)?;
+
+        let before = std::fs::read_to_string(&playlist_path)?;
+        let _playlist = M3uPlaylist::open(&playlist_path)?;
+        let after = std::fs::read_to_string(&playlist_path)?;
+        assert_eq!(before, after);
 
         Ok(())
     }

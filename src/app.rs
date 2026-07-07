@@ -336,7 +336,7 @@ impl App {
         if !include_classified {
             // Add all entries (both positive and negative) to the classified set
             for entry in self.playlist.entries() {
-                let abs_path = entry.path().to_path_buf();
+                let abs_path = entry.abs_path(self.playlist.root()).to_path_buf();
                 classified_paths.insert(abs_path);
             }
         }
@@ -420,7 +420,7 @@ impl App {
         // Add paths from playlist classifications
         let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
         paths.extend(self.playlist.entries().iter().map(|e| {
-            let path_to_normalize = e.path().to_string(&context);
+            let path_to_normalize = e.abs_path(self.playlist.root()).to_string(&context);
             normalize::normalize(&path_to_normalize)
         }));
 
@@ -446,7 +446,7 @@ impl App {
             .collect();
         let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
         paths.extend(self.playlist.entries().iter().map(|e| {
-            let path_to_normalize = e.path().to_string(&context);
+            let path_to_normalize = e.abs_path(self.playlist.root()).to_string(&context);
             normalize::normalize(&path_to_normalize)
         }));
 
@@ -499,7 +499,7 @@ impl App {
         // Process all examples in a single loop
         let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
         for entry in self.playlist.entries().iter() {
-            let path_to_normalize = entry.path().to_string(&context);
+            let path_to_normalize = entry.abs_path(self.playlist.root()).to_string(&context);
             let normalized_path = normalize::normalize(&path_to_normalize);
             let tokens = tokenizer.tokenize(&normalized_path);
             // Original code used None for allowed ngrams during training
