@@ -115,10 +115,13 @@ struct CommonArgs {
         default_value = "avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4"
     )]
     video_exts: Vec<String>,
+    /// Maximum contiguous window size for ngram features. Set to 0 to disable
+    /// windows and rely solely on --combinations.
     #[clap(long, default_value_t = 5)]
     windows: usize,
     /// Generate orderless combinations of up to k tokens (default pairs) as
-    /// additional ngram features, augmenting the contiguous --windows features.
+    /// ngram features. Independent of --windows, so --windows=0 leaves only
+    /// combinations; set --combinations=0 to disable them entirely.
     #[clap(long, default_value_t = 2)]
     combinations: usize,
     #[command(flatten)]

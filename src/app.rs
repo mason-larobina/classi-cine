@@ -477,7 +477,7 @@ impl App {
                 self.frequent_ngrams.as_ref(),
                 None, // No debug info needed here
             );
-            ngrams.extend_combinations(
+            ngrams.combinations(
                 entry.tokens.as_ref().unwrap(),
                 self.common_args.combinations,
                 last_special,
@@ -504,7 +504,7 @@ impl App {
             let tokens = tokenizer.tokenize(&normalized_path);
             // Original code used None for allowed ngrams during training
             temp_ngrams.windows(&tokens, self.common_args.windows, None, None);
-            temp_ngrams.extend_combinations(
+            temp_ngrams.combinations(
                 &tokens,
                 self.common_args.combinations,
                 last_special,
@@ -834,7 +834,7 @@ impl App {
                         self.frequent_ngrams.as_ref(),
                         Some(&mut ngram_tokens),
                     );
-                    tmp_ngrams.extend_combinations(
+                    tmp_ngrams.combinations(
                         tokens,
                         self.common_args.combinations,
                         token_map.last_special(),
