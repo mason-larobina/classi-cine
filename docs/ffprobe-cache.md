@@ -50,21 +50,25 @@ A persistent, sharded on-disk cache for extracted media features produced by
 
 ```
 $XDG_CACHE_HOME/classi-cine/ffprobe/        # falls back to ~/.cache/...
-  shard_<64hex>.json                         # one shard file
-  shard_<64hex>.json
+  shard_0.jsonl                              # one shard file
+  shard_1.jsonl
   ...
+  cache.lock                                 # flock during write+delete
 ```
 
 - `XDG_CACHE_HOME` is resolved via the `dirs` crate (or an equivalent small
   helper); if unset, `$HOME/.cache`.
-- Shard filename: `shard_<sha256-hex>.json` where the digest is the **content
-  hash** computed over the shard's canonical serialized entry array (see
-  *Hashing*). This makes a shard's filename a verifiable function of its
-  contents, so renames, dedup, and partial corruption are detectable.
+- Shard filename: `shard_<seq>.jsonl` where `<seq>` is a **monotonically
+  increasing sequence number** allocated per shard written (see *Sharding
+  rules*). Sequence numbers are *not* content-derived: each rewrite pass
+  allocates `max(existing_seq)+1, max(existing_seq)+2, …`, writes the new
+  generation, then deletes the old generation — so a crash mid-rewrite leaves
+  the previous (lower-seq) generation intact and valid.
 
 ## Hashing
 
-Both hashes use **SHA-256** (the `sha2` crate), hex-encoded.
+The per-file lookup key uses **SHA-256** (the `sha2` crate), hex-encoded.
+(Shard filenames are sequence numbers, not hashes — see *Sharding rules*.)
 
 ### Per-file lookup key — `entry_hash`
 
@@ -101,14 +105,6 @@ simply fails to match and expires by TTL — no separate validation fields are
 needed. The only thing lost is human-debuggability: you cannot tell which file
 an entry refers to without re-hashing a candidate. Acceptable for a cache that
 is always used alongside a fresh walk.
-
-### Shard content hash — `shard_hash`
-
-```
-shard_hash = SHA256( canonical_serialized_entry_array )
-```
-
-- Filename: `shard_` + hex(`shard_hash`) + `.json`.
 
 ## Entry schema
 
@@ -203,32 +199,65 @@ nothing else is needed.
 
 ### Shard file format
 
-A shard is a JSON array of `CacheEntry`:
+A shard is **JSONL** — one `CacheEntry` per line:
 
-```json
-[
-  {"k":"9f2a3f9c…","u":1751800000,"f":{"w":1920,"h":1080,"ar":"16:9","vc":"h264","ac":"ac3","br":8500000,"d":7200.5,"fps":23.976}},
-  ...
-]
+```text
+{"k":"9f2a3f9c…","u":1751800000,"f":{"w":1920,"h":1080,"ar":"16:9","vc":"h264","ac":"ac3","br":8500000,"d":7200.5,"fps":23.976}}
+{"k":"a1b2c3d4…","u":1751800000,"f":{"w":3840,"h":2160,"ar":"16:9","vc":"hevc","ac":"aac","br":15000000,"d":5400.0,"fps":24.0}}
+...
 ```
 
-Note that no file path appears anywhere in the cache — only the opaque `key`
-hash, two timestamps, and the extracted features.
+Why JSONL over a JSON array (settled by benchmark):
+- **Within-shard parallel parse**: each line is a self-contained JSON value,
+  so a shard's lines can be split and deserialized across rayon threads *in
+  addition to* the across-shard parallelism. A single large shard still
+  saturates all cores; an array can only be parsed single-threaded.
+- **Line-atomic appends**: a single `write()` of one ~184-byte line to a file
+  opened `O_APPEND` is atomic on POSIX, so concurrent writers cannot
+  interleave/corrupt lines.
+- **Exact byte tracking on roll**: appending lines during the write phase
+  means the writer knows the real shard size as it goes — no per-entry byte
+  estimate is needed to decide when to roll to the next shard (see *Sharding
+  rules*).
 
-Maximum 1000 entries per shard. A library of N files therefore occupies
-`ceil(N/1000)` shard files.
+Note that no file path appears anywhere in the cache — only the opaque `key`
+hash, the `last_used` timestamp, and the extracted features.
+
+A shard is rolled to a new file when appending the next line would exceed
+`TARGET_SHARD_BYTES` (8 MiB). All non-final shards are therefore ≈8 MiB; the
+final shard may be smaller. A library of N files occupies roughly
+`ceil(total_bytes / 8 MiB)` shards (≈24 for 1 M files).
 
 ## Sharding rules
 
-- Each shard holds **at most 1000 entries**.
-- After compaction, entries are sorted by `key` and split into consecutive
-  chunks of ≤1000. Each chunk's filename is the content hash of its serialized,
-  sorted array.
-- Shards are rewritten in full (no in-place append) during the startup
-  compaction pass; this keeps shard files balanced and filenames correct.
-- Reading is parallel: each shard file is loaded and deserialized on a rayon
-  thread (rayon is already a dependency). With 1000 entries/shard, even a
-  100k-file library is ~100 files, each cheap to parse.
+- **Always rewrite.** Every startup compaction writes a fresh generation of
+  shards from scratch and deletes the previous generation. There is no
+  in-place append between runs and no content-addressed skip; the write phase
+  simply streams JSONL lines into each shard, tracking the exact byte count,
+  and rolls to a new file when the next line would exceed `TARGET_SHARD_BYTES`
+  (8 MiB). No per-entry byte estimate is used.
+- `TARGET_SHARD_BYTES = 8 * 1024 * 1024`. Measured line size with all fields
+  present is ~184 bytes, so an 8 MiB shard holds ~41 600 entries; a 1 M-file
+  library produces ~24 shards, each comfortably above the HDD seek/transfer
+  break-even (~1.3 MB at 150 MB/s × 9 ms) so cold reads are bandwidth-bound,
+  not seek-bound.
+- **Filenames are monotonic sequence numbers**: `shard_<seq>.jsonl`. At the
+  start of the write phase, scan the dir for `max(existing_seq)` and allocate
+  `max+1, max+2, …` for the new generation. Sequence numbers are `u64` and
+  never reset; a library rewritten daily for decades stays in the low
+  thousands.
+- After compaction, entries are sorted by `key` before chunking (cheap,
+  `O(N log N)`; makes output deterministic, which lets the dirty-flag skip
+  below work) and split into consecutive ≤8 MiB chunks.
+- **Dirty-flag skip**: the write phase is skipped entirely if no entry changed
+  during steps (2)–(3) — no `last_used` refresh, no drop, no new probe. With
+  day-granular `last_used`, same-day reruns of a stable library change
+  nothing, so the cache is rewritten **at most once per day**, not on every
+  invocation. This is the only skip; there is no incremental append-only path.
+- Reading is parallel and two-level: each shard file is loaded on a rayon
+  thread, and within each shard the lines are split and deserialized in
+  parallel (JSONL's self-delimiting property). Even one large shard saturates
+  many cores.
 
 ## TTL & startup populate flow
 
@@ -240,11 +269,15 @@ On `App::init` (before tokenization/training), the cache runs a single
 populate pass with five steps:
 
 ```
-// (1) LOAD: read every shard file in parallel, deserialize to Vec<CacheEntry>.
+// (1) LOAD: read every shard file in parallel (one rayon task per file; within
+//     each shard, split the JSONL lines and deserialize in parallel).
 //     Resilient to failure: a shard that fails to read or parse (I/O error,
 //     corruption, format mismatch) is discarded and its files re-probed in
 //     step (3). A single bad shard never aborts the populate pass.
-//     Dedup by key (on collision keep the newest last_used).
+//     Dedup by key (keep the entry with the greatest last_used). This is a
+//     no-op in normal operation (each key appears once) but recovers a
+//     crash mid-rewrite that left an old generation and a partial new
+//     generation on disk together.
 entries = load_all_shards()
 
 // (2) COMPACT: build the set of live keys from this run's collected files,
@@ -268,20 +301,40 @@ for f in missing.par_iter() {
     entries.push(CacheEntry { key: entry_hash(f), last_used: today, features })
 }
 
-// (4) WRITE: sort all entries (survivors + newly probed) by key, split into
-//     consecutive chunks of <=1000, and write each chunk as a fresh shard.
+// (4) WRITE: if nothing changed during (2)-(3) (no refresh, no drop, no new
+//     probe), skip entirely — dirty = false; with day-granular last_used,
+//     same-day reruns skip. Otherwise take an exclusive flock on cache.lock
+//     for the write+delete critical section (the generation switch must not
+//     race; appends within it are line-atomic under O_APPEND as a bonus).
+//     Sort all entries by key, then stream them as JSONL lines into fresh
+//     shards, rolling when the next line would exceed TARGET_SHARD_BYTES
+//     (8 MiB). Track real bytes — no per-entry estimate. Filenames are
+//     monotonic sequence numbers: base = max(existing_seq) + 1.
+if !dirty { skip to after (5) }
+flock_exclusive(cache_dir.join("cache.lock"))   // held through (5)
 entries.sort_by_key(|e| &e.key)
-for chunk in entries.chunks(1000) {
-    hash = sha256(serialize(chunk))
-    path = cache_dir.join(format!("shard_{}.json", hash))
-    if !path.exists() {                // content-addressed: skip identical shards
-        atomic_write(path, serialize(chunk))   // temp file + rename
+base = max_seq_in_dir(cache_dir) + 1
+seq = base
+cur = open(format!("shard_{}.jsonl", seq), O_APPEND | O_CREAT)
+cur_bytes = 0
+for e in &entries {
+    line = serialize_jsonl(e)            // includes trailing '\n'
+    if cur_bytes + line.len() > TARGET_SHARD_BYTES && cur_bytes > 0 {
+        fsync(cur); close(cur); seq += 1
+        cur = open(format!("shard_{}.jsonl", seq), O_APPEND | O_CREAT)
+        cur_bytes = 0
     }
+    write(cur, line)                     // line-atomic under O_APPEND
+    cur_bytes += line.len()
 }
+fsync(cur); close(cur)
 
-// (5) DELETE: remove every old shard_*.json whose filename is not in the
-//     new set (these held only expired/removed entries).
-delete_obsolete_shards(new_filenames)
+// (5) DELETE: still holding the flock, delete every shard_*.jsonl with
+//     seq < base — the previous generation. A crash before this point leaves
+//     old + partial-new on disk together; step (1)'s dedup-by-key recovers
+//     correctly next run. Worst case, delete the cache dir.
+delete_shards_with_seq_below(base)
+release flock
 ```
 
 Step numbering maps to the five phases: **load → compact → ffprobe → write →
@@ -289,13 +342,11 @@ delete**.
 
 Key properties:
 - **Day-granular `last_used`**: `last_used` is rounded down to the start of
-  the current unix day (`floor(now / 86400) * 86400`). Because the shard
-  filename is the hash of the serialized entries, and `last_used` is the only
-  field that changes for a matched file, runs within the same day produce
-  identical shard bytes, the same content hash, and are skipped in step 4.
-  Most shards therefore rewrite at most once per day, not on every invocation —
-  turning a daily-rewrite cost into a daily one. (Newly probed entries are also
-  stamped with `today`, so they integrate into the same scheme.)
+  the current unix day (`floor(now / 86400) * 86400`). For a matched file,
+  `last_used` is the only field that changes, and it only changes when the day
+  rolls. Same-day reruns therefore change no entry → the dirty flag stays
+  false → step (4) is skipped. The cache is rewritten **at most once per day**,
+  not on every invocation.
 - **Matched entries** (file present & same mtime/size) get `last_used` bumped
   to *today* — exactly the "updated during app init if the entry matches the
   collected files" requirement, at day granularity.
@@ -303,15 +354,22 @@ Key properties:
   volume, or this run scanned a subset). They keep their old `last_used`.
 - **Stale** entries (unmatched and `last_used` older than TTL) are dropped.
 - **Newly probed entries** (step 3) are merged with survivors and written out
-  in step 4, so a single write pass covers both. Each shard is at most 1000
-  entries; the final chunk is the partial remainder.
-- **Content-addressed writes** (step 4): because a shard's filename is the hash
-  of its contents, a shard whose exact byte content already exists on disk is
-  skipped — no rewrite. Combined with day-granular `last_used`, this means a
-  stable library touched repeatedly on the same day rewrites nothing.
-- **Crash safety** (step 5): old shards are deleted only *after* new ones are
-  written, so a crash mid-populate loses nothing — old shards remain valid and
-  the next run recompacts.
+  in step 4, so a single write pass covers both. Shards are ≤8 MiB; the final
+  shard may be smaller.
+- **Always-rewrite + dirty-flag skip** (step 4): every run that changes
+  anything rewrites the whole cache as a fresh shard generation; a run that
+  changes nothing writes nothing. Simpler than an incremental append path, and
+  fast enough (<1 s for a 1 M-file library on SSD; the rewrite is sequential
+  I/O so it scales with bandwidth).
+- **Monotonic-seq filenames + crash safety** (steps 4–5): new shards get
+  `seq > max(existing)`; the old generation is deleted only after the new one
+  is fsynced. A crash before the delete leaves old + partial-new on disk
+  together; step (1)'s `dedup-by-key` (keep greatest `last_used`) recovers
+  correctly next run. Worst case, delete the cache dir.
+- **Concurrency**: the write+delete critical section is serialized by an
+  exclusive `flock` on `cache.lock`; appends within it are line-atomic under
+  `O_APPEND` as a second layer of safety. Typically only one process runs;
+  the lock makes the rare second process safe.
 
 ## ffprobe integration
 
@@ -429,5 +487,15 @@ and `crate::path`/`crate::Error`. `ffprobe.rs` depends on `cache.rs` and the
   on disk is consistent with the in-memory feature set. There is no deferred
   write-on-shutdown and no "persist next startup" path — classification never
   observes a cache that is out of sync with disk. (Settled, not open.)
+- **Shard format = JSONL, sized by exact bytes (8 MiB), named by monotonic
+  sequence number, always-rewrite + delete-old.** Settled by benchmark: JSONL's
+  self-delimiting lines enable within-shard parallel deserialize (a single
+  large shard still saturates many cores — impossible with a JSON array) and
+  line-atomic `O_APPEND` concurrent writes; 8 MiB shards keep cold HDD reads
+  bandwidth-bound (above the ~1.3 MB seek/transfer break-even) and a 1 M-file
+  library to ~24 files; exact byte tracking on roll removes any per-entry size
+  estimate; monotonic sequence numbers give crash-safe generation switches
+  without content-addressing. The earlier "1000 entries/shard, JSON array,
+  content-hash filename" design is superseded. (Settled, not open.)
 - **A `MediaFeatures` classifier** (bucketing duration/fps/etc.) is the next
   design step once the cache exists.
