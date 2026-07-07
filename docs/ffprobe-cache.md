@@ -23,12 +23,12 @@ A persistent, sharded on-disk cache for extracted media features produced by
 - **Decoupled from classification**: both `EntryMeta` (playlist) and
   `CacheEntry` (ffprobe cache) store **raw** feature values on disk.
   Normalization, bucketing, and discretization occur **only in-memory, inside
-  the classifier**, at read time — never persisted. This keeps the discretization
-  strategy mutable without forcing a re-probe of the library: change a bucket
-  boundary or a normalization scheme and the next run simply reads the same raw
-  values and re-buckets them. Persisting derived/bucketed values would freeze
-  the transform at write time and couple the cache to a specific classifier
-  version.
+  the classifier**, at read time — never persisted. This keeps the
+  discretization strategy mutable without forcing a re-probe of the library:
+  change a bucket boundary or a normalization scheme and the next run simply
+  reads the same raw values and re-buckets them. This is the canonical
+  statement of the raw-on-disk principle; the schemas and ffprobe integration
+  below all follow from it.
 
 ## Non-goals
 
@@ -66,16 +66,15 @@ $XDG_CACHE_HOME/classi-cine/ffprobe/        # falls back to ~/.cache/...
 - `XDG_CACHE_HOME` is resolved via the `dirs` crate (or an equivalent small
   helper); if unset, `$HOME/.cache`.
 - Shard filename: `<seq>.jsonl` where `<seq>` is a **monotonically increasing
-  sequence number**. A bare integer stem makes the seq trivial to parse off
-  the filename (strip the `.jsonl` suffix) — no prefix to strip, no regex
-  needed. Each compaction writes the new generation at `max(existing_seq)+1,
-  +2, …` and deletes the previous (lower) generation afterward (see *Sharding
-  rules* and *populate flow*), so seqs never reset and grow roughly by the
-  shard count per run. A library rewritten daily for decades stays well within
-  `u64`; the numbers stay small enough to be human-readable in a directory
-  listing.
-- Each shard is a single file of JSONL content (one `CacheEntry` per line);
-  the `.jsonl` extension matches the content format and keeps the stem a bare
+  sequence number**. A bare integer stem makes the seq trivial to parse off the
+  filename (strip the `.jsonl` suffix) — no prefix to strip, no regex needed.
+  Each compaction writes the new generation at `max(existing_seq)+1, +2, …` and
+  deletes the previous (lower) generation afterward (see *Sharding rules* and
+  *populate flow*), so seqs never reset and grow roughly by the shard count per
+  run. A library rewritten daily for decades stays well within `u64`; the
+  numbers stay small enough to be human-readable in a directory listing.
+- Each shard is a single file of JSONL content (one `CacheEntry` per line); the
+  `.jsonl` extension matches the content format and keeps the stem a bare
   integer for easy parsing.
 
 ## Hashing
@@ -104,25 +103,24 @@ file is rewritten (size changes and/or mtime changes). It avoids the cost of
 hashing gigabytes of video bytes on every run. The path is included so two
 different files with identical mtime/size don't collide.
 
-**The key is the entry's sole identity.** The plaintext path, mtime and size
-are *not* stored on the entry — they are fully bound into the key. They are
-omitted because storing them again would be **redundant**: a file with a
-changed mtime, size, or path produces a different key and simply won't match,
-so the old entry expires by TTL without any explicit validation. Not
-persisting redundant data is also what keeps each entry small (the cache-size
-goal above). As an incidental side effect, the cache files contain no readable
-file paths; that privacy property is not the design's purpose, merely a
-consequence of not storing what is already recoverable from the key. (The
-features themselves — resolution, duration, codec — are the actual cached data
-and remain in the clear; they are semi-identifying of a specific title and
-unavoidable.)
+**The key is the entry's sole identity.** The plaintext path, mtime, and size
+are *not* stored on the entry — they are fully bound into the key. Storing them
+again would be redundant: a file with a changed mtime, size, or path produces
+a different key and simply won't match, so the old entry expires by TTL
+without any explicit validation. Not persisting redundant data is also what
+keeps each entry small (the cache-size goal above). As an incidental side
+effect, the cache files contain no readable file paths; that privacy property
+is not the design's purpose, merely a consequence of not storing what is
+already recoverable from the key. (The features themselves — resolution,
+duration, codec — are the actual cached data and remain in the clear; they are
+semi-identifying of a specific title and unavoidable.)
 
-Consequence for matching: a changed file (different mtime/size) or a
-moved/renamed file (different path) yields a *different* key, so the old entry
-simply fails to match and expires by TTL — no separate validation fields are
-needed. The only thing lost is human-debuggability: you cannot tell which file
-an entry refers to without re-hashing a candidate. Acceptable for a cache that
-is always used alongside a fresh walk.
+So a changed file (different mtime/size) or a moved/renamed file (different
+path) yields a different key and fails to match, expiring the old entry by TTL
+— no separate validation fields are needed. The only thing lost is
+human-debuggability: you cannot tell which file an entry refers to without
+re-hashing a candidate. Acceptable for a cache that is always used alongside a
+fresh walk.
 
 ## Entry schema
 
@@ -130,11 +128,8 @@ is always used alongside a fresh walk.
 
 Extracted ffprobe features, stored with short serde keys for compactness.
 Stable numeric quantities are typed; volatile free-form identifiers (codec
-names) are raw strings. **Only raw, non-derivable values are stored.** Aspect
-ratio and bitrate are *not* fields: both are trivially computed by the
-classifier at read time (aspect ratio from `width`/`height` via GCD reduction;
-bitrate from `file_size` / `duration_secs`), so persisting them would duplicate
-information already present and bloat every entry.
+names) are raw strings. Only raw, non-derivable values are stored; see the
+Goals for the rationale.
 
 ```rust
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -179,7 +174,8 @@ Design notes:
   `default`/unknown-field tolerance above is the entire compatibility story.
 - `width`/`height`/`file_size`/`duration_secs` are always present. Codec names
   default to empty string if ffprobe omits them; `fps` defaults to `None`.
-- **Derived, not stored.** The classifier derives, at read time:
+- **Derived, not stored** (per the raw-on-disk principle). The classifier
+  derives, at read time:
   - `aspect_ratio` = reduce(`width`:`height`) by GCD (e.g. 1920×1080 → "16:9").
     This matches ffprobe's `display_aspect_ratio` for the overwhelmingly common
     non-anamorphic case; true anamorphic (SAR != DAR) is not captured, which is
@@ -187,13 +183,11 @@ Design notes:
   - `bitrate` = `file_size * 8 / duration_secs` (bits/sec). This is the overall
     container bitrate and is what ffprobe's `format.bit_rate` reports anyway, so
     deriving it loses nothing while removing a per-entry field.
-- **Raw values, bucketing deferred.** Duration and fps are stored raw
-  precisely *because* they are near-unique; a `MediaFeatures` classifier will
-  bucket them (e.g. duration into `<30m` / `30–90m` / `90–150m` / `>150m`,
-  fps into `film (≈24)` / `tv (≈25/30)` / `high (≥50)`). This is a specific
-  instance of the raw-on-disk principle stated in the Goals: neither
-  `MediaFeatures` nor `CacheEntry` persist derived/bucketed values; only the
-  in-memory classifier transforms raw values into features.
+- **Bucketing deferred**. Duration and fps are stored raw precisely *because*
+  they are near-unique; a `MediaFeatures` classifier will bucket them (e.g.
+  duration into `<30m` / `30–90m` / `90–150m` / `>150m`, fps into `film (≈24)` /
+  `tv (≈25/30)` / `high (≥50)`). The classifier transforms raw values into
+  features at read time; nothing derived or bucketed is persisted.
 
 ### `CacheEntry`
 
@@ -221,16 +215,12 @@ pub struct CacheEntry {
 }
 ```
 
-Why no `path`/`mtime`/`size` fields: all three are bound into `key`. Storing
-them again would be redundant (a file with a changed mtime, size, or path
-produces a different key and simply won't match, so the old entry expires by
-TTL without any explicit validation) and would enlarge every entry for no
-benefit. The incidental absence of plaintext paths is noted above. The entry's
-role is to carry the *features* for a given key plus the `last_used` timestamp
-that drives expiry; nothing else is needed. (`file_size` *is* stored, but
-inside `MediaFeatures` where it serves double duty as a classifier input and
-the bitrate numerator — it is not a duplicate of the key's size, which is
-never recoverable from the hash.)
+There are no `path`/`mtime`/`size` fields: all three are bound into `key` (see
+*Hashing*). (`file_size` *is* stored, but inside `MediaFeatures` where it serves
+double duty as a classifier input and the bitrate numerator — it is not a
+duplicate of the key's size, which is never recoverable from the hash.) The
+entry's role is to carry the features for a given key plus the `last_used`
+timestamp that drives expiry; nothing else is needed.
 
 ### Shard file format
 
@@ -242,6 +232,9 @@ A shard is **JSONL** — one `CacheEntry` per line:
 ...
 ```
 
+Note that no file path appears anywhere in the cache — only the opaque `key`
+hash, the `last_used` timestamp, and the extracted features.
+
 Why JSONL over a JSON array (settled by benchmark):
 - **Within-shard parallel parse**: each line is a self-contained JSON value,
   so a shard's lines can be split and deserialized across rayon threads *in
@@ -252,16 +245,11 @@ Why JSONL over a JSON array (settled by benchmark):
   interleave/corrupt lines.
 - **Exact byte tracking on roll**: appending lines during the write phase
   means the writer knows the real shard size as it goes — no per-entry byte
-  estimate is needed to decide when to roll to the next shard (see *Sharding
-  rules*).
-
-Note that no file path appears anywhere in the cache — only the opaque `key`
-hash, the `last_used` timestamp, and the extracted features.
+  estimate is needed to decide when to roll to the next shard.
 
 A shard is rolled to a new file when appending the next line would exceed
-`TARGET_SHARD_BYTES` (8 MiB). All non-final shards are therefore ≈8 MiB; the
-final shard may be smaller. A library of N files occupies roughly
-`ceil(total_bytes / 8 MiB)` shards (≈21 for 1 M files).
+`TARGET_SHARD_BYTES` (see below). All non-final shards are therefore ≈8 MiB;
+the final shard may be smaller.
 
 ## Sharding rules
 
@@ -270,28 +258,28 @@ final shard may be smaller. A library of N files occupies roughly
   in-place append between runs and no dirty-flag skip: even a run that changes
   nothing rewrites every shard. The write phase streams JSONL lines into each
   shard, tracking the exact byte count, and rolls to a new file when the next
-  line would exceed `TARGET_SHARD_BYTES` (8 MiB). No per-entry byte estimate
-  is used. (The dirty-flag skip is intentionally deferred: it adds a code path
-  and a correctness condition for a saving that, at <1 s per rewrite on SSD,
-  is not yet worth it. It can be added later without changing the format.)
+  line would exceed `TARGET_SHARD_BYTES`. (The dirty-flag skip is intentionally
+  deferred: it adds a code path and a correctness condition for a saving that,
+  at <1 s per rewrite on SSD, is not yet worth it. It can be added later without
+  changing the format.)
 - `TARGET_SHARD_BYTES = 8 * 1024 * 1024`. Measured line size with all fields
   present is ~170 bytes, so an 8 MiB shard holds ~49 000 entries; a 1 M-file
-  library produces ~21 shards, each comfortably above the HDD seek/transfer
-  break-even (~1.3 MB at 150 MB/s × 9 ms) so cold reads are bandwidth-bound,
-  not seek-bound.
+  library produces ~21 shards (`ceil(total_bytes / 8 MiB)`), each comfortably
+  above the HDD seek/transfer break-even (~1.3 MB at 150 MB/s × 9 ms) so cold
+  reads are bandwidth-bound, not seek-bound.
 - **Filenames are monotonic per generation**: the new generation is written to
-  `<base+1>.jsonl, <base+2>.jsonl, …` where `base = max(existing_seq)` on
-  disk. The previous generation (`seq <= base`) is deleted only after the new
-  one is fsynced (see *populate flow*), so a crash mid-write leaves the old
-  (lower-seq) generation intact and valid — step (1)'s dedup-by-key recovers
-  cleanly next run. A bare integer stem is also the easiest filename to parse
-  (see *Cache directory layout*).
+  `<base+1>.jsonl, <base+2>.jsonl, …` where `base = max(existing_seq)` on disk.
+  The previous generation (`seq <= base`) is deleted only after the new one is
+  fsynced (see *populate flow*), so a crash mid-write leaves the old (lower-seq)
+  generation intact and valid — step (1)'s dedup-by-key recovers cleanly next
+  run. A bare integer stem is also the easiest filename to parse (see *Cache
+  directory layout*).
 - Entries are **not sorted before writing.** The previous design sorted by
   `key` to make output deterministic so a dirty-flag skip could detect "nothing
   changed"; with the skip removed, sort order buys nothing, and streaming
-  survivors and freshly probed entries straight into the writer (see *populate
-  flow*) is incompatible with a global sort. Matching is by key hash, not
-  position, so unsorted output is correct.
+  survivors and freshly probed entries straight into the writer is
+  incompatible with a global sort. Matching is by key hash, not position, so
+  unsorted output is correct.
 - Reading is parallel and two-level: each shard file is loaded on a rayon
   thread, and within each shard the lines are split and deserialized in
   parallel (JSONL's self-delimiting property). Even one large shard saturates
@@ -299,12 +287,12 @@ final shard may be smaller. A library of N files occupies roughly
 
 ## TTL & startup populate flow
 
-TTL applies to **`last_used`**. An entry stays alive as long as its key is
-seen among the collected files within the TTL window. Default TTL: **30 days**,
+TTL applies to **`last_used`**. An entry stays alive as long as its key is seen
+among the collected files within the TTL window. Default TTL: **30 days**,
 configurable via `--cache-ttl-days`.
 
-On `App::init` (before tokenization/training), the cache runs a single
-populate pass with five steps:
+On `App::init` (before tokenization/training), the cache runs a single populate
+pass with five steps:
 
 ```
 // (1) LOAD: read every *.jsonl shard in parallel (one rayon task per file;
@@ -417,31 +405,18 @@ Key properties:
   volume, or this run scanned a subset). They keep their old `last_used`.
 - **Stale** entries (unmatched and `now - last_used >= ttl`) are dropped.
 - **Newly probed entries** (step 5) are appended directly to the new
-  generation shards as they are produced — the probe results stream straight
-  into the shard writer with no intermediate in-memory buffer. They share the
-  same generation as the survivors written in step (3); a single critical
-  section covers the survivor write, the old-generation delete, and the
-  missing-entries write.
-- **Always-rewrite** (steps 3–5): every run rewrites the survivors as a
-  fresh higher-seq generation, deletes the old generation, and appends newly
-  probed entries to the new generation. Simpler than an incremental append
-  path, and fast enough (<1 s for a 1 M-file library on SSD; the rewrite is
-  sequential I/O so it scales with bandwidth).
-- **Monotonic-seq crash safety** (steps 3–4): the new generation is written
-  to `base+1, base+2, …` and fsynced *before* the old generation (`<= base`)
-  is deleted, so a crash during the survivor write leaves the intact old
-  generation plus a partial new one — step (1)'s dedup-by-key (keep greatest
-  `last_used`) recovers correctly next run. The delete (step 4) happens before
-  any ffprobe runs, so a probe failure or crash in step (5) leaves the new
-  generation with survivors but missing some probed entries; those files
-  simply have no entry and re-probe next run. The universal fallback for any
-  corrupted state is to delete the cache dir by hand.
-- **Concurrency**: Classi-Cine is a single-process tool, so the
-  write-survivors → delete → write-missing sequence (steps 3–5) is implicitly
-  serialized — there is no lock file. Appends are line-atomic under `O_APPEND`.
-  A rare second concurrent process would at worst produce a stray extra
-  generation that the next run's dedup-by-key absorbs; not worth a lock to
-  prevent.
+  generation shards as they are produced — no intermediate in-memory buffer.
+  They share the same generation as the survivors written in step (3); a single
+  critical section covers the survivor write, the old-generation delete, and
+  the missing-entries write.
+- **Crash safety**: the new generation is written to `base+1, …` and fsynced
+  *before* the old generation (`<= base`) is deleted (step 3 → step 4), so a
+  crash during the survivor write leaves the intact old generation plus a
+  partial new one — step (1)'s dedup-by-key recovers next run. The delete
+  happens before any ffprobe runs, so a crash or probe failure in step (5)
+  leaves the new generation with survivors but missing some probed entries;
+  those files re-probe next run. The universal fallback for any corrupted state
+  is to delete the cache dir by hand.
 
 ## ffprobe integration
 
@@ -449,10 +424,10 @@ Step (5) of the populate flow calls a `Probe` implementation.
 
 ### `Probe` trait
 
-The cache is decoupled from ffprobe via a trait so the cache logic can be
-tested with a stub and the real backend swapped later. The trait takes a
-`walk::File` so the impl can source `file_size` from the already-collected
-stat rather than re-statting or asking ffprobe for it.
+The cache is decoupled from ffprobe via a trait so the cache logic can be tested
+with a stub and the real backend swapped later. The trait takes a `walk::File`
+so the impl can source `file_size` from the already-collected stat rather than
+re-statting or asking ffprobe for it.
 
 ```rust
 pub trait Probe {
@@ -494,13 +469,11 @@ Field extraction from ffprobe JSON (`FfprobeJson`) into `MediaFeatures::from_ffp
 - `fps`: `avg_frame_rate` of the video stream, evaluated to a float
   (`num/den`), if present; `None` if omitted.
 
-**Not extracted / not stored** (derived by the classifier at read time):
-- `aspect_ratio`: derived from `width`/`height` via GCD reduction.
-- `bitrate`: derived as `file_size * 8 / duration_secs`.
-
 Unreliable/missing optional fields become `None`/empty rather than failing the
 whole probe; only a total ffprobe failure, a missing video stream, or a missing
-duration is an error.
+duration is an error. `aspect_ratio` (from width/height via GCD) and `bitrate`
+(`file_size * 8 / duration_secs`) are derived by the classifier at read time,
+not extracted here.
 
 ## CLI flag
 
@@ -531,10 +504,9 @@ A failed probe for one file does **not** abort the run: the file is simply left
 without a cache entry and may be retried next run. Per-shard failures (I/O
 error, unparseable JSON, schema mismatch) are logged and the shard is discarded
 — its files re-probe in step (5) and the shard is rebuilt on the next write
-pass. The populate flow as a whole never returns an error: a totally
-unreadable cache dir degrades to an empty cache and a full re-probe, which is
-the correct recovery. (Deleting the cache dir by hand is an equally valid
-reset.)
+pass. The populate flow as a whole never returns an error: a totally unreadable
+cache dir degrades to an empty cache and a full re-probe, which is the correct
+recovery. (Deleting the cache dir by hand is an equally valid reset.)
 
 ## Module layout (proposed)
 
@@ -548,39 +520,28 @@ src/
 `crate::path`/`crate::walk`/`crate::Error`. `ffprobe.rs` depends on `cache.rs`
 and the `ffprobe` binary at runtime.
 
-## Open questions / future work
+## Settled decisions & future work
 
-- **Probe scope**: probing must be **eager** (all collected files up front),
-  not lazy. The tokenizer (`PairTokenizer`) and the classifiers (Naive Bayes
-  ngram features) are trained over the full corpus before classification, and
-  any future `MediaFeatures` classifier needs all feature values present to
-  compute frequent features / normalization statistics. A lazy probe that only
-  populated features for files about to be scored would leave the tokenizer
-  and classifiers under-trained on the undiscovered features. This is settled
-  rather than open: step (5) of the populate flow probes every missing file
-  before tokenization/training begins.
-- **Writes are fully persisted before classification**: step (3) writes the
-  survivors and step (5) writes the newly probed entries; both are fsynced
-  (shards and directory) *before* control returns to the app's
+- **Probe scope**: probing must be **eager** (all collected files up front), not
+  lazy. The tokenizer (`PairTokenizer`) and the classifiers (Naive Bayes ngram
+  features) are trained over the full corpus before classification, and any
+  future `MediaFeatures` classifier needs all feature values present to compute
+  frequent features / normalization statistics. A lazy probe would leave the
+  tokenizer and classifiers under-trained on the undiscovered features. Step (5)
+  therefore probes every missing file before tokenization/training begins.
+- **Writes are fully persisted before classification**: steps (3) and (5) are
+  fsynced (shards and directory) before control returns to the app's
   tokenization/training phase. By the time tokens are computed and classifiers
   are trained, the cache on disk is consistent with the in-memory feature set.
   There is no deferred write-on-shutdown and no "persist next startup" path —
   classification never observes a cache that is out of sync with disk.
-  (Settled, not open.)
-- **Shard format = JSONL, sized by exact bytes (8 MiB), named `<seq>.jsonl`
-  (monotonic per generation, `base+1, base+2, …`), always-rewrite with
-  old-generation-deleted-after-fsync, no lock file, no dirty-flag skip.**
-  Settled by benchmark: JSONL's self-delimiting lines enable within-shard
-  parallel deserialize (a single large shard still saturates many cores —
-  impossible with a JSON array) and line-atomic `O_APPEND` writes; 8 MiB
-  shards keep cold HDD reads bandwidth-bound (above the ~1.3 MB seek/transfer
-  break-even) and a 1 M-file library to ~21 files; exact byte tracking on
-  roll removes any per-entry size estimate; bare-integer `<seq>.jsonl`
-  filenames are trivial to parse; writing the new generation at `base+1, …`
-  and deleting the old generation only after the new one is fsynced gives a
-  crash-safe generation switch without content-addressing and without a lock
-  file. The earlier "1000 entries/shard, JSON array, content-hash filename"
-  design is superseded. (Settled, not open.)
-- **A `MediaFeatures` classifier** (deriving aspect ratio and bitrate, bucketing
-  duration/fps/etc.) is the next design step once the cache exists, as is
-  embedding `MediaFeatures` into `playlist::EntryMeta`.
+- **Shard format settled by benchmark**: JSONL (not a JSON array), 8 MiB shards
+  sized by exact bytes, named `<seq>.jsonl` with monotonic per-generation seqs
+  (`base+1, base+2, …`), always-rewrite with old-generation deleted after fsync,
+  no lock file, no dirty-flag skip. JSONL's self-delimiting lines give
+  within-shard parallel deserialize and line-atomic `O_APPEND` writes; the rest
+  follows from the rules above. The earlier "1000 entries/shard, JSON array,
+  content-hash filename" design is superseded.
+- **Future work**: a `MediaFeatures` classifier (deriving aspect ratio and
+  bitrate, bucketing duration/fps/etc.) is the next design step once the cache
+  exists, as is embedding `MediaFeatures` into `playlist::EntryMeta`.
