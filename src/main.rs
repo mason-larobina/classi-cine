@@ -117,6 +117,10 @@ struct CommonArgs {
     video_exts: Vec<String>,
     #[clap(long, default_value_t = 5)]
     windows: usize,
+    /// Generate orderless combinations of up to k tokens (default pairs) as
+    /// additional ngram features, augmenting the contiguous --windows features.
+    #[clap(long, default_value_t = 2)]
+    combinations: usize,
     #[command(flatten)]
     file_size: FileSizeArgs,
     #[command(flatten)]

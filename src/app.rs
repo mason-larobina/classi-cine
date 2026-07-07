@@ -436,6 +436,7 @@ impl App {
     // and stores tokens/ngrams for candidate entries.
     fn generate_ngrams(&mut self) {
         let tokenizer = self.tokenizer.as_ref().unwrap();
+        let last_special = tokenizer.token_map().last_special();
 
         // Collect all paths for ngram counting (candidates + playlist)
         let mut paths: Vec<String> = self
@@ -454,6 +455,7 @@ impl App {
             &paths,
             tokenizer,
             self.common_args.windows,
+            self.common_args.combinations,
         ));
 
         info!("total paths {:?}", paths.len());
@@ -475,6 +477,13 @@ impl App {
                 self.frequent_ngrams.as_ref(),
                 None, // No debug info needed here
             );
+            ngrams.extend_combinations(
+                entry.tokens.as_ref().unwrap(),
+                self.common_args.combinations,
+                last_special,
+                self.frequent_ngrams.as_ref(),
+                None,
+            );
             entry.ngrams = Some(ngrams);
         }
     }
@@ -482,6 +491,7 @@ impl App {
     // Trains the NaiveBayesClassifier using the tokenized and ngramized playlist entries.
     fn train_naive_bayes_classifier(&mut self) {
         let tokenizer = self.tokenizer.as_ref().unwrap();
+        let last_special = tokenizer.token_map().last_special();
 
         // Train naive bayes classifier on playlist entries
         let mut temp_ngrams = Ngrams::default();
@@ -494,6 +504,13 @@ impl App {
             let tokens = tokenizer.tokenize(&normalized_path);
             // Original code used None for allowed ngrams during training
             temp_ngrams.windows(&tokens, self.common_args.windows, None, None);
+            temp_ngrams.extend_combinations(
+                &tokens,
+                self.common_args.combinations,
+                last_special,
+                None,
+                None,
+            );
 
             // Train based on entry type
             match entry {
@@ -814,6 +831,13 @@ impl App {
                     tmp_ngrams.windows(
                         tokens,
                         self.common_args.windows,
+                        self.frequent_ngrams.as_ref(),
+                        Some(&mut ngram_tokens),
+                    );
+                    tmp_ngrams.extend_combinations(
+                        tokens,
+                        self.common_args.combinations,
+                        token_map.last_special(),
                         self.frequent_ngrams.as_ref(),
                         Some(&mut ngram_tokens),
                     );
