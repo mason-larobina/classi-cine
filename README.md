@@ -118,6 +118,7 @@ Commands:
   list-positive  List positively classified files
   list-negative  List negatively classified files
   move           Move playlist to a new location and rebase paths
+  reconcile      Reconcile playlist with disk (drop deleted, re-add reappeared files)
   help           Print this message or the help of the given subcommand(s)
 
 Options:
@@ -196,6 +197,7 @@ Arguments:
 
 Options:
       --absolute  Display absolute paths instead of relative to current directory
+      --exists    Only print entries whose file still exists on disk
   -h, --help      Print help
 ```
 
@@ -209,6 +211,20 @@ classi-cine move <ORIGINAL> <NEW>
 Arguments:
   <ORIGINAL>  Original M3U playlist file
   <NEW>       New M3U playlist file location
+
+Options:
+  -h, --help  Print help
+```
+
+### Reconcile Command
+
+Rewrite the playlist file so its on-disk form matches the current state of disk: bare filename lines are dropped for positive entries whose files have been deleted, and re-added for files that reappeared. The `#{...}` classification metadata is always preserved so training data survives.
+
+```bash
+classi-cine reconcile <PLAYLIST>
+
+Arguments:
+  <PLAYLIST>  M3U playlist file
 
 Options:
   -h, --help  Print help

@@ -100,6 +100,9 @@ enum Command {
     ListNegative(ListArgs),
     /// Move playlist to a new location and rebase paths
     Move(MoveArgs),
+    /// Reconcile playlist with disk: drop bare lines for deleted files and
+    /// re-add them for files that reappeared.
+    Reconcile(ReconcileArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -234,6 +237,40 @@ struct ListArgs {
     /// Display absolute paths instead of relative to current directory
     #[clap(long)]
     absolute: bool,
+    /// Only print entries whose file still exists on disk
+    #[clap(long)]
+    exists: bool,
+}
+
+#[derive(Parser, Debug, Clone)]
+struct ReconcileArgs {
+    /// M3U playlist file
+    playlist: PathBuf,
+}
+
+fn reconcile_playlist(playlist_path: &Path) -> Result<(), Error> {
+    // Read the on-disk content before opening so we can report whether the
+    // reconcile actually rewrote the file. `M3uPlaylist::open` runs the
+    // reconcile on load, re-establishing the M3U invariant in memory and on
+    // disk.
+    let before = std::fs::read_to_string(playlist_path).unwrap_or_default();
+    let playlist = M3uPlaylist::open(playlist_path)?;
+    let after = std::fs::read_to_string(playlist_path).unwrap_or_default();
+
+    if before == after {
+        println!(
+            "Playlist {} is already reconciled ({} entries)",
+            playlist.path().display(),
+            playlist.entries().len()
+        );
+    } else {
+        println!(
+            "Reconciled playlist {} ({} entries)",
+            playlist.path().display(),
+            playlist.entries().len()
+        );
+    }
+    Ok(())
 }
 
 fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
@@ -279,7 +316,12 @@ enum ListFilter {
     Negative,
 }
 
-fn list_entries(playlist_path: &Path, filter: ListFilter, absolute: bool) -> Result<(), Error> {
+fn list_entries(
+    playlist_path: &Path,
+    filter: ListFilter,
+    absolute: bool,
+    exists: bool,
+) -> Result<(), Error> {
     let playlist = M3uPlaylist::open(playlist_path)?;
 
     let context = PathDisplayContext::score_list_context(absolute);
@@ -290,7 +332,11 @@ fn list_entries(playlist_path: &Path, filter: ListFilter, absolute: bool) -> Res
             ListFilter::Negative => entry.is_negative(),
         };
         if matches {
-            let display_path = entry.abs_path(playlist.root()).to_string(&context);
+            let abs_path = entry.abs_path(playlist.root());
+            if exists && !abs_path.as_ref().exists() {
+                continue;
+            }
+            let display_path = abs_path.to_string(&context);
             println!("{}", display_path);
         }
     }
@@ -327,6 +373,7 @@ fn main() -> Result<(), Error> {
                 &list_args.playlist,
                 ListFilter::Positive,
                 list_args.absolute,
+                list_args.exists,
             )?;
         }
         Command::ListNegative(list_args) => {
@@ -334,10 +381,14 @@ fn main() -> Result<(), Error> {
                 &list_args.playlist,
                 ListFilter::Negative,
                 list_args.absolute,
+                list_args.exists,
             )?;
         }
         Command::Move(move_args) => {
             move_playlist(&move_args.original, &move_args.new)?;
+        }
+        Command::Reconcile(reconcile_args) => {
+            reconcile_playlist(&reconcile_args.playlist)?;
         }
     }
     Ok(())
