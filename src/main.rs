@@ -1,6 +1,8 @@
 mod app;
 mod bloom;
+mod cache;
 mod classifier;
+mod ffprobe;
 mod logging;
 mod ngrams;
 mod normalize;
@@ -63,6 +65,12 @@ pub enum Error {
 
     #[error("File walk error: {0}")]
     WalkError(String),
+
+    #[error("ffprobe failed for {path}: {reason}")]
+    ProbeFailed { path: String, reason: String },
+
+    #[error("Cache error: {0}")]
+    Cache(String),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -130,6 +138,12 @@ struct CommonArgs {
     dir_size: DirSizeArgs,
     #[command(flatten)]
     file_age: FileAgeArgs,
+    /// Cache TTL in days for the ffprobe feature cache. Entries whose key is
+    /// not seen among the collected files for this long are expired. 0
+    /// disables expiry entirely (useful for cold, stable libraries). To force
+    /// expire everything, delete the cache directory.
+    #[clap(long, default_value_t = 30)]
+    cache_ttl_days: u32,
 }
 
 #[derive(Parser, Debug, Clone)]

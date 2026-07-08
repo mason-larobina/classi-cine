@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::cache::Cache;
 use crate::classifier::{
     Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier,
 };
@@ -168,6 +169,9 @@ pub struct App {
     naive_bayes: NaiveBayesClassifier,
     playlist: M3uPlaylist,
     vlc_controller: Option<vlc::VlcController>,
+    // Every file seen by the walk (before classification filtering), retained
+    // as the live-key set for the ffprobe cache populate pass.
+    collected_files: Vec<crate::walk::File>,
     // TUI state
     list_state: ListState,
     currently_playing: Option<usize>,
@@ -293,6 +297,7 @@ impl App {
             naive_bayes: NaiveBayesClassifier::new(false),
             playlist,
             vlc_controller,
+            collected_files: Vec::new(),
             list_state: ListState::default(),
             currently_playing: None,
             should_quit: false,
@@ -352,6 +357,11 @@ impl App {
         while let Ok(file) = file_receiver.recv() {
             debug!("{:?}", file);
 
+            // Retain every walked file for the ffprobe cache populate pass
+            // (the live-key set is all collected files, not just unclassified
+            // candidates), regardless of the classification filter below.
+            self.collected_files.push(file.clone());
+
             let abs_file_path = &file.path;
             let normalized_file_path = file.path.to_path_buf();
 
@@ -406,6 +416,22 @@ impl App {
         } else {
             info!("Collected {} unclassified entries", self.entries.len());
         }
+    }
+
+    /// Run the ffprobe feature cache populate pass (load → compact →
+    /// write-survivors → delete → probe+write-missing) over every file seen by
+    /// the walk. See `docs/ffprobe-cache.md`. The cache lives under the XDG
+    /// cache directory and is rewritten as a fresh shard generation every
+    /// startup. Never aborts the run: a missing/unusable cache dir degrades to
+    /// a full re-probe, and per-file probe failures leave the file uncached
+    /// (retried next run).
+    fn populate_cache(&self) {
+        let Some(cache) = Cache::with_default_dir(self.common_args.cache_ttl_days) else {
+            warn!("ffprobe cache: cannot resolve cache directory; skipping");
+            return;
+        };
+        let probe = crate::ffprobe::FfprobeProbe::new();
+        cache.populate(&self.collected_files, &probe);
     }
 
     // Initializes the PairTokenizer by training it on all relevant paths
@@ -595,6 +621,15 @@ impl App {
 
         time_it!("File Reading and Collection", {
             self.collect_files();
+        });
+
+        // Run the ffprobe cache populate pass before tokenization/training:
+        // probing is eager (the tokenizer/classifiers train over the full
+        // corpus) and the cache is fully persisted to disk before control
+        // returns here. Never aborts the run — degrades to an empty cache on
+        // any failure.
+        time_it!("ffprobe cache populate", {
+            self.populate_cache();
         });
 
         time_it!("Tokenization", {
