@@ -135,6 +135,8 @@ impl MediaFeatures {
             .unwrap_or_default();
 
         // Duration is required: ffprobe reports it for any playable file.
+        // Truncate to 2 decimal digits of precision — sub-centisecond
+        // resolution is meaningless for media and only bloats the cache.
         let duration_secs = json
             .format
             .as_ref()
@@ -143,9 +145,14 @@ impl MediaFeatures {
             .and_then(|d| {
                 d.parse::<f64>()
                     .map_err(|e| format!("unparseable duration {:?}: {}", d, e))
-            })?;
+            })
+            .map(|d| round2(d))?;
 
-        let fps = video.avg_frame_rate.as_deref().and_then(eval_frame_rate);
+        let fps = video
+            .avg_frame_rate
+            .as_deref()
+            .and_then(eval_frame_rate)
+            .map(round2);
 
         Ok(MediaFeatures {
             width,
@@ -157,6 +164,12 @@ impl MediaFeatures {
             fps,
         })
     }
+}
+
+/// Round an `f64` to 2 decimal digits of precision. Used to keep ffprobe
+/// floats (duration, fps) compact in the cache without meaningful loss.
+fn round2(x: f64) -> f64 {
+    (x * 100.0).round() / 100.0
 }
 
 /// Evaluate an ffprobe `"num/den"` frame-rate string to a float. Returns
@@ -223,7 +236,7 @@ mod tests {
         assert_eq!(f.video_codec, "h264");
         assert_eq!(f.audio_codec, "ac3");
         assert!((f.duration_secs - 7200.5).abs() < 1e-9);
-        assert!((f.fps.unwrap() - 23.976023).abs() < 1e-3);
+        assert!((f.fps.unwrap() - 23.98).abs() < 1e-9);
     }
 
     #[test]
@@ -269,7 +282,7 @@ mod tests {
 
     #[test]
     fn eval_frame_rate_handles_forms() {
-        assert!((eval_frame_rate("24000/1001").unwrap() - 23.976).abs() < 1e-2);
+        assert!((eval_frame_rate("24000/1001").unwrap() - 23.976023).abs() < 1e-2);
         assert!((eval_frame_rate("25/1").unwrap() - 25.0).abs() < 1e-9);
         assert!(eval_frame_rate("0/0").is_none());
         assert!(eval_frame_rate("garbage").is_none());
