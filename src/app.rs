@@ -1,5 +1,5 @@
 use crate::Error;
-use crate::cache::Cache;
+use crate::cache::{Cache, MediaFeatures, entry_hash};
 use crate::classifier::{
     Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier,
 };
@@ -138,6 +138,12 @@ pub struct Entry {
     pub tokens: Option<Tokens>,
     pub ngrams: Option<Ngrams>,
     pub scores: Box<[f64]>, // One score per classifier
+    /// Extracted ffprobe features for this file, plumbed through from the
+    /// ffprobe cache. Associated (required) on every builder entry and
+    /// persisted with the classification result. Defaults to all-zero when a
+    /// file was not present in the cache (e.g. its probe failed); the field
+    /// is still required so the classifier can rely on its presence.
+    pub features: MediaFeatures,
 }
 
 #[derive(Serialize)]
@@ -398,6 +404,7 @@ impl App {
                 tokens: None,
                 ngrams: None,
                 scores: scores.into_boxed_slice(),
+                features: MediaFeatures::default(),
             };
 
             // Update dir size classifier if present
@@ -425,13 +432,30 @@ impl App {
     /// startup. Never aborts the run: a missing/unusable cache dir degrades to
     /// a full re-probe, and per-file probe failures leave the file uncached
     /// (retried next run).
-    fn populate_cache(&self) {
+    ///
+    /// Returns the `entry_hash → MediaFeatures` lookup for every entry now on
+    /// disk; [`attach_features`](Self::attach_features) uses it to populate
+    /// each builder entry's `features`.
+    fn populate_cache(&self) -> HashMap<String, MediaFeatures> {
         let Some(cache) = Cache::with_default_dir(self.common_args.cache_ttl_days) else {
             warn!("ffprobe cache: cannot resolve cache directory; skipping");
-            return;
+            return HashMap::new();
         };
         let probe = crate::ffprobe::FfprobeProbe::new();
-        cache.populate(&self.collected_files, &probe);
+        cache.populate(&self.collected_files, &probe)
+    }
+
+    /// Attach the ffprobe-extracted features to every builder entry by looking
+    /// each file up in the cache map by its `(path, mtime, size)` key. Files
+    /// absent from the map (e.g. their probe failed) keep the all-zero default
+    /// — the field stays present and required, just unpopulated.
+    fn attach_features(&mut self, features_map: &HashMap<String, MediaFeatures>) {
+        for entry in &mut self.entries {
+            let key = entry_hash(&entry.path, entry.created, entry.size);
+            if let Some(features) = features_map.get(&key) {
+                entry.features = features.clone();
+            }
+        }
     }
 
     // Initializes the PairTokenizer by training it on all relevant paths
@@ -601,12 +625,12 @@ impl App {
 
         match classification {
             vlc::Classification::Positive => {
-                self.playlist.add_positive(abs_path)?;
+                self.playlist.add_positive(abs_path, &entry.features)?;
                 self.naive_bayes
                     .train_positive(entry.ngrams.as_ref().unwrap());
             }
             vlc::Classification::Negative => {
-                self.playlist.add_negative(abs_path)?;
+                self.playlist.add_negative(abs_path, &entry.features)?;
                 self.naive_bayes
                     .train_negative(entry.ngrams.as_ref().unwrap());
             }
@@ -627,9 +651,12 @@ impl App {
         // probing is eager (the tokenizer/classifiers train over the full
         // corpus) and the cache is fully persisted to disk before control
         // returns here. Never aborts the run — degrades to an empty cache on
-        // any failure.
-        time_it!("ffprobe cache populate", {
-            self.populate_cache();
+        // any failure. The returned features map is attached to each builder
+        // entry so the features travel with the entry and are persisted with
+        // its classification result.
+        let features_map = time_it!("ffprobe cache populate", { self.populate_cache() });
+        time_it!("Attach media features", {
+            self.attach_features(&features_map);
         });
 
         time_it!("Tokenization", {

@@ -36,7 +36,11 @@ const SECS_PER_DAY: i64 = 86_400;
 /// Extracted ffprobe features, stored with short serde keys for compactness.
 /// Only raw, non-derivable values are persisted; aspect ratio and bitrate are
 /// derived by the classifier at read time. See `docs/ffprobe-cache.md`.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+///
+/// Implements [`Default`] (all-zero / empty values) so it can be a required
+/// field on structs that are deserialized from older data which predates the
+/// field, via `#[serde(default)]`.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MediaFeatures {
     #[serde(rename = "w")]
     pub width: u32,
@@ -172,7 +176,16 @@ impl Cache {
     /// Never returns an error: a totally unreadable cache dir degrades to an
     /// empty cache and a full re-probe. Per-file probe failures are logged and
     /// the file is left without an entry (retried next run).
-    pub fn populate<P: Probe + Sync>(&self, files: &[WalkFile], probe: &P) {
+    ///
+    /// Returns a lookup map of `entry_hash → MediaFeatures` covering every
+    /// entry now persisted on disk (survivors + freshly probed). Callers use
+    /// it to attach features to their own per-file records. A file whose probe
+    /// failed is simply absent from the map.
+    pub fn populate<P: Probe + Sync>(
+        &self,
+        files: &[WalkFile],
+        probe: &P,
+    ) -> HashMap<String, MediaFeatures> {
         let now = unix_secs(SystemTime::now());
         info!(
             "cache: dir={} ttl_days={} collected={}",
@@ -230,7 +243,7 @@ impl Cache {
         // have nowhere to write).
         if let Err(e) = fs::create_dir_all(&self.dir) {
             error!("cache: cannot create dir {}: {}", self.dir.display(), e);
-            return;
+            return HashMap::new();
         }
 
         let base = self.max_seq().unwrap_or(0);
@@ -240,7 +253,7 @@ impl Cache {
             Ok(w) => w,
             Err(e) => {
                 error!("cache: cannot open first shard: {}", e);
-                return;
+                return HashMap::new();
             }
         };
         for e in &survivors {
@@ -270,13 +283,19 @@ impl Cache {
         let successes = AtomicUsize::new(0);
         let failures = AtomicUsize::new(0);
         let (tx, rx) = mpsc::channel::<CacheEntry>();
-        let writer_handle = std::thread::spawn(move || -> std::io::Result<()> {
+        let writer_handle = std::thread::spawn(move || -> std::io::Result<Vec<CacheEntry>> {
             let mut writer = writer;
+            // Collect the freshly probed entries alongside writing them so the
+            // returned features map can be assembled without a second disk
+            // read. Survivors are already in `survivors`; the probed entries
+            // are only observable here, inside the writer thread.
+            let mut probed: Vec<CacheEntry> = Vec::new();
             for entry in rx {
                 writer.emit(&entry);
+                probed.push(entry);
             }
             writer.fsync();
-            Ok(())
+            Ok(probed)
         });
 
         missing.par_iter().for_each(|f| {
@@ -307,7 +326,11 @@ impl Cache {
             }
         });
         drop(tx);
-        let _ = writer_handle.join();
+        let probed = writer_handle
+            .join()
+            .ok()
+            .and_then(|r| r.ok())
+            .unwrap_or_default();
         fsync_dir(&self.dir);
         info!(
             "cache: probed {} missing files (success={} failed={})",
@@ -315,6 +338,22 @@ impl Cache {
             successes.load(Ordering::Relaxed),
             failures.load(Ordering::Relaxed)
         );
+
+        // (6) BUILD the returned features map: survivors (refreshed + kept
+        //     fresh) plus the freshly probed entries. Survivors are inserted
+        //     first so a freshly probed duplicate (the same key appearing in
+        //     both, e.g. across runs) wins. Extras for files no longer present
+        //     are harmless — callers look up only their current files.
+        let mut map: HashMap<String, MediaFeatures> =
+            HashMap::with_capacity(survivors.len() + probed.len());
+        for e in probed {
+            map.insert(e.key, e.features);
+        }
+        for e in &survivors {
+            map.entry(e.key.clone())
+                .or_insert_with(|| e.features.clone());
+        }
+        map
     }
 
     // -- internal helpers ---------------------------------------------------

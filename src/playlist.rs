@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::cache::MediaFeatures;
 use crate::path::{AbsPath, PathDisplayContext};
 use chrono::Utc;
 use std::fs::{File, OpenOptions};
@@ -27,10 +28,14 @@ pub const SCORE_NEGATIVE: i32 = -1;
 /// - `added` (`a`): unix timestamp (seconds) marking when the classification
 ///   was recorded.
 /// - `score` (`s`): classification score (+1 positive, -1 negative).
+/// - `features` (`feat`): the extracted ffprobe [`MediaFeatures`] captured at
+///   classification time, persisted verbatim (raw values; the classifier
+///   re-derives/buckets at read time). Defaults on read for entries written
+///   before this field existed.
 ///
 /// Unknown fields are tolerated on deserialization so that future extensions
-/// (e.g. ffprobe features) can be added without breaking older readers.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// can be added without breaking older readers.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EntryMeta {
     #[serde(rename = "f", alias = "file")]
     pub file: String,
@@ -38,6 +43,8 @@ pub struct EntryMeta {
     pub added: i64,
     #[serde(rename = "s", alias = "score")]
     pub score: i32,
+    #[serde(rename = "feat", alias = "features", default)]
+    pub features: MediaFeatures,
 }
 
 impl EntryMeta {
@@ -65,16 +72,24 @@ impl EntryMeta {
 
 /// Trait for types that can load/save playlist classifications
 pub trait Playlist {
-    /// Add a positive classification (records the current time as `added`).
-    fn add_positive(&mut self, path: &Path) -> Result<(), Error>;
+    /// Add a positive classification (records the current time as `added`),
+    /// persisting the file's extracted `features` alongside the result.
+    fn add_positive(&mut self, path: &Path, features: &MediaFeatures) -> Result<(), Error>;
 
-    /// Add a negative classification (records the current time as `added`).
-    fn add_negative(&mut self, path: &Path) -> Result<(), Error>;
+    /// Add a negative classification (records the current time as `added`),
+    /// persisting the file's extracted `features` alongside the result.
+    fn add_negative(&mut self, path: &Path, features: &MediaFeatures) -> Result<(), Error>;
 
-    /// Append an existing entry, preserving its original `added` time and
-    /// score. The absolute `path` is rebased so the stored `file` path is
-    /// recomputed relative to this playlist's root.
-    fn add_entry(&mut self, path: &AbsPath, added: i64, score: i32) -> Result<(), Error>;
+    /// Append an existing entry, preserving its original `added` time,
+    /// score, and `features`. The absolute `path` is rebased so the stored
+    /// `file` path is recomputed relative to this playlist's root.
+    fn add_entry(
+        &mut self,
+        path: &AbsPath,
+        added: i64,
+        score: i32,
+        features: &MediaFeatures,
+    ) -> Result<(), Error>;
 
     /// Get all entries in order
     fn entries(&self) -> &[EntryMeta];
@@ -221,13 +236,20 @@ impl M3uPlaylist {
     /// This appends a new line pair; the full-file invariant (bare filename
     /// lines only for alive positive entries) is re-established by
     /// [`reconcile`](Self::reconcile) on the next [`open`](Self::open).
-    fn append_entry(&mut self, abs_path: &AbsPath, score: i32, added: i64) -> Result<(), Error> {
+    fn append_entry(
+        &mut self,
+        abs_path: &AbsPath,
+        score: i32,
+        added: i64,
+        features: &MediaFeatures,
+    ) -> Result<(), Error> {
         let context = PathDisplayContext::RelativeTo(self.root.to_path_buf());
         let rel_path = abs_path.to_string(&context);
         let meta = EntryMeta {
             file: rel_path.clone(),
             added,
             score,
+            features: features.clone(),
         };
         let json = serde_json::to_string(&meta)?;
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
@@ -246,22 +268,28 @@ impl M3uPlaylist {
 }
 
 impl Playlist for M3uPlaylist {
-    fn add_positive(&mut self, abs_path: &Path) -> Result<(), Error> {
+    fn add_positive(&mut self, abs_path: &Path, features: &MediaFeatures) -> Result<(), Error> {
         let abs_path = AbsPath::from_abs_path(abs_path);
         let added = Utc::now().timestamp();
-        self.append_entry(&abs_path, SCORE_POSITIVE, added)
+        self.append_entry(&abs_path, SCORE_POSITIVE, added, features)
     }
 
-    fn add_negative(&mut self, abs_path: &Path) -> Result<(), Error> {
+    fn add_negative(&mut self, abs_path: &Path, features: &MediaFeatures) -> Result<(), Error> {
         let abs_path = AbsPath::from_abs_path(abs_path);
         let added = Utc::now().timestamp();
-        self.append_entry(&abs_path, SCORE_NEGATIVE, added)
+        self.append_entry(&abs_path, SCORE_NEGATIVE, added, features)
     }
 
-    fn add_entry(&mut self, path: &AbsPath, added: i64, score: i32) -> Result<(), Error> {
-        // Preserve the original `added` timestamp and score, but recompute the
-        // `file` path relative to this playlist's root.
-        self.append_entry(path, score, added)
+    fn add_entry(
+        &mut self,
+        path: &AbsPath,
+        added: i64,
+        score: i32,
+        features: &MediaFeatures,
+    ) -> Result<(), Error> {
+        // Preserve the original `added` timestamp, score, and features, but
+        // recompute the `file` path relative to this playlist's root.
+        self.append_entry(path, score, added, features)
     }
 
     fn entries(&self) -> &[EntryMeta] {
@@ -273,6 +301,21 @@ impl Playlist for M3uPlaylist {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    /// A deterministic non-default `MediaFeatures` for tests, so persisted
+    /// entries carry a recognizable payload and round-trip assertions are
+    /// meaningful (rather than the all-zero `Default`).
+    fn test_features() -> MediaFeatures {
+        MediaFeatures {
+            width: 1280,
+            height: 720,
+            file_size: 1234,
+            video_codec: "h264".into(),
+            audio_codec: "aac".into(),
+            duration_secs: 100.5,
+            fps: Some(24.0),
+        }
+    }
 
     #[test]
     fn test_playlist_path_handling() -> Result<(), Error> {
@@ -293,7 +336,7 @@ mod tests {
         // (positive && exists) is satisfied.
         let track1_path = music_dir.join("track1.mp3");
         std::fs::write(&track1_path, b"test")?;
-        playlist.add_positive(&track1_path)?;
+        playlist.add_positive(&track1_path, &test_features())?;
 
         let content = std::fs::read_to_string(&playlist_path)?;
         assert!(content.contains("#"));
@@ -316,7 +359,7 @@ mod tests {
         let track2_path = music_dir.join("track2.mp3");
         std::fs::write(&track2_path, b"test")?;
         let mut playlist = M3uPlaylist::open(&playlist_path)?;
-        playlist.add_negative(&track2_path)?;
+        playlist.add_negative(&track2_path, &test_features())?;
         let content = std::fs::read_to_string(&playlist_path)?;
         assert!(content.contains("\"f\":\"music/track2.mp3\""));
         assert!(content.contains("\"s\":-1"));
@@ -359,19 +402,19 @@ mod tests {
 
         // Test 1: Path with current directory reference (./)
         let path_with_dot = music_dir.join("./track1.mp3");
-        playlist.add_positive(&path_with_dot)?;
+        playlist.add_positive(&path_with_dot, &test_features())?;
 
         // Test 2: Path with parent directory reference (../)
         let path_with_dotdot = subdir.join("../track1.mp3");
-        playlist.add_positive(&path_with_dotdot)?;
+        playlist.add_positive(&path_with_dotdot, &test_features())?;
 
         // Test 3: Complex path with multiple . and ..
         let complex_path = subdir.join("./../../other/../music/./track1.mp3");
-        playlist.add_positive(&complex_path)?;
+        playlist.add_positive(&complex_path, &test_features())?;
 
         // Test 4: Path that goes up and then down to other directory
         let cross_path = music_dir.join("../other/track3.mp3");
-        playlist.add_positive(&cross_path)?;
+        playlist.add_positive(&cross_path, &test_features())?;
 
         // Verify playlist content - all paths should be normalized to simple relative paths
         let content = std::fs::read_to_string(&playlist_path)?;
@@ -432,8 +475,8 @@ mod tests {
         let track2 = music_dir.join("track2.mp3");
         std::fs::write(&track1, b"test")?;
         std::fs::write(&track2, b"test")?;
-        original.add_positive(&track1)?;
-        original.add_negative(&track2)?;
+        original.add_positive(&track1, &test_features())?;
+        original.add_negative(&track2, &test_features())?;
 
         let original_added_pos = original.entries()[0].added.clone();
         let original_added_neg = original.entries()[1].added.clone();
@@ -443,7 +486,7 @@ mod tests {
         let mut moved = M3uPlaylist::open(&new_path)?;
         for entry in original.entries() {
             let abs = entry.abs_path(original.root());
-            moved.add_entry(&abs, entry.added, entry.score())?;
+            moved.add_entry(&abs, entry.added, entry.score(), &entry.features)?;
         }
 
         assert_eq!(moved.entries().len(), 2);
@@ -472,8 +515,8 @@ mod tests {
 
         let playlist_path = temp_dir.path().join("playlist.m3u");
         let mut playlist = M3uPlaylist::open(&playlist_path)?;
-        playlist.add_positive(&track1)?;
-        playlist.add_positive(&track2)?;
+        playlist.add_positive(&track1, &test_features())?;
+        playlist.add_positive(&track2, &test_features())?;
 
         // Both files exist: both bare lines should be present.
         let content = std::fs::read_to_string(&playlist_path)?;
@@ -516,12 +559,85 @@ mod tests {
 
         let playlist_path = temp_dir.path().join("playlist.m3u");
         let mut playlist = M3uPlaylist::open(&playlist_path)?;
-        playlist.add_positive(&track1)?;
+        playlist.add_positive(&track1, &test_features())?;
 
         let before = std::fs::read_to_string(&playlist_path)?;
         let _playlist = M3uPlaylist::open(&playlist_path)?;
         let after = std::fs::read_to_string(&playlist_path)?;
         assert_eq!(before, after);
+
+        Ok(())
+    }
+
+    /// Media features passed to `add_positive`/`add_negative` are persisted to
+    /// disk and survive a reload: they round-trip through the `#{...}` metadata
+    /// line back onto the loaded `EntryMeta`. This is the core of "plumb
+    /// MediaFeatures through and persist with classification results".
+    #[test]
+    fn test_features_persist_with_classification() -> Result<(), Error> {
+        let temp_dir = tempdir()?;
+        let music_dir = temp_dir.path().join("music");
+        std::fs::create_dir(&music_dir)?;
+
+        let track1 = music_dir.join("track1.mp3");
+        let track2 = music_dir.join("track2.mp3");
+        std::fs::write(&track1, b"test")?;
+        std::fs::write(&track2, b"test")?;
+
+        let playlist_path = temp_dir.path().join("playlist.m3u");
+        let mut playlist = M3uPlaylist::open(&playlist_path)?;
+        let features = test_features();
+        playlist.add_positive(&track1, &features)?;
+        playlist.add_negative(&track2, &features)?;
+
+        // The serialized short key is present on disk for both entries.
+        let content = std::fs::read_to_string(&playlist_path)?;
+        assert!(
+            content.contains("\"feat\""),
+            "features should be serialized under the `feat` key; got:\n{}",
+            content
+        );
+
+        // Reopen and confirm the features round-trip onto the entries.
+        let playlist = M3uPlaylist::open(&playlist_path)?;
+        assert_eq!(playlist.entries().len(), 2);
+        for entry in playlist.entries() {
+            assert_eq!(
+                entry.features, features,
+                "features must round-trip through the playlist"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Older playlists written before the `features` field existed still load:
+    /// the missing field defaults to an all-zero `MediaFeatures` rather than
+    /// failing deserialization.
+    #[test]
+    fn test_legacy_entries_default_features() -> Result<(), Error> {
+        let temp_dir = tempdir()?;
+        let music_dir = temp_dir.path().join("music");
+        std::fs::create_dir(&music_dir)?;
+
+        let track1 = music_dir.join("track1.mp3");
+        std::fs::write(&track1, b"test")?;
+
+        let playlist_path = temp_dir.path().join("playlist.m3u");
+        // A legacy entry with no `feat` field, plus its bare filename line.
+        let legacy = format!(
+            "#EXTM3U\n#{{\"f\":\"music/track1.mp3\",\"a\":1700000000,\"s\":1}}\nmusic/track1.mp3\n"
+        );
+        std::fs::write(&playlist_path, legacy)?;
+
+        let playlist = M3uPlaylist::open(&playlist_path)?;
+        assert_eq!(playlist.entries().len(), 1);
+        assert!(playlist.entries()[0].is_positive());
+        assert_eq!(
+            playlist.entries()[0].features,
+            MediaFeatures::default(),
+            "missing features field must default rather than fail to load"
+        );
 
         Ok(())
     }

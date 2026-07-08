@@ -253,7 +253,7 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
     // `added` timestamps and scores.
     for entry in original_playlist.entries() {
         let abs = entry.abs_path(original_playlist.root());
-        new_playlist.add_entry(&abs, entry.added, entry.score())?;
+        new_playlist.add_entry(&abs, entry.added, entry.score(), &entry.features)?;
         debug!(
             "Moved {} entry: {}",
             if entry.is_positive() {
