@@ -10,6 +10,7 @@
 //! probe, or a cache I/O error is logged and skipped and never aborts a run.
 
 use crate::ffprobe::Probe;
+use crate::logging::time_it;
 use crate::walk::File as WalkFile;
 use log::*;
 use rayon::prelude::*;
@@ -199,44 +200,47 @@ impl Cache {
         );
 
         // (1) LOAD
-        let entries = self.load_all();
+        let entries = time_it!("cache: load", { self.load_all() });
         info!("cache: loaded {} entries from disk", entries.len());
 
         // (2) COMPACT (pure in-memory)
-        let live_keys: HashSet<String> = files
-            .iter()
-            .map(|f| entry_hash(&f.path, f.created, f.size))
-            .collect();
-        let mut survivors: Vec<CacheEntry> = Vec::with_capacity(entries.len());
-        let mut survivor_keys: HashSet<String> = HashSet::new();
-        let mut refreshed = 0usize;
-        let mut kept_fresh = 0usize;
-        let mut expired = 0usize;
-        for mut entry in entries {
-            if live_keys.contains(&entry.key) {
-                entry.last_used = now; // refresh: file present & unchanged
-                survivor_keys.insert(entry.key.clone());
-                survivors.push(entry);
-                refreshed += 1;
-            } else if now.saturating_sub(entry.last_used) < self.ttl_secs {
-                survivors.push(entry); // unmatched but fresh: keep as-is
-                kept_fresh += 1;
-            } else {
-                expired += 1; // unmatched and past TTL -> dropped
+        let (survivors, missing) = time_it!("cache: compact", {
+            let live_keys: HashSet<String> = files
+                .iter()
+                .map(|f| entry_hash(&f.path, f.created, f.size))
+                .collect();
+            let mut survivors: Vec<CacheEntry> = Vec::with_capacity(entries.len());
+            let mut survivor_keys: HashSet<String> = HashSet::new();
+            let mut refreshed = 0usize;
+            let mut kept_fresh = 0usize;
+            let mut expired = 0usize;
+            for mut entry in entries {
+                if live_keys.contains(&entry.key) {
+                    entry.last_used = now; // refresh: file present & unchanged
+                    survivor_keys.insert(entry.key.clone());
+                    survivors.push(entry);
+                    refreshed += 1;
+                } else if now.saturating_sub(entry.last_used) < self.ttl_secs {
+                    survivors.push(entry); // unmatched but fresh: keep as-is
+                    kept_fresh += 1;
+                } else {
+                    expired += 1; // unmatched and past TTL -> dropped
+                }
             }
-        }
-        info!(
-            "cache: compacted survivors={} (refreshed={} kept_fresh={} expired={})",
-            survivors.len(),
-            refreshed,
-            kept_fresh,
-            expired
-        );
-        let missing: Vec<&WalkFile> = files
-            .iter()
-            .filter(|f| !survivor_keys.contains(&entry_hash(&f.path, f.created, f.size)))
-            .collect();
-        info!("cache: {} missing files to probe", missing.len());
+            info!(
+                "cache: compacted survivors={} (refreshed={} kept_fresh={} expired={})",
+                survivors.len(),
+                refreshed,
+                kept_fresh,
+                expired
+            );
+            let missing: Vec<&WalkFile> = files
+                .iter()
+                .filter(|f| !survivor_keys.contains(&entry_hash(&f.path, f.created, f.size)))
+                .collect();
+            info!("cache: {} missing files to probe", missing.len());
+            (survivors, missing)
+        });
 
         // Ensure the directory exists before writing. A failure here means we
         // cannot cache at all: log and bail (probes are skipped — they would
@@ -249,29 +253,34 @@ impl Cache {
         let base = self.max_seq().unwrap_or(0);
 
         // (3) WRITE survivors to a fresh generation (base+1, base+2, …).
-        let mut writer = match ShardWriter::new(&self.dir, base + 1) {
-            Ok(w) => w,
-            Err(e) => {
-                error!("cache: cannot open first shard: {}", e);
-                return HashMap::new();
+        let writer = time_it!("cache: write survivors", {
+            let mut writer = match ShardWriter::new(&self.dir, base + 1) {
+                Ok(w) => w,
+                Err(e) => {
+                    error!("cache: cannot open first shard: {}", e);
+                    return HashMap::new();
+                }
+            };
+            for e in &survivors {
+                writer.emit(e);
             }
-        };
-        for e in &survivors {
-            writer.emit(e);
-        }
-        writer.fsync();
-        info!(
-            "cache: wrote {} survivors to generation >= {}",
-            survivors.len(),
-            base + 1
-        );
+            writer.fsync();
+            info!(
+                "cache: wrote {} survivors to generation >= {}",
+                survivors.len(),
+                base + 1
+            );
+            writer
+        });
 
         // (4) DELETE the old generation (seq <= base) now that the new
         //     generation is persisted. This is the delete-before-probe
         //     boundary.
-        let deleted = self.delete_generation(base);
-        fsync_dir(&self.dir);
-        info!("cache: deleted {} old shards (seq <= {})", deleted, base);
+        time_it!("cache: delete old generation", {
+            let deleted = self.delete_generation(base);
+            fsync_dir(&self.dir);
+            info!("cache: deleted {} old shards (seq <= {})", deleted, base);
+        });
 
         // (5) PROBE + WRITE missing (streamed). Probe results are fed back to
         //     the single owning writer via a channel so shard rolling and byte
@@ -280,64 +289,67 @@ impl Cache {
         //     moved into the writer thread so appends continue in the same top
         //     shard left open from step (3) — no fresh handle, no lost byte
         //     count, so exact-byte rolling still holds.
-        let successes = AtomicUsize::new(0);
-        let failures = AtomicUsize::new(0);
-        let (tx, rx) = mpsc::channel::<CacheEntry>();
-        let writer_handle = std::thread::spawn(move || -> std::io::Result<Vec<CacheEntry>> {
-            let mut writer = writer;
-            // Collect the freshly probed entries alongside writing them so the
-            // returned features map can be assembled without a second disk
-            // read. Survivors are already in `survivors`; the probed entries
-            // are only observable here, inside the writer thread.
-            let mut probed: Vec<CacheEntry> = Vec::new();
-            for entry in rx {
-                writer.emit(&entry);
-                probed.push(entry);
-            }
-            writer.fsync();
-            Ok(probed)
-        });
+        let probed = time_it!("cache: probe + write missing", {
+            let successes = AtomicUsize::new(0);
+            let failures = AtomicUsize::new(0);
+            let (tx, rx) = mpsc::channel::<CacheEntry>();
+            let writer_handle = std::thread::spawn(move || -> std::io::Result<Vec<CacheEntry>> {
+                let mut writer = writer;
+                // Collect the freshly probed entries alongside writing them so the
+                // returned features map can be assembled without a second disk
+                // read. Survivors are already in `survivors`; the probed entries
+                // are only observable here, inside the writer thread.
+                let mut probed: Vec<CacheEntry> = Vec::new();
+                for entry in rx {
+                    writer.emit(&entry);
+                    probed.push(entry);
+                }
+                writer.fsync();
+                Ok(probed)
+            });
 
-        missing.par_iter().for_each(|f| {
-            match probe.probe(f) {
-                Ok(features) => {
-                    let entry = CacheEntry {
-                        key: entry_hash(&f.path, f.created, f.size),
-                        last_used: now,
-                        features,
-                    };
-                    if tx.send(entry).is_err() {
-                        // Writer thread died; stop probing.
+            missing.par_iter().for_each(|f| {
+                match probe.probe(f) {
+                    Ok(features) => {
+                        let entry = CacheEntry {
+                            key: entry_hash(&f.path, f.created, f.size),
+                            last_used: now,
+                            features,
+                        };
+                        if tx.send(entry).is_err() {
+                            // Writer thread died; stop probing.
+                        }
+                        let done = successes.fetch_add(1, Ordering::Relaxed) + 1;
+                        if done % 100 == 0 {
+                            info!(
+                                "cache: probing... {}/{} ({}%)",
+                                done,
+                                missing.len(),
+                                done * 100 / missing.len().max(1)
+                            );
+                        }
                     }
-                    let done = successes.fetch_add(1, Ordering::Relaxed) + 1;
-                    if done % 100 == 0 {
-                        info!(
-                            "cache: probing... {}/{} ({}%)",
-                            done,
-                            missing.len(),
-                            done * 100 / missing.len().max(1)
-                        );
+                    Err(e) => {
+                        warn!("cache: probe failed for {}: {}", f.path.display(), e);
+                        failures.fetch_add(1, Ordering::Relaxed);
                     }
                 }
-                Err(e) => {
-                    warn!("cache: probe failed for {}: {}", f.path.display(), e);
-                    failures.fetch_add(1, Ordering::Relaxed);
-                }
-            }
+            });
+            drop(tx);
+            let probed = writer_handle
+                .join()
+                .ok()
+                .and_then(|r| r.ok())
+                .unwrap_or_default();
+            fsync_dir(&self.dir);
+            info!(
+                "cache: probed {} missing files (success={} failed={})",
+                missing.len(),
+                successes.load(Ordering::Relaxed),
+                failures.load(Ordering::Relaxed)
+            );
+            probed
         });
-        drop(tx);
-        let probed = writer_handle
-            .join()
-            .ok()
-            .and_then(|r| r.ok())
-            .unwrap_or_default();
-        fsync_dir(&self.dir);
-        info!(
-            "cache: probed {} missing files (success={} failed={})",
-            missing.len(),
-            successes.load(Ordering::Relaxed),
-            failures.load(Ordering::Relaxed)
-        );
 
         // (6) BUILD the returned features map: survivors (refreshed + kept
         //     fresh) plus the freshly probed entries. Survivors are inserted

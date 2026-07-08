@@ -23,27 +23,26 @@ pub const SCORE_NEGATIVE: i32 = -1;
 /// which joins `file` against the playlist's root.
 ///
 /// Fields use short serialized keys (aliased to their long form on
-/// deserialization for backward compatibility) to minimize per-entry overhead:
-/// - `file` (`f`): path to the media file, relative to the playlist root.
-/// - `added` (`a`): unix timestamp (seconds) marking when the classification
-///   was recorded.
-/// - `score` (`s`): classification score (+1 positive, -1 negative).
-/// - `features` (`feat`): the extracted ffprobe [`MediaFeatures`] captured at
-///   classification time, persisted verbatim (raw values; the classifier
-///   re-derives/buckets at read time). Defaults on read for entries written
-///   before this field existed.
-///
+/// deserialization for backward compatibility) to minimize per-entry overhead.
 /// Unknown fields are tolerated on deserialization so that future extensions
 /// can be added without breaking older readers.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EntryMeta {
-    #[serde(rename = "f", alias = "file")]
+    /// Path to the media file, relative to the playlist root (`f`).
+    #[serde(rename = "f")]
     pub file: String,
-    #[serde(rename = "a", alias = "added")]
+    /// Unix timestamp (seconds) marking when the classification was recorded
+    /// (`a`).
+    #[serde(rename = "a")]
     pub added: i64,
-    #[serde(rename = "s", alias = "score")]
+    /// Classification score (+1 positive, -1 negative) (`s`).
+    #[serde(rename = "s")]
     pub score: i32,
-    #[serde(rename = "feat", alias = "features", default)]
+    /// The extracted ffprobe [`MediaFeatures`] captured at classification time,
+    /// persisted verbatim (raw values; the classifier re-derives/buckets at
+    /// read time). Defaults on read for entries written before this field
+    /// existed (`m`).
+    #[serde(rename = "m", default)]
     pub features: MediaFeatures,
 }
 
@@ -593,8 +592,8 @@ mod tests {
         // The serialized short key is present on disk for both entries.
         let content = std::fs::read_to_string(&playlist_path)?;
         assert!(
-            content.contains("\"feat\""),
-            "features should be serialized under the `feat` key; got:\n{}",
+            content.contains("\"m\""),
+            "features should be serialized under the `m` key; got:\n{}",
             content
         );
 
@@ -624,7 +623,7 @@ mod tests {
         std::fs::write(&track1, b"test")?;
 
         let playlist_path = temp_dir.path().join("playlist.m3u");
-        // A legacy entry with no `feat` field, plus its bare filename line.
+        // A legacy entry with no `m` field, plus its bare filename line.
         let legacy = format!(
             "#EXTM3U\n#{{\"f\":\"music/track1.mp3\",\"a\":1700000000,\"s\":1}}\nmusic/track1.mp3\n"
         );

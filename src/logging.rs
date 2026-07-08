@@ -1,8 +1,45 @@
+use log::*;
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
+
+/// Helper struct for timing a scoped block. Logs a start message on creation
+/// and an elapsed message on drop, so it pairs naturally with a `let _timer =
+/// ...` binding.
+pub(crate) struct Timer {
+    start: Instant,
+    name: &'static str,
+}
+
+impl Timer {
+    pub(crate) fn start(name: &'static str) -> Self {
+        info!("Starting: {}", name);
+        Timer {
+            start: Instant::now(),
+            name,
+        }
+    }
+}
+
+impl Drop for Timer {
+    fn drop(&mut self) {
+        let duration = self.start.elapsed();
+        info!("Finished: {} in {:?}", self.name, duration);
+    }
+}
+
+/// Macro for convenient timing of a block. The started [`Timer`] is dropped at
+/// the end of the block, logging the elapsed duration.
+macro_rules! time_it {
+    ($name:expr, $block:block) => {{
+        let _timer = $crate::logging::Timer::start($name);
+        $block
+    }};
+}
+pub(crate) use time_it;
 
 /// When true, the TUI owns the terminal (alternate screen) and stderr logging
 /// is suppressed so it doesn't corrupt the display. File logging continues.

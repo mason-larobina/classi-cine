@@ -3,6 +3,7 @@ use crate::cache::{Cache, MediaFeatures, entry_hash};
 use crate::classifier::{
     Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier,
 };
+use crate::logging::time_it;
 use crate::ngrams::{Ngram, Ngrams};
 use crate::normalize;
 use crate::path::{AbsPath, PathDisplayContext};
@@ -36,7 +37,7 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 use thread_priority::*;
 
 /// RAII guard owning the TUI terminal. Setting it up enables raw mode and the
@@ -183,37 +184,6 @@ pub struct App {
     currently_playing: Option<usize>,
     should_quit: bool,
     terminal_height: u16,
-}
-
-// Helper struct for timing
-struct Timer {
-    start: Instant,
-    name: &'static str,
-}
-
-impl Timer {
-    fn start(name: &'static str) -> Self {
-        info!("Starting: {}", name);
-        Timer {
-            start: Instant::now(),
-            name,
-        }
-    }
-}
-
-impl Drop for Timer {
-    fn drop(&mut self) {
-        let duration = self.start.elapsed();
-        info!("Finished: {} in {:?}", self.name, duration);
-    }
-}
-
-// Macro for convenient timing
-macro_rules! time_it {
-    ($name:expr, $block:block) => {{
-        let _timer = Timer::start($name);
-        $block
-    }};
 }
 
 impl App {
