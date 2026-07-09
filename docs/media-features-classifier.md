@@ -24,8 +24,8 @@ mutable without re-probing the library (the raw-on-disk principle from
   their own `Vec<Token>` and expanded only via orderless `combinations`, never
   path `windows`.
 - **Categorical features → one token per unique value.** `video_codec`,
-  `audio_codec`, and derived `aspect_ratio` become stable string tokens like
-  `video_codec:av1`, `aspect:16:9`.
+  `audio_codec`, derived `aspect_ratio`, and raw `resolution` become stable
+  string tokens like `video_codec:av1`, `aspect:16:9`, `resolution:1920x1080`.
 - **Continuous, near-unique features → bucketed.** `duration`, `file_size`,
   derived `bitrate`, and `fps` are too sparse / too clustered to use raw. They
   are bucketed geometrically — `duration`/`filesize`/`bitrate` share a base
@@ -123,6 +123,7 @@ Categorical / derived features emit **one token per unique value**:
 | `video_codec`      | `video_codec:h264`                | Empty codec name (ffprobe omitted it) → **no token**. |
 | `audio_codec`      | `audio_codec:aac`                | No audio stream → `audio_codec:none` (a real signal). |
 | `aspect_ratio`     | `aspect:16:9`, `aspect:4:3`      | Derived: `w:h` reduced by GCD. The colon in the value is fine — the whole string is the token id. |
+| `resolution`       | `resolution:1920x1080`           | Raw `width`x`height` (unreduced). `width == 0` or `height == 0` (no / failed probe) → **no token**. |
 
 Categorical features are **not** smoothed or bucketed; they are already
 low-cardinality and directly comparable across files.
@@ -347,9 +348,9 @@ families if the redundant-vocabulary cost ever matters.
 ### Cost
 
 A typical file emits ~1 (`video_codec`) + ~1 (`audio_codec`) + ~1 (`aspect`) +
-3 (`fps`) + 3 (`duration`) + 3 (`filesize`) + 3 (`bitrate`) ≈ **15 feature
-tokens**. At `--features-combinations=2` that's `C(15,2) + 15 ≈ 121` ngrams
-before dedup/filter; at `k=3`, `≈ 475`. Because continuous features emit only singletons (not singletons-plus-edges),
+~1 (`resolution`) + 3 (`fps`) + 3 (`duration`) + 3 (`filesize`) + 3 (`bitrate`)
+≈ **16 feature tokens**. At `--features-combinations=2` that's `C(16,2) + 16 ≈ 136`
+ngrams before dedup/filter; at `k=3`, `≈ 600`. Because continuous features emit only singletons (not singletons-plus-edges),
 the distinct feature-token vocabulary is roughly `n` buckets per continuous
 feature rather than `~2n`. Filtered against the frequent set (as path ngrams
 already are), the surviving vocabulary stays modest. `k=2` is the recommended
@@ -449,6 +450,9 @@ fn feature_tokens(f: &MediaFeatures, map: &mut TokenMap,
     }
     let (aw, ah) = reduce_ratio(f.width, f.height); // GCD reduction
     out.push(map.get_or_create_token(&format!("aspect:{}:{}", aw, ah)));
+    if f.width > 0 && f.height > 0 {
+        out.push(map.get_or_create_token(&format!("resolution:{}x{}", f.width, f.height)));
+    }
 
     // --- Continuous: bucket + neighbor singletons ---
     // fps uses its own finer base (default 1.1); the others share bucket_base.
