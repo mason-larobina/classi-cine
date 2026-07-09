@@ -232,16 +232,15 @@ i.e. the bucket itself plus its immediate left and right neighbors — the
 
 ### Why this beats edge/interval tokens
 
-An earlier draft proposed *interval* tokens — `feature:i` plus two *edge*
-tokens `feature:(i-1)-i` and `feature:i-(i+1)` (one per bucket boundary), meant
-to "treat each edge separately." On closer analysis that separateness is
-**structurally redundant**: a file in bucket `i` *always* emits both edges
-together (the pair is a deterministic function of `i`), so the model can never
-observe one without the other. The edges distinguish *which bucket you are in
-relative to `i`* — which the singleton `feature:i` already encodes. Splitting
-the coupling into two directional tokens adds no information; it only inflates
-the vocabulary. The neighbor-singleton scheme gets the same coupling from
-fewer, simpler tokens.
+An *interval* scheme would instead emit `feature:i` plus two *edge* tokens
+`feature:(i-1)-i` and `feature:i-(i+1)` (one per bucket boundary), to "treat
+each edge separately." That separateness is **structurally redundant**: a file
+in bucket `i` *always* emits both edges together (the pair is a deterministic
+function of `i`), so the model can never observe one without the other. The
+edges distinguish *which bucket you are in relative to `i`* — which the
+singleton `feature:i` already encodes. Splitting the coupling into two
+directional tokens adds no information; it only inflates the vocabulary. The
+neighbor-singleton scheme gets the same coupling from fewer, simpler tokens.
 
 Concretely, compare the two at `w = 1` (both emit **3 tokens per file**):
 
@@ -397,35 +396,23 @@ by more than one of the three generation passes (they collapse to one entry).
 
 ### Why merge into the path NB
 
-The earlier draft kept a **separate** `NaiveBayesClassifier` instance over a
-private feature ngram vec, citing three concerns. On re-examination against the
-actual `Ngrams` / `NaiveBayesClassifier` mechanics, none of them justify the
-second instance:
-
-1. **"Couples two independent feature spaces."** It does — and that is the
-   point. The total score is meant to combine path and media signal; a single
-   Bernoulli NB over the union of ngrams is exactly a linear-in-log-space
-   combination of the two feature sets, with one shared prior. The coupling is
-   the desired behavior, not a hazard.
-2. **"Makes the path NB's prior/normalization depend on feature presence."**
-   The prior `log P(class) = log((1+pos)/(2+pos+neg))` depends only on class
-   counts, not on which ngrams are present, so it is unaffected by merging.
-   The Laplace denominator `(total_ngrams + vocab_size)` does grow to include
-   feature ngrams, which uniformly rescales every per-ngram log-likelihood
-   (path and feature alike). This dilutes magnitudes slightly but preserves
-   the relative ordering of ngrams within each class and across classes; it is
-   still a valid NB. The cost is mild and is the price of one model instead of
-   two.
-3. **"Prevents toggling features independently."** Toggling is already
-   available via the feature CLI flags (`--features-combinations=0
-   --features-smoothing=0` collapses features to categorical singletons; an
-   empty probe result appends nothing). A future `--no-features` can skip the
-   feature `combinations` call entirely without a second classifier.
-
-The decisive mechanic is the one this section leads with: Bernoulli training
-over a deduplicated vec means a merged vec is *just more binary features*,
-handled identically to path ngrams. Keeping a second instance would duplicate
-the model, the training loop, and a score column for no statistical benefit.
+A single Bernoulli NB over the union of path + feature ngrams is exactly a
+linear-in-log-space combination of the two feature sets under one shared
+prior — which is the desired behavior, since the total score is meant to
+combine path and media signal. Merging is sound because the three mechanics
+above all hold: the class prior depends only on class counts (not on which
+ngrams are present), the `Ngrams` dedup guarantees each ngram contributes
+once regardless of which generation pass produced it, and feature tokens
+share the path `TokenMap` so ngram hashes never falsely collide across the
+two spaces. The only cost is that the Laplace denominator
+`(total_ngrams + vocab_size)` grows to include feature ngrams, which uniformly
+rescales every per-ngram log-likelihood (path and feature alike) — a mild,
+order-preserving dilution that is the price of one model instead of two.
+Toggling features off needs no second instance: the feature CLI flags
+(`--features-combinations=0 --features-smoothing=0` collapses to categorical
+singletons; an empty probe result appends nothing) already neutralize the
+contribution, and a future `--no-features` can simply skip the feature
+`combinations` call.
 
 ### Why no windows for features
 
@@ -616,56 +603,6 @@ src/
 helper). It holds no state and is fully unit-testable with stub
 `MediaFeatures` (the existing `ffprobe.rs` tests already build `MediaFeatures`
 by hand, so test fixtures are trivial).
-
-## Settled decisions
-
-- **Base 1.5, not 2.** Power-of-2 buckets are too coarse for media; 1.5 keeps
-  meaningful tiers distinct without vocabulary blowup. Configurable via
-  `--features-bucket-base`.
-- **`fps` is continuous, with its own finer base (1.1).** Earlier drafts
-  snapped `fps` to the nearest standard rate and fell back to a coarse
-  `low`/`mid`/`high` bucket otherwise — a sharp cliff with no graduation and
-  no coupling between close rates. `fps` now uses the same `bucket()` /
-  neighbor-singleton machinery as the other continuous features, but with a
-  dedicated base `--features-fps-base` (default **1.1**) because its range is
-  narrow (~10–120) and clustered at standard rates: the shared 1.5 base would
-  chain adjacent tiers into one ladder. At base 1.1, NTSC/PAL partners
-  (23.976/24, 29.97/30, 59.94/60) coalesce into one bucket and adjacent
-  *groups* share signal through one or two neighbor tokens — gentle bridging
-  without collapsing the ladder. See *Per-feature base*. This supersedes the
-  earlier categorical `fps` design; `snap_fps` is gone.
-- **Neighbor-singleton smoothing (`w=1` default).** Emits `feature:(i-1)` +
-  `feature:i` + `feature:(i+1)` — the bucket plus its immediate neighbors. Chosen
-  over an *interval/edge* scheme (`feature:i` + two directional edge tokens)
-  because directional edges are structurally redundant (a file in bucket `i`
-  always emits both edges, so the pair encodes nothing beyond the singleton) and
-  inflate the vocabulary. The neighbor scheme gives a wider triangular kernel
-  (`max(0, 2w+1-d)` shared tokens at distance `d`) for the same per-file token
-  count, a smaller distinct vocabulary, and boxcar-smoothed per-token estimates
-  that are more robust under sparsity — the decisive property for near-unique
-  continuous values. See *Smoothing*. Generalizes to `w ≥ 2` and `w = 0`
-  (plain bucketing).
-- **Bucket index as the token label.** Human-readable ranges are a display
-  concern; the raw value is retained in the cache so display can always recover
-  `[B^i, B^(i+1))`. Avoids tying token identity to a formatting choice.
-- **Merge into the existing `NaiveBayesClassifier`, not a separate instance.**
-  Feature ngrams are appended into the same per-entry `Ngrams` vec (deduped
-  with path windows/combinations) and consumed by the single existing
-  classifier. Sound because the model is Bernoulli (presence/absence, deduped
-  vec → 1 count per unique ngram) and because feature tokens share the path
-  `TokenMap` (so ngram hashes never falsely collide across the two spaces).
-  Avoids a second instance, a second training loop, and an extra score column;
-  the only cost is a mild, uniform Laplace-denominator dilution. See *Why
-  merge into the path NB*.
-- **Combinations only, never windows, for features.** Features are orderless;
-  contiguous windows would be arbitrary. `--features-combinations` is
-  independent of the path `--combinations`; there is no `--features-windows`.
-- **Same-feature self-combinations allowed by default.** Redundant but
-  harmless; keeps the existing `Ngrams::combinations` reuse. A future
-  `--features-cross-only` flag can prune them if needed.
-- **Raw-on-disk preserved.** Everything here is in-memory at read time; no
-  persisted buckets, intervals, or derived values, consistent with
-  `ffprobe-cache.md`'s canonical raw-on-disk principle.
 
 ## Future work
 
