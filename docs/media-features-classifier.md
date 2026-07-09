@@ -24,11 +24,13 @@ mutable without re-probing the library (the raw-on-disk principle from
   their own `Vec<Token>` and expanded only via orderless `combinations`, never
   path `windows`.
 - **Categorical features → one token per unique value.** `video_codec`,
-  `audio_codec`, derived `aspect_ratio`, and discretized `fps` become stable
-  string tokens like `video_codec:av1`, `aspect:16:9`.
+  `audio_codec`, and derived `aspect_ratio` become stable string tokens like
+  `video_codec:av1`, `aspect:16:9`.
 - **Continuous, near-unique features → bucketed.** `duration`, `file_size`,
-  and derived `bitrate` are too sparse to use raw. They are bucketed
-  geometrically (default base **1.5**, not power-of-2 — see *Bucketing*).
+  derived `bitrate`, and `fps` are too sparse / too clustered to use raw. They
+  are bucketed geometrically — `duration`/`filesize`/`bitrate` share a base
+  (default **1.5**, not power-of-2), while `fps` gets a finer dedicated base
+  (default **1.1**) for its narrow range — see *Bucketing*.
 - **Smooth across buckets.** A value in bucket `i` should also "boost or lower
   nearby buckets": adjacent buckets share signal so the classifier treats
   near-equal values as similar rather than unrelated. Done via
@@ -121,18 +123,28 @@ Categorical / derived features emit **one token per unique value**:
 | `video_codec`      | `video_codec:h264`                | Empty codec name (ffprobe omitted it) → **no token**. |
 | `audio_codec`      | `audio_codec:aac`                | No audio stream → `audio_codec:none` (a real signal). |
 | `aspect_ratio`     | `aspect:16:9`, `aspect:4:3`      | Derived: `w:h` reduced by GCD. The colon in the value is fine — the whole string is the token id. |
-| `fps`              | `fps:24`, `fps:23.976`, `fps:25`, `fps:29.97`, `fps:30`, `fps:50`, `fps:60` | Snap to nearest standard rate within ±2% tolerance; otherwise fall back to a coarse bucket `fps:low` (<30) / `fps:mid` (30–50) / `fps:high` (≥50). `fps` is `None` → no token. |
 
 Categorical features are **not** smoothed or bucketed; they are already
 low-cardinality and directly comparable across files.
 
 Continuous, near-unique features emit **neighbor-singleton tokens** (next two sections):
 
-| Feature     | Derived how                    | Token prefix  |
-|-------------|--------------------------------|---------------|
-| `duration`  | `duration_secs` (raw)          | `duration:`   |
-| `filesize`  | `file_size` (raw)              | `filesize:`   |
-| `bitrate`   | `file_size * 8 / duration_secs`| `bitrate:`    |
+| Feature     | Derived how                    | Token prefix  | Per-feature base |
+|-------------|--------------------------------|---------------|------------------|
+| `duration`  | `duration_secs` (raw)          | `duration:`   | `--features-bucket-base` (default 1.5) |
+| `filesize`  | `file_size` (raw)              | `filesize:`   | `--features-bucket-base` (default 1.5) |
+| `bitrate`   | `file_size * 8 / duration_secs`| `bitrate:`    | `--features-bucket-base` (default 1.5) |
+| `fps`       | `fps` (raw, optional)          | `fps:`        | `--features-fps-base` (default 1.1) — see below |
+
+`fps` is bucketed with the same `bucket()` / neighbor-singleton machinery as
+the other continuous features, but with its **own finer base**. Its range is
+narrow (~10–120) and tightly clustered at standard rates, so the global
+base 1.5 (tuned for bytes/seconds spanning many orders of magnitude) is far
+too coarse — adjacent standard groups would chain together into one connected
+ladder. A base of **1.1** yields ~27 buckets across 10–120 fps: NTSC/PAL
+partners (23.976/24, 29.97/30, 59.94/60) collapse into a single bucket, and
+adjacent *groups* (e.g. the 24-group vs the 30-group) bridge through a single
+shared neighbor token rather than two. See *Bucketing*. `fps == None` → no token.
 
 ## Bucketing
 
@@ -143,6 +155,9 @@ bucketed **geometrically** with base `B` (default **1.5**):
 ```
 bucket(v) = floor( log_B( max(v, 1.0) ) )      // v in seconds / bytes / bits-per-second
 ```
+
+`fps` is bucketed with the **same `bucket()` formula** but its own base
+(default **1.1**) — see *Per-feature base*.
 
 - **Why base 1.5, not 2.** Power-of-2 buckets are too coarse for media: a
   factor-of-2 duration bucket lumps a 90-minute film with a 3-hour epic, and a
@@ -158,11 +173,42 @@ bucket(v) = floor( log_B( max(v, 1.0) ) )      // v in seconds / bytes / bits-pe
   future TUI can always map index `i` back to `[B^i, B^(i+1))` for display.)
 - `v <= 0` (no data) → **no token** for that feature.
 
-The base is configurable so a library with a narrow value distribution can
-tighten resolution or a huge one can widen it:
+### Per-feature base
+
+`duration`, `filesize`, and `bitrate` share one base because they all span
+many orders of magnitude and the same geometric resolution suits them. `fps`
+does not: its range is narrow (~10–120) and clustered at standard rates, so
+the shared 1.5 base would lump 24 fps and 60 fps only ~3 buckets apart and
+chain every adjacent tier into one connected ladder (each adjacent pair sharing
+2 neighbor tokens). A finer base keeps tiers separable while still letting
+near-equal rates share signal. At base **1.1**:
 
 ```
---features-bucket-base <B>     # default 1.5, must be > 1.0
+bucket(fps) = floor( log_1.1( max(fps, 1.0) ) )
+
+fps       i    tokens emitted (w=1)
+23.976    33   fps:32 fps:33 fps:34
+24        33   fps:32 fps:33 fps:34
+25        33   fps:32 fps:33 fps:34   // 23.976/24/25 coalesce
+29.97     35   fps:34 fps:35 fps:36
+30        35   fps:34 fps:35 fps:36
+48        40   fps:39 fps:40 fps:41
+50        41   fps:40 fps:41 fps:42
+59.94     42   fps:41 fps:42 fps:43
+60        42   fps:41 fps:42 fps:43   // 59.94/60 coalesce
+120       50   fps:49 fps:50 fps:51
+```
+
+Adjacent standard *groups* share signal without collapsing the ladder:
+the 24-group and the 30-group share exactly one token (`fps:34`), while the
+truly close pairs 48/50 and 50/60 share two (`fps:40,41` and `fps:41,42`) —
+appropriate, since those rates are within ~4% of each other. The shared
+global base remains available for `fps` by setting `--features-fps-base` equal
+to `--features-bucket-base` if ever desired.
+
+```
+--features-bucket-base <B>   # default 1.5; geometric base for duration/filesize/bitrate; > 1.0
+--features-fps-base <B>      # default 1.1; geometric base for fps; > 1.0
 ```
 
 ## Smoothing — neighbor singleton tokens
@@ -302,9 +348,9 @@ families if the redundant-vocabulary cost ever matters.
 ### Cost
 
 A typical file emits ~1 (`video_codec`) + ~1 (`audio_codec`) + ~1 (`aspect`) +
-~1 (`fps`) + 3 (`duration`) + 3 (`filesize`) + 3 (`bitrate`) ≈ **13 feature
-tokens**. At `--features-combinations=2` that's `C(13,2) + 13 ≈ 91` ngrams
-before dedup/filter; at `k=3`, `≈ 300`. Because continuous features emit only singletons (not singletons-plus-edges),
+3 (`fps`) + 3 (`duration`) + 3 (`filesize`) + 3 (`bitrate`) ≈ **15 feature
+tokens**. At `--features-combinations=2` that's `C(15,2) + 15 ≈ 121` ngrams
+before dedup/filter; at `k=3`, `≈ 475`. Because continuous features emit only singletons (not singletons-plus-edges),
 the distinct feature-token vocabulary is roughly `n` buckets per continuous
 feature rather than `~2n`. Filtered against the frequent set (as path ngrams
 already are), the surviving vocabulary stays modest. `k=2` is the recommended
@@ -401,7 +447,8 @@ tokenize → ngram → train phases:
 ```rust
 /// Build the feature token vector for one file's MediaFeatures.
 fn feature_tokens(f: &MediaFeatures, map: &mut TokenMap,
-                  bucket_base: f64, smoothing: usize) -> Vec<Token> {
+                  bucket_base: f64, fps_base: f64, smoothing: usize)
+    -> Vec<Token> {
     let mut out = Vec::new();
 
     // --- Categorical / derived ---
@@ -415,13 +462,12 @@ fn feature_tokens(f: &MediaFeatures, map: &mut TokenMap,
     }
     let (aw, ah) = reduce_ratio(f.width, f.height); // GCD reduction
     out.push(map.get_or_create_token(&format!("aspect:{}:{}", aw, ah)));
-    if let Some(fps) = f.fps {
-        if let Some(label) = snap_fps(fps) {        // "24", "23.976", ..., or coarse
-            out.push(map.get_or_create_token(&format!("fps:{}", label)));
-        }
-    }
 
     // --- Continuous: bucket + neighbor singletons ---
+    // fps uses its own finer base (default 1.1); the others share bucket_base.
+    if let Some(fps) = f.fps {
+        emit_neighbors(&mut out, map, "fps", fps, fps_base, smoothing);
+    }
     if f.duration_secs > 0.0 {
         emit_neighbors(&mut out, map, "duration", f.duration_secs,
                        bucket_base, smoothing);
@@ -465,7 +511,7 @@ the path windows + path combinations:
 let map = tokenizer.token_map_mut(); // &mut TokenMap shared with paths
 let mut ft = Tokens::default();
 ft.tokens.push(map.root());
-ft.tokens.extend(feature_tokens(&entry.features, map, base, w));
+ft.tokens.extend(feature_tokens(&entry.features, map, base, fps_base, w));
 ft.tokens.push(map.eol());
 
 // entry.ngrams already holds path windows + path combinations; this appends
@@ -517,6 +563,7 @@ Added to `CommonArgs` (visible to `build` and `score`):
 --features-combinations <n>   # default 2; orderless cross-feature combo order; 0 disables
 --features-smoothing <w>      # default 1; continuous-bucket neighbor half-width; 0 = singleton only
 --features-bucket-base <B>    # default 1.5; geometric bucket base for duration/filesize/bitrate; > 1.0
+--features-fps-base <B>       # default 1.1; geometric bucket base for fps; > 1.0
 ```
 
 There is deliberately **no `--features-bias`**: features feed the same
@@ -551,7 +598,7 @@ combinations alongside the path windows/combinations it already holds;
 ```
 src/
   features.rs     // NEW: feature_tokens, emit_neighbors, reduce_ratio,
-                  //   snap_fps, bucket(), and the merged count-frequent
+                  //   bucket(), and the merged count-frequent
                   //   helper. Pure functions over MediaFeatures + the shared
                   //   TokenMap; no I/O, no classifier state.
   classifier.rs   // unchanged — no second instance; the single
@@ -561,7 +608,7 @@ src/
   tokens.rs        // unchanged — features reuse the tokenizer's TokenMap.
   app.rs           // feature pipeline phase appends into entry.ngrams;
                   //   no new field, no get_classifiers change.
-  main.rs          // three new CommonArgs flags.
+  main.rs          // four new CommonArgs flags.
 ```
 
 `features.rs` depends only on `crate::cache::MediaFeatures` and
@@ -575,6 +622,18 @@ by hand, so test fixtures are trivial).
 - **Base 1.5, not 2.** Power-of-2 buckets are too coarse for media; 1.5 keeps
   meaningful tiers distinct without vocabulary blowup. Configurable via
   `--features-bucket-base`.
+- **`fps` is continuous, with its own finer base (1.1).** Earlier drafts
+  snapped `fps` to the nearest standard rate and fell back to a coarse
+  `low`/`mid`/`high` bucket otherwise — a sharp cliff with no graduation and
+  no coupling between close rates. `fps` now uses the same `bucket()` /
+  neighbor-singleton machinery as the other continuous features, but with a
+  dedicated base `--features-fps-base` (default **1.1**) because its range is
+  narrow (~10–120) and clustered at standard rates: the shared 1.5 base would
+  chain adjacent tiers into one ladder. At base 1.1, NTSC/PAL partners
+  (23.976/24, 29.97/30, 59.94/60) coalesce into one bucket and adjacent
+  *groups* share signal through one or two neighbor tokens — gentle bridging
+  without collapsing the ladder. See *Per-feature base*. This supersedes the
+  earlier categorical `fps` design; `snap_fps` is gone.
 - **Neighbor-singleton smoothing (`w=1` default).** Emits `feature:(i-1)` +
   `feature:i` + `feature:(i+1)` — the bucket plus its immediate neighbors. Chosen
   over an *interval/edge* scheme (`feature:i` + two directional edge tokens)
@@ -618,8 +677,9 @@ by hand, so test fixtures are trivial).
   skips the feature `combinations` call; `--features-weight` would require
   splitting features back into their own score column (reversing the merge), so
   it is a larger change and not the default.
-- **Per-feature bucket bases**: duration, filesize, and bitrate have very
-  different scales and distributions; a per-feature base (or an offset before
+- **Per-feature bucket bases**: `fps` already has its own base
+  (`--features-fps-base`); duration, filesize, and bitrate currently share
+  `--features-bucket-base`. Splitting the latter (or adding an offset before
   the log, mirroring `FileSizeClassifier`'s `file_size_offset`) could tighten
   resolution where it matters.
 - **Adaptive / quantile buckets**: geometric buckets assume a sensible scale
@@ -628,7 +688,3 @@ by hand, so test fixtures are trivial).
 - **Kernel weighting**: the current scheme is a hard triangular kernel
   (shared-token counts). A soft variant could weight each neighbor token by its
   kernel value, but that requires leaving pure Bernoulli NB; deferred.
-- **`fps` as a smoothed continuous feature**: if standard-rate snapping proves
-  too lossy, `fps` could instead be bucketed + neighbor-smoothed like duration.
-  Currently categorical because real-world fps clusters tightly at standard
-  rates, making categorical snapping the higher-signal choice.
