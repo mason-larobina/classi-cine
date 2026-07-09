@@ -129,6 +129,25 @@ fn human_size(bytes: u64) -> String {
     format!("{:.*}{}", d, size, UNITS[unit])
 }
 
+/// Format a duration in seconds as a compact `HhMmSs` / `MmSs` / `Ss`
+/// string for the media-features TUI panel.
+fn format_secs(secs: f64) -> String {
+    if !secs.is_finite() || secs <= 0.0 {
+        return "-".to_string();
+    }
+    let total = secs.round() as u64;
+    let h = total / 3600;
+    let m = (total % 3600) / 60;
+    let s = total % 60;
+    if h > 0 {
+        format!("{}h{}m{}s", h, m, s)
+    } else if m > 0 {
+        format!("{}m{}s", m, s)
+    } else {
+        format!("{}s", s)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub path: AbsPath,
@@ -820,12 +839,13 @@ impl App {
         };
 
         if let Some(entry) = selected_entry {
-            // Split debug panel into sections
+            // Split debug panel into sections.
             let debug_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints(
                     [
                         Constraint::Length(6), // Path info (full path + tokenized)
+                        Constraint::Length(8), // Media features (raw + tokens)
                         Constraint::Length(6), // Classifier scores
                         Constraint::Min(0),    // N-grams
                     ]
@@ -834,8 +854,9 @@ impl App {
                 .split(area);
 
             self.draw_path_info(f, debug_chunks[0], &entry);
-            self.draw_classifier_scores(f, debug_chunks[1], &entry);
-            self.draw_ngrams(f, debug_chunks[2], &entry);
+            self.draw_media_features(f, debug_chunks[1], &entry);
+            self.draw_classifier_scores(f, debug_chunks[2], &entry);
+            self.draw_ngrams(f, debug_chunks[3], &entry);
         } else {
             // No selection - show empty panel
             let block = Block::default().title("Debug Info").borders(Borders::ALL);
@@ -876,6 +897,86 @@ impl App {
             .block(
                 Block::default()
                     .title("Path Information")
+                    .borders(Borders::ALL),
+            )
+            .wrap(Wrap { trim: false });
+        f.render_widget(paragraph, area);
+    }
+
+    /// Render the selected entry's extracted ffprobe [`MediaFeatures`] as both
+    /// human-readable raw values and the feature-token strings the classifier
+    /// actually consumes (categorical singletons + bucketed neighbor singletons
+    /// for the continuous fields). The tokens are computed via the pure
+    /// [`features::feature_token_strings`] so the render path never mutates the
+    /// shared `TokenMap`.
+    fn draw_media_features(&self, f: &mut Frame, area: Rect, entry: &Entry) {
+        let feat = &entry.features;
+        let cfg = FeatureConfig::from_common(&self.common_args);
+
+        // Compact human-readable summary of the raw probe values.
+        let duration = if feat.duration_secs > 0.0 {
+            format_secs(feat.duration_secs)
+        } else {
+            "-".to_string()
+        };
+        let bitrate = if feat.duration_secs > 0.0 {
+            human_size(((feat.file_size as f64) * 8.0 / feat.duration_secs) as u64) + "bps"
+        } else {
+            "-".to_string()
+        };
+        let resolution = if feat.width > 0 && feat.height > 0 {
+            format!("{}x{}", feat.width, feat.height)
+        } else {
+            "-".to_string()
+        };
+        let fps = match feat.fps {
+            Some(v) => format!("{:.3}", v),
+            None => "-".to_string(),
+        };
+        let audio = if feat.audio_codec.is_empty() {
+            if features::has_probe_data(feat) {
+                "none"
+            } else {
+                "-"
+            }
+        } else {
+            feat.audio_codec.as_str()
+        };
+        let video = if feat.video_codec.is_empty() {
+            "-"
+        } else {
+            feat.video_codec.as_str()
+        };
+        let raw = format!(
+            "video:{} audio:{} res:{} dur:{} size:{} br:{} fps:{}",
+            video,
+            audio,
+            resolution,
+            duration,
+            human_size(feat.file_size),
+            bitrate,
+            fps,
+        );
+
+        let token_strings = features::feature_token_strings(feat, &cfg);
+        let tokens_line = if token_strings.is_empty() {
+            "(none — probe failed or no signal)".to_string()
+        } else {
+            token_strings.join("  ")
+        };
+
+        let lines = vec![
+            Line::from(Span::styled(format!("raw:  {}", raw), Style::default())),
+            Line::from(Span::styled(
+                format!("toks: {}", tokens_line),
+                Style::default().fg(Color::Cyan),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title("Media Features")
                     .borders(Borders::ALL),
             )
             .wrap(Wrap { trim: false });
@@ -1410,7 +1511,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::human_size;
+    use super::{format_secs, human_size};
 
     #[test]
     fn human_size_bytes() {
@@ -1445,5 +1546,17 @@ mod tests {
         assert_eq!(human_size(1024u64.pow(5)), "1.00P");
         // Caps at the largest unit instead of overflowing.
         assert_eq!(human_size(5 * 1024u64.pow(5)), "5.00P");
+    }
+
+    #[test]
+    fn format_secs_compact_duration() {
+        assert_eq!(format_secs(0.0), "-");
+        assert_eq!(format_secs(-1.0), "-");
+        assert_eq!(format_secs(f64::NAN), "-");
+        assert_eq!(format_secs(45.0), "45s");
+        assert_eq!(format_secs(90.0), "1m30s");
+        assert_eq!(format_secs(5400.0), "1h30m0s");
+        // Rounds to the nearest second.
+        assert_eq!(format_secs(59.6), "1m0s");
     }
 }

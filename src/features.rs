@@ -94,31 +94,26 @@ fn gcd(mut a: u32, mut b: u32) -> u32 {
     a
 }
 
-/// Push neighbor-singleton tokens `name:k` for every `k` in `[i-w, i+w]`
-/// (clamped to `>= 0`), where `i = bucket(v, base)`. `w == 0` yields just
-/// `name:i`. Indices are always distinct integers (the lower clamp never
-/// duplicates an upper index), so no explicit dedup is needed.
+/// Push neighbor-singleton token **strings** `name:k` for every `k` in
+/// `[i-w, i+w]` (clamped to `>= 0`), where `i = bucket(v, base)`. `w == 0`
+/// yields just `name:i`. Indices are always distinct integers (the lower
+/// clamp never duplicates an upper index), so no explicit dedup is needed.
 ///
-/// This is the core smoothing scheme: a value in bucket `i` also emits its
-/// immediate neighbors, so adjacent buckets share signal through overlapping
-/// singletons and the trained count of each `s_k` becomes a `(2w+1)`-bucket
-/// boxcar sum of the raw histogram — a low-variance estimate even when
-/// individual buckets hold only one or two files.
-fn emit_neighbors(
-    out: &mut Vec<Token>,
-    map: &mut TokenMap,
-    name: &str,
-    v: f64,
-    base: f64,
-    w: usize,
-) {
+/// This is the string core of the smoothing scheme: a value in bucket `i`
+/// also emits its immediate neighbors, so adjacent buckets share signal
+/// through overlapping singletons and the trained count of each `s_k` becomes
+/// a `(2w+1)`-bucket boxcar sum of the raw histogram — a low-variance
+/// estimate even when individual buckets hold only one or two files. The
+/// token-id form ([`feature_tokens`]) simply mints each string into the
+/// shared [`TokenMap`].
+fn emit_neighbor_strings(out: &mut Vec<String>, name: &str, v: f64, base: f64, w: usize) {
     let Some(i) = bucket(v, base) else {
         return;
     };
     let lo = (i - w as i64).max(0);
     let hi = i + w as i64;
     for k in lo..=hi {
-        out.push(map.get_or_create_token(&format!("{}:{}", name, k)));
+        out.push(format!("{}:{}", name, k));
     }
 }
 
@@ -132,27 +127,28 @@ fn emit_neighbors(
 /// `docs/media-features-classifier.md`. A real video-only file (which has a
 /// video stream and duration but no audio) still emits `audio_codec:none` as a
 /// genuine signal.
-fn has_probe_data(f: &MediaFeatures) -> bool {
+pub(crate) fn has_probe_data(f: &MediaFeatures) -> bool {
     !f.video_codec.is_empty()
         || f.duration_secs > 0.0
         || (f.width > 0 && f.height > 0)
         || f.fps.is_some()
 }
 
-/// Build the raw feature token vector (without `root`/`eol` sentinels) for one
-/// file's [`MediaFeatures`], minting each token string into the shared
-/// [`TokenMap`].
+/// Build the raw feature token **strings** (without `root`/`eol` sentinels)
+/// for one file's [`MediaFeatures`]. Pure: it does not touch any
+/// [`TokenMap`], so it is safe to call from the TUI render path without
+/// mutating the shared map or minting spurious ids.
 ///
-/// Categorical / derived features emit one token per unique value; continuous,
-/// near-unique features (`duration`, `filesize`, `bitrate`, `fps`) are bucketed
-/// geometrically and expanded into neighbor singletons. See
-/// `docs/media-features-classifier.md` *Feature vocabulary*.
-pub fn feature_tokens(f: &MediaFeatures, map: &mut TokenMap, cfg: &FeatureConfig) -> Vec<Token> {
+/// Categorical / derived features emit one token per unique value;
+/// continuous, near-unique features (`duration`, `filesize`, `bitrate`,
+/// `fps`) are bucketed geometrically and expanded into neighbor singletons.
+/// See `docs/media-features-classifier.md` *Feature vocabulary*.
+pub fn feature_token_strings(f: &MediaFeatures, cfg: &FeatureConfig) -> Vec<String> {
     let mut out = Vec::new();
 
     // --- Categorical / derived ---
     if !f.video_codec.is_empty() {
-        out.push(map.get_or_create_token(&format!("video_codec:{}", f.video_codec)));
+        out.push(format!("video_codec:{}", f.video_codec));
     }
     if f.audio_codec.is_empty() {
         // "No audio stream" is a real signal — but only when the probe
@@ -160,27 +156,26 @@ pub fn feature_tokens(f: &MediaFeatures, map: &mut TokenMap, cfg: &FeatureConfig
         // has an empty `audio_codec` too; emitting `audio_codec:none` there
         // would violate the neutrality guarantee, so gate on `has_probe_data`.
         if has_probe_data(f) {
-            out.push(map.get_or_create_token("audio_codec:none"));
+            out.push("audio_codec:none".to_string());
         }
     } else {
-        out.push(map.get_or_create_token(&format!("audio_codec:{}", f.audio_codec)));
+        out.push(format!("audio_codec:{}", f.audio_codec));
     }
     if let Some((aw, ah)) = reduce_ratio(f.width, f.height) {
-        out.push(map.get_or_create_token(&format!("aspect:{}:{}", aw, ah)));
+        out.push(format!("aspect:{}:{}", aw, ah));
     }
     if f.width > 0 && f.height > 0 {
-        out.push(map.get_or_create_token(&format!("resolution:{}x{}", f.width, f.height)));
+        out.push(format!("resolution:{}x{}", f.width, f.height));
     }
 
     // --- Continuous: bucket + neighbor singletons ---
     // fps uses its own finer base (default 1.1); the others share bucket_base.
     if let Some(fps) = f.fps {
-        emit_neighbors(&mut out, map, "fps", fps, cfg.fps_base, cfg.smoothing);
+        emit_neighbor_strings(&mut out, "fps", fps, cfg.fps_base, cfg.smoothing);
     }
     if f.duration_secs > 0.0 {
-        emit_neighbors(
+        emit_neighbor_strings(
             &mut out,
-            map,
             "duration",
             f.duration_secs,
             cfg.bucket_base,
@@ -188,9 +183,8 @@ pub fn feature_tokens(f: &MediaFeatures, map: &mut TokenMap, cfg: &FeatureConfig
         );
     }
     if f.file_size > 0 {
-        emit_neighbors(
+        emit_neighbor_strings(
             &mut out,
-            map,
             "filesize",
             f.file_size as f64,
             cfg.bucket_base,
@@ -200,17 +194,25 @@ pub fn feature_tokens(f: &MediaFeatures, map: &mut TokenMap, cfg: &FeatureConfig
     if f.duration_secs > 0.0 {
         let bitrate = (f.file_size as f64) * 8.0 / f.duration_secs;
         if bitrate.is_finite() && bitrate > 0.0 {
-            emit_neighbors(
-                &mut out,
-                map,
-                "bitrate",
-                bitrate,
-                cfg.bucket_base,
-                cfg.smoothing,
-            );
+            emit_neighbor_strings(&mut out, "bitrate", bitrate, cfg.bucket_base, cfg.smoothing);
         }
     }
     out
+}
+
+/// Build the raw feature token vector (without `root`/`eol` sentinels) for one
+/// file's [`MediaFeatures`], minting each token string into the shared
+/// [`TokenMap`].
+///
+/// Thin wrapper over [`feature_token_strings`]: the bucketing / smoothing
+/// logic lives there (string-valued, pure) and is shared with the TUI render
+/// path; this just resolves each string to its stable [`Token`] id in the
+/// shared map.
+pub fn feature_tokens(f: &MediaFeatures, map: &mut TokenMap, cfg: &FeatureConfig) -> Vec<Token> {
+    feature_token_strings(f, cfg)
+        .into_iter()
+        .map(|s| map.get_or_create_token(&s))
+        .collect()
 }
 
 /// Wrap a feature token vector in the `root` / `eol` sentinels as a [`Tokens`]
@@ -290,12 +292,11 @@ mod tests {
         // At base 1.1, 23.976 / 24 / 25 fall in the same bucket and thus emit
         // the same neighbor singleton set. Verified against the table in the
         // design doc.
-        let m = &mut map();
         let c = cfg();
-        let mut set_for = |fps: f64| {
+        let set_for = |fps: f64| {
             let mut out = Vec::new();
-            emit_neighbors(&mut out, m, "fps", fps, c.fps_base, c.smoothing);
-            token_strs(&out, m)
+            emit_neighbor_strings(&mut out, "fps", fps, c.fps_base, c.smoothing);
+            out
         };
         let s23976 = set_for(23.976);
         let s24 = set_for(24.0);
@@ -311,9 +312,8 @@ mod tests {
 
     #[test]
     fn emit_neighbors_width_zero_is_singleton() {
-        let m = &mut map();
         let mut out = Vec::new();
-        emit_neighbors(&mut out, m, "duration", 100.0, 1.5, 0);
+        emit_neighbor_strings(&mut out, "duration", 100.0, 1.5, 0);
         assert_eq!(out.len(), 1, "w=0 emits exactly the bucket singleton");
     }
 
@@ -321,11 +321,12 @@ mod tests {
     fn emit_neighbors_lower_edge_clamps_to_zero() {
         // A value in bucket 0 with w=1 emits {s_0, s_1} (two tokens), never a
         // phantom s_{-1}.
-        let m = &mut map();
         let mut out = Vec::new();
-        emit_neighbors(&mut out, m, "duration", 1.0, 1.5, 1);
-        let strs = token_strs(&out, m);
-        assert_eq!(strs, vec!["duration:0", "duration:1"]);
+        emit_neighbor_strings(&mut out, "duration", 1.0, 1.5, 1);
+        assert_eq!(
+            out,
+            vec!["duration:0".to_string(), "duration:1".to_string()]
+        );
         assert_eq!(out.len(), 2);
     }
 
@@ -463,5 +464,36 @@ mod tests {
         // The video_codec token id equals a direct mint of the same string.
         let direct = m.get_or_create_token("video_codec:h264");
         assert!(a.iter().any(|t| *t == direct));
+    }
+
+    #[test]
+    fn feature_token_strings_is_pure_and_matches_feature_tokens() {
+        // `feature_token_strings` must not touch the TokenMap: calling it on a
+        // fresh map leaves the map's count unchanged, and its output exactly
+        // matches the strings the minting path (`feature_tokens`) would
+        // resolve. This is what lets the TUI render feature tokens without
+        // mutating the shared map.
+        let m = &mut map();
+        let before = m.count();
+        let f = MediaFeatures {
+            width: 1920,
+            height: 1080,
+            file_size: 8_000_000_000,
+            video_codec: "h264".into(),
+            audio_codec: "ac3".into(),
+            duration_secs: 5400.0,
+            fps: Some(24.0),
+        };
+        let strs = feature_token_strings(&f, &cfg());
+        assert_eq!(m.count(), before, "pure path must not mint tokens");
+        assert!(!strs.is_empty());
+
+        // The minting path resolves exactly these strings, in order.
+        let tokens = feature_tokens(&f, m, &cfg());
+        let resolved: Vec<String> = tokens
+            .iter()
+            .map(|t| m.get_str(*t).unwrap().to_string())
+            .collect();
+        assert_eq!(resolved, strs);
     }
 }
