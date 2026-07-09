@@ -250,6 +250,15 @@ impl PairTokenizer {
     pub fn token_map(&self) -> &TokenMap {
         &self.token_map
     }
+
+    /// Mutable access to the shared token map. Used by the feature pipeline
+    /// (`features.rs`) to mint feature-token ids into the **same** map the
+    /// path tokenizer owns, so feature ngram hashes coexist safely with path
+    /// ngram hashes in a merged `Ngrams` vec. Feature strings are never fed to
+    /// `tokenize`; the map is only used for `get_or_create_token`.
+    pub fn token_map_mut(&mut self) -> &mut TokenMap {
+        &mut self.token_map
+    }
 }
 
 #[cfg(test)]

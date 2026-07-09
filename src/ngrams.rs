@@ -107,25 +107,55 @@ impl Ngrams {
     /// This function tokenizes each path using the provided tokenizer, generates ngrams
     /// for each token sequence, counts their occurrences across all paths, and returns
     /// a set of ngrams that appear more than once.
+    ///
+    /// `feature_tokens` is aligned 1:1 with `paths` and holds the pre-built feature
+    /// [`Tokens`] for each entry (root + feature tokens + eol). When
+    /// `features_combinations > 0`, orderless feature combinations are generated per
+    /// entry and folded into the same counts, so the returned frequent set admits
+    /// feature ngrams alongside path ngrams — keeping the merged filter valid for
+    /// the candidate scoring pass which appends feature ngrams into the same
+    /// `Ngrams` vec. Pass an empty/zero-bloom `Tokens` (or `features_combinations
+    /// == 0`) to disable the feature contribution.
     pub fn count_and_filter_from_paths(
         paths: &[String],
+        feature_tokens: &[Tokens],
         tokenizer: &PairTokenizer,
         windows: usize,
         combinations: usize,
+        features_combinations: usize,
     ) -> AHashSet<Ngram> {
+        debug_assert_eq!(
+            paths.len(),
+            feature_tokens.len(),
+            "paths and feature_tokens must be aligned 1:1"
+        );
         let chunk_size = usize::max(100, paths.len() / (num_cpus::get() * 10));
         let last_special = tokenizer.token_map().last_special();
 
         let ngram_counts: AHashMap<Ngram, u8> = paths
             .par_chunks(chunk_size)
-            .map(|chunk| {
+            .enumerate()
+            .map(|(chunk_idx, chunk)| {
                 let mut local_counts: AHashMap<Ngram, u8> = AHashMap::new();
-                let mut temp_ngrams = Ngrams::default(); // Use Ngrams struct
-                for path in chunk {
+                let mut temp_ngrams = Ngrams::default();
+                for (i, path) in chunk.iter().enumerate() {
+                    let global_idx = chunk_idx * chunk_size + i;
                     let tokens = tokenizer.tokenize(path); // Tokenize each path
-                    // Generate ngrams for counting without filtering
+                    // Generate ngrams for counting without filtering. `windows`
+                    // clears the vec; `combinations` appends path combos; the
+                    // feature `combinations` appends feature combos. All are
+                    // sort-and-deduped together by the final `combinations` call.
                     temp_ngrams.windows(&tokens, windows, None, None);
                     temp_ngrams.combinations(&tokens, combinations, last_special, None, None);
+                    if features_combinations > 0 {
+                        temp_ngrams.combinations(
+                            &feature_tokens[global_idx],
+                            features_combinations,
+                            last_special,
+                            None,
+                            None,
+                        );
+                    }
                     for ngram in temp_ngrams.iter() {
                         let counter = local_counts.entry(*ngram).or_default();
                         *counter = counter.saturating_add(1);

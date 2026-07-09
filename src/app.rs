@@ -3,6 +3,7 @@ use crate::cache::{Cache, MediaFeatures, entry_hash};
 use crate::classifier::{
     Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier,
 };
+use crate::features::{self, FeatureConfig};
 use crate::logging::time_it;
 use crate::ngrams::{Ngram, Ngrams};
 use crate::normalize;
@@ -454,28 +455,65 @@ impl App {
 
     // Generates ngrams for all relevant paths, counts them, filters for frequent ones,
     // and stores tokens/ngrams for candidate entries.
+    //
+    // Feature ngrams are appended into the **same** per-entry `Ngrams` vec as
+    // the path ngrams and consumed by the single existing
+    // `NaiveBayesClassifier` (no second instance, no extra score column). See
+    // `docs/media-features-classifier.md` *Pipeline*.
     fn generate_ngrams(&mut self) {
-        let tokenizer = self.tokenizer.as_ref().unwrap();
-        let last_special = tokenizer.token_map().last_special();
+        let windows = self.common_args.windows;
+        let combinations = self.common_args.combinations;
+        let cfg = FeatureConfig::from_common(&self.common_args);
+        let features_combinations = cfg.combinations;
 
-        // Collect all paths for ngram counting (candidates + playlist)
+        let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
+
+        // Collect all paths for ngram counting (candidates + playlist).
         let mut paths: Vec<String> = self
             .entries
             .iter()
             .map(|e| e.normalized_path.to_string())
             .collect();
-        let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
         paths.extend(self.playlist.entries().iter().map(|e| {
             let path_to_normalize = e.abs_path(self.playlist.root()).to_string(&context);
             normalize::normalize(&path_to_normalize)
         }));
 
-        // Use the new function in ngrams.rs to count and filter
+        // Build feature Tokens per entry (candidates ++ playlist), minting each
+        // token string into the **same `TokenMap` the path tokenizer owns**.
+        // The vec is aligned 1:1 with `paths` so the frequent-set counting pass
+        // can fold feature combinations into the same `AHashMap<Ngram, u8>`.
+        let n_candidates = self.entries.len();
+        let all_feature_tokens: Vec<Tokens> = {
+            let tokenizer = self.tokenizer.as_mut().unwrap();
+            let map = tokenizer.token_map_mut();
+            // Build in two explicit loops (rather than a chained iterator) so
+            // the single `&mut TokenMap` is shared sequentially across both
+            // candidate and playlist feature minting without two closures
+            // simultaneously capturing it.
+            let mut v = Vec::with_capacity(n_candidates + self.playlist.entries().len());
+            for e in &self.entries {
+                v.push(features::build_feature_tokens(&e.features, map, &cfg));
+            }
+            for e in self.playlist.entries() {
+                v.push(features::build_feature_tokens(&e.features, map, &cfg));
+            }
+            v
+        };
+
+        let tokenizer = self.tokenizer.as_ref().unwrap();
+        let last_special = tokenizer.token_map().last_special();
+
+        // Count frequent ngrams over the merged space (path + feature); store
+        // `entry.ngrams` (paths + features, windows+combinations, deduped
+        // together).
         self.frequent_ngrams = Some(Ngrams::count_and_filter_from_paths(
             &paths,
+            &all_feature_tokens,
             tokenizer,
-            self.common_args.windows,
-            self.common_args.combinations,
+            windows,
+            combinations,
+            features_combinations,
         ));
 
         info!("total paths {:?}", paths.len());
@@ -484,8 +522,14 @@ impl App {
             self.frequent_ngrams.as_ref().unwrap().len()
         );
 
-        // Final pass to store tokens and frequent ngrams for candidates only
-        for entry in self.entries.iter_mut() {
+        // Final pass to store tokens and frequent ngrams for candidates only.
+        // Feature combinations are appended into the same `Ngrams` vec that
+        // already holds the path windows + path combinations; the
+        // sort-and-dedup in `combinations` collapses any duplicates across the
+        // three generation passes.
+        let frequent = self.frequent_ngrams.as_ref();
+        let candidate_feature_tokens = &all_feature_tokens[..n_candidates];
+        for (entry, ft) in self.entries.iter_mut().zip(candidate_feature_tokens.iter()) {
             // Tokenize the path and store the tokens
             entry.tokens = Some(tokenizer.tokenize(&entry.normalized_path));
 
@@ -493,50 +537,89 @@ impl App {
             // Generate ngrams for the entry using the frequent filter
             ngrams.windows(
                 entry.tokens.as_ref().unwrap(),
-                self.common_args.windows,
-                self.frequent_ngrams.as_ref(),
+                windows,
+                frequent,
                 None, // No debug info needed here
             );
             ngrams.combinations(
                 entry.tokens.as_ref().unwrap(),
-                self.common_args.combinations,
+                combinations,
                 last_special,
-                self.frequent_ngrams.as_ref(),
+                frequent,
                 None,
             );
+            if features_combinations > 0 {
+                ngrams.combinations(ft, features_combinations, last_special, frequent, None);
+            }
             entry.ngrams = Some(ngrams);
         }
     }
 
     // Trains the NaiveBayesClassifier using the tokenized and ngramized playlist entries.
+    //
+    // Feature combinations are appended into the same per-entry `Ngrams` as the
+    // path windows/combinations, so the single `naive_bayes` classifier trains
+    // on the merged vec (path + feature ngrams) exactly as it scores it.
     fn train_naive_bayes_classifier(&mut self) {
-        let tokenizer = self.tokenizer.as_ref().unwrap();
-        let last_special = tokenizer.token_map().last_special();
+        let windows = self.common_args.windows;
+        let combinations = self.common_args.combinations;
+        let cfg = FeatureConfig::from_common(&self.common_args);
+        let features_combinations = cfg.combinations;
 
-        // Train naive bayes classifier on playlist entries
-        let mut temp_ngrams = Ngrams::default();
-
-        // Process all examples in a single loop
         let context = PathDisplayContext::RelativeTo(self.playlist.root().to_path_buf());
-        for entry in self.playlist.entries().iter() {
-            let path_to_normalize = entry.abs_path(self.playlist.root()).to_string(&context);
-            let normalized_path = normalize::normalize(&path_to_normalize);
-            let tokens = tokenizer.tokenize(&normalized_path);
-            // Original code used None for allowed ngrams during training
-            temp_ngrams.windows(&tokens, self.common_args.windows, None, None);
-            temp_ngrams.combinations(
-                &tokens,
-                self.common_args.combinations,
-                last_special,
-                None,
-                None,
-            );
 
-            // Train based on entry type
-            if entry.is_positive() {
-                self.naive_bayes.train_positive(&temp_ngrams);
+        // Collect playlist training data up front so the tokenizer can be
+        // mutably borrowed (to mint feature tokens) without holding a borrow
+        // of `self.playlist` / `self.naive_bayes` across the minting loop.
+        let training: Vec<(String, MediaFeatures, bool)> = self
+            .playlist
+            .entries()
+            .iter()
+            .map(|e| {
+                let path_to_normalize = e.abs_path(self.playlist.root()).to_string(&context);
+                let normalized_path = normalize::normalize(&path_to_normalize);
+                (normalized_path, e.features.clone(), e.is_positive())
+            })
+            .collect();
+
+        // Build the merged `Ngrams` per playlist entry. Training uses no
+        // frequent-set filter (same as the path-only path), so all feature
+        // combinations are trained — rare ones enter the vocabulary and are
+        // then Laplace-smoothed at score time, mirroring how rare path ngrams
+        // behave.
+        let built: Vec<(Ngrams, bool)> = {
+            let tokenizer = self.tokenizer.as_mut().unwrap();
+            let last_special = tokenizer.token_map().last_special();
+            // Tokenize all paths first (immutable borrow), producing owned
+            // `Tokens`, so the mutable `TokenMap` borrow for feature minting
+            // does not overlap the `tokenize` calls.
+            let tokenized: Vec<(Tokens, MediaFeatures, bool)> = training
+                .iter()
+                .map(|(path, features, is_positive)| {
+                    (tokenizer.tokenize(path), features.clone(), *is_positive)
+                })
+                .collect();
+            let map = tokenizer.token_map_mut();
+            tokenized
+                .into_iter()
+                .map(|(tokens, features, is_positive)| {
+                    let mut ngrams = Ngrams::default();
+                    ngrams.windows(&tokens, windows, None, None);
+                    ngrams.combinations(&tokens, combinations, last_special, None, None);
+                    if features_combinations > 0 {
+                        let ft = features::build_feature_tokens(&features, map, &cfg);
+                        ngrams.combinations(&ft, features_combinations, last_special, None, None);
+                    }
+                    (ngrams, is_positive)
+                })
+                .collect()
+        };
+
+        for (ngrams, is_positive) in built {
+            if is_positive {
+                self.naive_bayes.train_positive(&ngrams);
             } else {
-                self.naive_bayes.train_negative(&temp_ngrams);
+                self.naive_bayes.train_negative(&ngrams);
             }
         }
     }

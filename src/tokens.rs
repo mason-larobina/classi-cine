@@ -87,6 +87,22 @@ impl Tokens {
         self.tokens.len() != from.tokens.len()
     }
 
+    /// Build a `Tokens` directly from a raw token vec, leaving the bloom
+    /// filter empty.
+    ///
+    /// Intended for **feature tokens** (see `features.rs`), which are only ever
+    /// consumed by [`Ngrams::combinations`] — an orderless, bloom-independent
+    /// path. Because the bloom is left unset, `contains` / `pairs` must not be
+    /// called on the result. The vec should already include the `root` and
+    /// `eol` sentinels if the consumer expects them (combinations filters them
+    /// out via `last_special`).
+    pub fn from_token_vec_unchecked(tokens: Vec<Token>) -> Self {
+        Self {
+            bloom: Bloom::default(),
+            tokens,
+        }
+    }
+
     pub fn contains<M: ToMask>(&self, e: &M) -> bool {
         self.bloom.contains(e)
     }

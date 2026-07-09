@@ -2,6 +2,7 @@ mod app;
 mod bloom;
 mod cache;
 mod classifier;
+mod features;
 mod ffprobe;
 mod logging;
 mod ngrams;
@@ -147,6 +148,31 @@ struct CommonArgs {
     /// expire everything, delete the cache directory.
     #[clap(long, default_value_t = 30)]
     cache_ttl_days: u32,
+    /// Orderless cross-feature combination order. Feature tokens (categorical
+    /// singletons + per-continuous-feature neighbor singletons) are fed to
+    /// `Ngrams::combinations` at this order, producing cross-feature ngrams
+    /// like `{video_codec:h264, duration:21}`. `0` disables feature ngrams
+    /// entirely (the feature `combinations` call is skipped). Independent of
+    /// `--combinations`. See `docs/media-features-classifier.md`.
+    #[clap(long, default_value_t = 2)]
+    features_combinations: usize,
+    /// Neighbor smoothing half-width for continuous buckets. A value in bucket
+    /// `i` also emits its immediate neighbors `[i-w, i+w]` (clamped to `>= 0`),
+    /// so adjacent buckets share signal through overlapping singletons. `0`
+    /// disables smoothing (plain 1-bucket singletons).
+    #[clap(long, default_value_t = 1)]
+    features_smoothing: usize,
+    /// Geometric bucket base for `duration` / `filesize` / `bitrate` (> 1.0).
+    /// `bucket(v) = floor(log_base(max(v, 1.0)))`. Power-of-2 bases are too
+    /// coarse for media; 1.5 yields ~22 duration buckets across 1s–4h.
+    #[clap(long, default_value_t = 1.5)]
+    features_bucket_base: f64,
+    /// Geometric bucket base for `fps` (> 1.0), separate from
+    /// `--features-bucket-base` because the fps range is narrow (~10–120) and
+    /// clustered at standard rates. 1.1 keeps NTSC/PAL partners (23.976/24,
+    /// 29.97/30, 59.94/60) in single buckets while separating adjacent groups.
+    #[clap(long, default_value_t = 1.1)]
+    features_fps_base: f64,
 }
 
 #[derive(Parser, Debug, Clone)]
