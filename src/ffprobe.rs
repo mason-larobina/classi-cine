@@ -146,7 +146,7 @@ impl MediaFeatures {
                 d.parse::<f64>()
                     .map_err(|e| format!("unparseable duration {:?}: {}", d, e))
             })
-            .map(|d| round2(d))?;
+            .map(round2)?;
 
         let fps = video
             .avg_frame_rate

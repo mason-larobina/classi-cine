@@ -320,7 +320,7 @@ impl Cache {
                             // Writer thread died; stop probing.
                         }
                         let done = successes.fetch_add(1, Ordering::Relaxed) + 1;
-                        if done % 100 == 0 {
+                        if done.is_multiple_of(100) {
                             info!(
                                 "cache: probing... {}/{} ({}%)",
                                 done,
@@ -728,7 +728,7 @@ mod tests {
         std::fs::write(&shard, aged + "\n").unwrap();
 
         // Re-run scanning only `fresh`: stale is unmatched and past TTL → dropped.
-        cache.populate(&[fresh.clone()], &StubProbe);
+        cache.populate(std::slice::from_ref(&fresh), &StubProbe);
         let loaded = cache.load_all();
         let keys: Vec<String> = loaded.iter().map(|e| e.key.clone()).collect();
         assert!(keys.contains(&entry_hash(&fresh.path, fresh.created, fresh.size)));
@@ -767,7 +767,7 @@ mod tests {
         let f = walk_file(tmp.path(), "a.mp4", 1_000, m);
 
         // Should not panic; the file gets re-probed and cached.
-        cache.populate(&[f.clone()], &StubProbe);
+        cache.populate(std::slice::from_ref(&f), &StubProbe);
         let loaded = cache.load_all();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].key, entry_hash(&f.path, f.created, f.size));
@@ -782,11 +782,11 @@ mod tests {
         let m = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let f = walk_file(tmp.path(), "a.mp4", 1_000, m);
 
-        cache.populate(&[f.clone()], &StubProbe);
+        cache.populate(std::slice::from_ref(&f), &StubProbe);
         let seqs_after_first: Vec<u64> = seqs_on_disk(tmp.path());
         let max1 = *seqs_after_first.iter().max().unwrap();
 
-        cache.populate(&[f.clone()], &StubProbe);
+        cache.populate(std::slice::from_ref(&f), &StubProbe);
         let seqs_after_second: Vec<u64> = seqs_on_disk(tmp.path());
         let max2 = *seqs_after_second.iter().max().unwrap();
 
@@ -816,7 +816,7 @@ mod tests {
         let m = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let known = walk_file(tmp.path(), "known.mp4", 1_000, m);
         // Seed the cache with `known`.
-        cache.populate(&[known.clone()], &StubProbe);
+        cache.populate(std::slice::from_ref(&known), &StubProbe);
 
         // Now add a new file alongside the known one. The known entry is a
         // survivor; the new file is probed. Both must end up cached.

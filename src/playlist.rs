@@ -477,8 +477,8 @@ mod tests {
         original.add_positive(&track1, &test_features())?;
         original.add_negative(&track2, &test_features())?;
 
-        let original_added_pos = original.entries()[0].added.clone();
-        let original_added_neg = original.entries()[1].added.clone();
+        let original_added_pos = original.entries()[0].added;
+        let original_added_neg = original.entries()[1].added;
 
         // Move to a new playlist (at the same root so relative paths are stable).
         let new_path = temp_dir.path().join("moved.m3u");
@@ -624,9 +624,9 @@ mod tests {
 
         let playlist_path = temp_dir.path().join("playlist.m3u");
         // A legacy entry with no `m` field, plus its bare filename line.
-        let legacy = format!(
-            "#EXTM3U\n#{{\"f\":\"music/track1.mp3\",\"a\":1700000000,\"s\":1}}\nmusic/track1.mp3\n"
-        );
+        let legacy =
+            "#EXTM3U\n#{\"f\":\"music/track1.mp3\",\"a\":1700000000,\"s\":1}\nmusic/track1.mp3\n"
+                .to_string();
         std::fs::write(&playlist_path, legacy)?;
 
         let playlist = M3uPlaylist::open(&playlist_path)?;

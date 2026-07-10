@@ -463,7 +463,7 @@ mod tests {
         assert_eq!(a, b);
         // The video_codec token id equals a direct mint of the same string.
         let direct = m.get_or_create_token("video_codec:h264");
-        assert!(a.iter().any(|t| *t == direct));
+        assert!(a.contains(&direct));
     }
 
     #[test]
