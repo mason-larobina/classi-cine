@@ -563,25 +563,16 @@ impl App {
             // Tokenize the path and store the tokens
             entry.tokens = Some(tokenizer.tokenize(&entry.normalized_path));
 
-            let mut ngrams = Ngrams::default();
-            // Generate ngrams for the entry using the frequent filter
-            ngrams.windows(
+            entry.ngrams = Some(Ngrams::build(
                 entry.tokens.as_ref().unwrap(),
+                (features_combinations > 0).then_some(ft),
                 windows,
-                frequent,
-                None, // No debug info needed here
-            );
-            ngrams.combinations(
-                entry.tokens.as_ref().unwrap(),
                 combinations,
+                features_combinations,
                 last_special,
                 frequent,
                 None,
-            );
-            if features_combinations > 0 {
-                ngrams.combinations(ft, features_combinations, last_special, frequent, None);
-            }
-            entry.ngrams = Some(ngrams);
+            ));
         }
     }
 
@@ -633,13 +624,21 @@ impl App {
             tokenized
                 .into_iter()
                 .map(|(tokens, features, is_positive)| {
-                    let mut ngrams = Ngrams::default();
-                    ngrams.windows(&tokens, windows, None, None);
-                    ngrams.combinations(&tokens, combinations, last_special, None, None);
-                    if features_combinations > 0 {
-                        let ft = features::build_feature_tokens(&features, map, &cfg);
-                        ngrams.combinations(&ft, features_combinations, last_special, None, None);
-                    }
+                    let ft = if features_combinations > 0 {
+                        Some(features::build_feature_tokens(&features, map, &cfg))
+                    } else {
+                        None
+                    };
+                    let ngrams = Ngrams::build(
+                        &tokens,
+                        ft.as_ref(),
+                        windows,
+                        combinations,
+                        features_combinations,
+                        last_special,
+                        None,
+                        None,
+                    );
                     (ngrams, is_positive)
                 })
                 .collect()
@@ -1074,29 +1073,16 @@ impl App {
                 // Regenerate ngram tokens (same method as existing debug code)
                 let mut ngram_tokens: Vec<Vec<Token>> = Vec::new();
                 {
-                    let mut tmp_ngrams = Ngrams::default();
-                    tmp_ngrams.windows(
+                    let _ = Ngrams::build(
                         tokens,
+                        feature_tokens.as_ref(),
                         self.common_args.windows,
-                        self.frequent_ngrams.as_ref(),
-                        Some(&mut ngram_tokens),
-                    );
-                    tmp_ngrams.combinations(
-                        tokens,
                         self.common_args.combinations,
+                        features_combinations,
                         last_special,
                         self.frequent_ngrams.as_ref(),
                         Some(&mut ngram_tokens),
                     );
-                    if let Some(ft) = feature_tokens.as_ref() {
-                        tmp_ngrams.combinations(
-                            ft,
-                            features_combinations,
-                            last_special,
-                            self.frequent_ngrams.as_ref(),
-                            Some(&mut ngram_tokens),
-                        );
-                    }
                     ngram_tokens.sort();
                     ngram_tokens.dedup();
                 }

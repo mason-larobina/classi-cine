@@ -21,6 +21,52 @@ impl Ngram {
 }
 
 impl Ngrams {
+    /// Builds the merged path+feature ngram vec for a single entry in one
+    /// call, replacing the `windows` -> `combinations` -> feature-`combinations`
+    /// triplet that was previously duplicated at every call site
+    /// (`generate_ngrams`, `train_naive_bayes_classifier`, `draw_ngrams`, and the
+    /// inner loop of `count_and_filter_from_paths`).
+    ///
+    /// `feature_tokens` is only consulted when `features_combinations > 0`.
+    /// `allowed` filters ngrams to a frequent set (`None` admits all). `debug`,
+    /// when `Some`, is populated with the concrete `Vec<Token>` for each
+    /// surviving ngram so the TUI can show the exact same ngram space used for
+    /// training/scoring.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build(
+        tokens: &Tokens,
+        feature_tokens: Option<&Tokens>,
+        windows: usize,
+        combinations: usize,
+        features_combinations: usize,
+        last_special: Token,
+        allowed: Option<&AHashSet<Ngram>>,
+        mut debug: Option<&mut Vec<Vec<Token>>>,
+    ) -> Self {
+        let mut ngrams = Ngrams::default();
+        let debug = &mut debug;
+        ngrams.windows(tokens, windows, allowed, debug.as_deref_mut());
+        ngrams.combinations(
+            tokens,
+            combinations,
+            last_special,
+            allowed,
+            debug.as_deref_mut(),
+        );
+        if features_combinations > 0
+            && let Some(ft) = feature_tokens
+        {
+            ngrams.combinations(
+                ft,
+                features_combinations,
+                last_special,
+                allowed,
+                debug.as_deref_mut(),
+            );
+        }
+        ngrams
+    }
+
     pub fn windows(
         &mut self,
         tokens: &Tokens,
@@ -137,7 +183,6 @@ impl Ngrams {
             .enumerate()
             .map(|(chunk_idx, chunk)| {
                 let mut local_counts: AHashMap<Ngram, u8> = AHashMap::new();
-                let mut temp_ngrams = Ngrams::default();
                 for (i, path) in chunk.iter().enumerate() {
                     let global_idx = chunk_idx * chunk_size + i;
                     let tokens = tokenizer.tokenize(path); // Tokenize each path
@@ -145,17 +190,16 @@ impl Ngrams {
                     // clears the vec; `combinations` appends path combos; the
                     // feature `combinations` appends feature combos. All are
                     // sort-and-deduped together by the final `combinations` call.
-                    temp_ngrams.windows(&tokens, windows, None, None);
-                    temp_ngrams.combinations(&tokens, combinations, last_special, None, None);
-                    if features_combinations > 0 {
-                        temp_ngrams.combinations(
-                            &feature_tokens[global_idx],
-                            features_combinations,
-                            last_special,
-                            None,
-                            None,
-                        );
-                    }
+                    let temp_ngrams = Ngrams::build(
+                        &tokens,
+                        (features_combinations > 0).then_some(&feature_tokens[global_idx]),
+                        windows,
+                        combinations,
+                        features_combinations,
+                        last_special,
+                        None,
+                        None,
+                    );
                     for ngram in temp_ngrams.iter() {
                         let counter = local_counts.entry(*ngram).or_default();
                         *counter = counter.saturating_add(1);
