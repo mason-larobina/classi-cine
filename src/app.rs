@@ -199,6 +199,9 @@ pub struct App {
     // Every file seen by the walk (before classification filtering), retained
     // as the live-key set for the ffprobe cache populate pass.
     collected_files: Vec<crate::walk::File>,
+    /// Compiled `--exclude` glob set, matched against the absolute path of
+    /// each walked file and directory.
+    excludes: crate::walk::Excludes,
     // TUI state
     list_state: ListState,
     currently_playing: Option<usize>,
@@ -207,7 +210,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(build_args: BuildArgs, playlist: M3uPlaylist) -> Self {
+    pub fn new(build_args: BuildArgs, playlist: M3uPlaylist) -> Result<Self, Error> {
         Self::new_common(
             build_args.common.clone(),
             Some(build_args.clone()),
@@ -216,7 +219,7 @@ impl App {
         )
     }
 
-    pub fn new_for_scoring(score_args: ScoreArgs, playlist: M3uPlaylist) -> Self {
+    pub fn new_for_scoring(score_args: ScoreArgs, playlist: M3uPlaylist) -> Result<Self, Error> {
         Self::new_common(
             score_args.common.clone(),
             None,
@@ -230,7 +233,7 @@ impl App {
         build_args: Option<crate::BuildArgs>,
         score_args: Option<crate::ScoreArgs>,
         playlist: M3uPlaylist,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         info!("{:#?}", common_args);
 
         // Initialize optional classifiers based on args
@@ -280,7 +283,11 @@ impl App {
         // Get initial terminal height
         let terminal_height = terminal::size().map(|(_, h)| h).unwrap_or(20);
 
-        Self {
+        // Compile --exclude globs once; reused across the whole walk. Failure
+        // here aborts startup with a clear error rather than mid-run.
+        let excludes = crate::walk::Excludes::new(&common_args.exclude)?;
+
+        Ok(Self {
             common_args,
             build_args,
             score_args,
@@ -294,11 +301,12 @@ impl App {
             playlist,
             vlc_controller,
             collected_files: Vec::new(),
+            excludes,
             list_state: ListState::default(),
             currently_playing: None,
             should_quit: false,
             terminal_height,
-        }
+        })
     }
 
     fn set_threads_to_min_priority(&self) {
@@ -342,7 +350,10 @@ impl App {
             }
         }
 
-        let walk = Walk::new(self.common_args.video_exts.iter().map(String::as_ref));
+        let walk = Walk::new(
+            self.common_args.video_exts.iter().map(String::as_ref),
+            self.excludes.clone(),
+        );
         for dir in &self.common_args.dirs {
             walk.walk_dir(dir);
         }
@@ -1038,8 +1049,27 @@ impl App {
 
     fn draw_ngrams(&mut self, f: &mut Frame, area: Rect, entry: &Entry) {
         if let Some(ref tokens) = entry.tokens {
-            if let Some(tokenizer) = &self.tokenizer {
+            if let Some(tokenizer) = self.tokenizer.as_mut() {
+                // Build this entry's feature tokens so the TUI shows the same
+                // merged path+feature ngram space used for training/scoring
+                // (see `generate_ngrams` / `train_naive_bayes_classifier`). The
+                // feature tokens were already minted into the shared `TokenMap`
+                // during `generate_ngrams`, so `build_feature_tokens` is just an
+                // idempotent lookup here.
+                let cfg = FeatureConfig::from_common(&self.common_args);
+                let features_combinations = cfg.combinations;
+                let feature_tokens = if features_combinations > 0 {
+                    Some(features::build_feature_tokens(
+                        &entry.features,
+                        tokenizer.token_map_mut(),
+                        &cfg,
+                    ))
+                } else {
+                    None
+                };
+
                 let token_map = tokenizer.token_map();
+                let last_special = token_map.last_special();
 
                 // Regenerate ngram tokens (same method as existing debug code)
                 let mut ngram_tokens: Vec<Vec<Token>> = Vec::new();
@@ -1054,10 +1084,19 @@ impl App {
                     tmp_ngrams.combinations(
                         tokens,
                         self.common_args.combinations,
-                        token_map.last_special(),
+                        last_special,
                         self.frequent_ngrams.as_ref(),
                         Some(&mut ngram_tokens),
                     );
+                    if let Some(ft) = feature_tokens.as_ref() {
+                        tmp_ngrams.combinations(
+                            ft,
+                            features_combinations,
+                            last_special,
+                            self.frequent_ngrams.as_ref(),
+                            Some(&mut ngram_tokens),
+                        );
+                    }
                     ngram_tokens.sort();
                     ngram_tokens.dedup();
                 }

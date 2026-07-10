@@ -72,6 +72,13 @@ pub enum Error {
 
     #[error("Cache error: {0}")]
     Cache(String),
+
+    #[error("Invalid --exclude glob pattern: {0}")]
+    ExcludePattern(
+        #[from]
+        #[source]
+        globset::Error,
+    ),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -120,6 +127,20 @@ struct CommonArgs {
     playlist: PathBuf,
     /// Directories to scan for video files
     dirs: Vec<PathBuf>,
+    /// Glob patterns of files and directories to exclude from the walk,
+    /// matched against the normalized absolute path. A directory that matches
+    /// is pruned entirely (its subtree is never descended into). Uses
+    /// gitignore-flavored rules: a pattern with **no slash** is matched
+    /// against the file/directory *name* (so `*.tmp` excludes any `.tmp` file
+    /// at any depth and `sample` prunes any directory *or* file named
+    /// `sample` anywhere); a pattern **with a slash** is matched against the
+    /// full absolute path (so `**/trailers/**` excludes files under any
+    /// `trailers` dir and `/abs/dir/**` anchors to a specific path).
+    /// `globset` with `literal_separator(true)` applies: `*` matches a single
+    /// path component and `**` spans any number of them. May be given
+    /// multiple times; all patterns are OR-ed together.
+    #[arg(long, value_name = "GLOB")]
+    exclude: Vec<String>,
     /// Video file extensions to scan for
     #[arg(
         long,
@@ -386,12 +407,12 @@ fn main() -> Result<(), Error> {
             }
 
             let playlist = M3uPlaylist::open(&build_args.common.playlist)?;
-            let mut app = App::new(build_args.clone(), playlist);
+            let mut app = App::new(build_args.clone(), playlist)?;
             app.run_build()?;
         }
         Command::Score(ref score_args) => {
             let playlist = M3uPlaylist::open(&score_args.common.playlist)?;
-            let mut app = App::new_for_scoring(score_args.clone(), playlist);
+            let mut app = App::new_for_scoring(score_args.clone(), playlist)?;
             app.run_score()?;
         }
         Command::ListPositive(list_args) => {

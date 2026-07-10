@@ -139,6 +139,7 @@ Arguments:
   [DIRS]...   Directories to scan for video files
 
 Options:
+      --exclude <GLOB>                 Glob patterns of files/dirs to exclude (gitignore-flavored: no-slash matches basename anywhere, with-slash matches absolute path). Repeatable. A matching directory is pruned entirely
       --video-exts <VIDEO_EXTS>         Video file extensions to scan for [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
       --windows <WINDOWS>               [default: 5]
       --file-size-bias <FILE_SIZE_BIAS> Bias scoring based on file sizes (log base, > 1.0). Negative reverses bias
@@ -166,6 +167,7 @@ Arguments:
   [DIRS]...   Directories to scan for video files
 
 Options:
+      --exclude <GLOB>                 Glob patterns of files/dirs to exclude (gitignore-flavored: no-slash matches basename anywhere, with-slash matches absolute path). Repeatable. A matching directory is pruned entirely
       --video-exts <VIDEO_EXTS>         Video file extensions to scan for [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
       --windows <WINDOWS>               [default: 5]
       --file-size-bias <FILE_SIZE_BIAS> Bias scoring based on file sizes (log base, > 1.0). Negative reverses bias
