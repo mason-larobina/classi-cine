@@ -73,15 +73,12 @@ cd classi-cine && cargo install --path=.
 classi-cine [OPTIONS] <COMMAND>
 ```
 
-| Command | Purpose |
-| ---------------- | ------------------------------------------------------------- |
-| `build` | Build a playlist through interactive classification |
-| `score` | Rank files using trained classifiers (no interaction) |
-| `list-positive` | List positively classified files |
-| `list-negative` | List negatively classified files |
-| `move` | Move a playlist to a new location and rebase its paths |
-| `reconcile` | Drop deleted files and re-add reappeared ones |
-| `help` | Print help for a command |
+- `build` — Build a playlist through interactive classification.
+- `score` — Rank files using trained classifiers (no interaction).
+- `list-positive` / `list-negative` — List positively or negatively classified files.
+- `move` — Move a playlist to a new location and rebase its paths.
+- `reconcile` — Drop deleted files and re-add reappeared ones.
+- `help` — Print help for a command.
 
 Global options: `--log-level` (default `info`), `--log-file` (log to a file, always, even while the TUI runs), `-h`/`--help`. Run `classi-cine --help` for the full listing.
 
