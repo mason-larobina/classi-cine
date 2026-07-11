@@ -6,68 +6,40 @@
 
 [![Rust](https://github.com/mason-larobina/classi-cine/actions/workflows/rust.yml/badge.svg)](https://github.com/mason-larobina/classi-cine/actions/workflows/rust.yml)
 
-**Autocomplete, but for your video library.** Classi-Cine watches which videos you keep and which you skip, then predicts what you'll want next - so you build the perfect playlist in a few clicks instead of scrolling for an hour.
+**Autocomplete, but for your video library.** Classi-Cine watches which videos you keep and which you skip, then predicts what you'll want next — so you build the perfect playlist in a few clicks instead of hunting for an hour.
 
-## The Problem
+## Why
 
-A big video collection is only useful if you can find the right thing in it - and usually you can't:
+A big video collection is only useful if you can find the right thing in it — and usually you can't: scrolling hundreds of files, forgetting which episodes were good, no quick "more like this," hand-built playlists that take longer than watching them.
 
-- Scrolling through hundreds or thousands of files to find one
-- Trying to remember which episodes or clips were actually good
-- No quick way to say "more like this one"
-- Hand-building playlists that take longer than watching them
+## How it works
 
-## The Solution
+Classi-Cine runs a fast round of accept/reject to home in on what you want:
 
-Classi-Cine plays a fast round of accept/reject to home in on what you want:
+1. **Point it at your video directories** — it discovers your whole collection.
+1. **It suggests, you decide** — preview each pick in VLC; **stop** means *more like this*, **pause** means *less like this*.
+1. **Suggestions sharpen as you go** — every decision teaches it your taste.
+1. **Walk away with a finished playlist** — minutes, not an afternoon.
 
-1. **Point it at your video directories** - it discovers your whole collection
-1. **It suggests, you decide** - accept or reject each pick with VLC controls (stop = keep, pause = skip)
-1. **Suggestions sharpen as you go** - every decision teaches it your taste
-1. **Walk away with a finished playlist** - built in minutes, not an afternoon
+Like text autocomplete learns from what you type, Classi-Cine learns from what you keep. It reads file names, folder structure, sizes, and ages — and, via ffprobe, codec, resolution, aspect ratio, duration, bitrate, and frame rate — then scores every video with several classifiers and re-ranks in real time. The next suggestion is always its best guess.
 
-Perfect for:
+Great for large media collections, content creators curating footage, anyone with 100+ videos, or building themed playlists.
 
-- **Large media collections** (TV series, movies, documentaries, clips)
-- **Content creators** curating references or footage
-- **Anyone with 100+ videos** who wants smart discovery
-- **Building themed playlists** (action movies, comedy episodes, tutorial clips, etc.)
-
-## Quick Start
+## Quick start
 
 ```bash
 # Install
 cargo install classi-cine
 
-# Start building a playlist - the AI will suggest additions
+# Build a playlist — the TUI ranks candidates by predicted relevance
 classi-cine build my-playlist.m3u ~/Videos ~/Movies
-
-# The TUI shows AI predictions ranked by relevance
-# Press Enter to preview in VLC
-# Stop (s) to keep and add to playlist, pause (space) to skip
-# Watch suggestions get smarter with each decision!
 ```
 
-## How It Works
+The TUI shows AI predictions ranked by relevance. Press **stop** (s) to keep and add it, **pause** (space) to skip. Suggestions get smarter with each decision; quit with **q** or **Esc**.
 
-Just like text autocomplete learns from what you type, Classi-Cine learns from what you keep:
+## Recipe: cull a folder of clips
 
-1. **Reads your whole collection** - file names, folder structure, sizes, and ages
-1. **Scores every video** - several lightweight classifiers rank each candidate
-1. **Learns from each call** - every keep/skip updates its model of your taste
-1. **Re-ranks in real time** - the next suggestion is always its best guess
-
-**Simple VLC integration:**
-
-- Stop video (s key) = "Yes, keep this in my playlist"
-- Pause video (space) = "No, skip it"
-- Standard M3U playlists work in any media player
-
-## Recipe: Cull a Folder of Clips
-
-A favorite use is the inverse of building a "keep" list: quickly triaging a messy folder of clips and deleting the ones you don't want.
-
-The trick is to flip the meaning of the labels. Classi-Cine marks stopped videos as positive, so let **positive mean "delete"** - press stop (s) on clips you want gone and pause (space) on the keepers. As you classify, the playlist learns the patterns of the unwanted clips and surfaces more of them, so culling gets faster the longer you go.
+A favorite use is the inverse of building a "keep" list: quickly triaging a messy folder and deleting the dross. Flip the meaning of the labels — Classi-Cine marks stopped videos as positive, so let **positive mean "delete."** Press stop (s) on clips you want gone, pause (space) on the keepers. As you classify, the playlist learns the patterns of the unwanted clips and surfaces more of them, so culling gets faster the longer you go.
 
 ```bash
 # Classify clips into delete.m3u: stop (s) = delete, pause (space) = keep
@@ -83,196 +55,114 @@ classi-cine list-positive delete.m3u | xargs -d '\n' rm -v
 
 ## Installation
 
-VLC is required for video playback.
+- **VLC** — required for `build` (playback and feedback).
+- **ffprobe** — recommended; Classi-Cine extracts codec, resolution, duration, bitrate, and fps to classify on. Probing is cached and failures are skipped silently, so it works without it but learns less.
 
-Ensure you have Rust and Cargo installed. If not, you can install them using rustup.
-
-### From Cargo
-
-```bash
-# Build from the cargo.io crate registry.
-$ cargo install classi-cine
-```
-
-### From Source
+Then, with Rust and Cargo ([rustup](https://rustup.rs) if needed):
 
 ```bash
-# Clone this repository
-$ git clone https://github.com/mason-larobina/classi-cine.git
-
-# Go into the repository
-$ cd classi-cine
-
-# Build and install it locally
-$ cargo install --path=.
+cargo install classi-cine            # from crates.io
+# …or from source:
+git clone https://github.com/mason-larobina/classi-cine.git
+cd classi-cine && cargo install --path=.
 ```
 
 ## Usage
 
 ```bash
-Usage: classi-cine [OPTIONS] <COMMAND>
-
-Commands:
-  build          Build playlist through interactive classification
-  score          Score files using trained classifiers without interactive classification
-  list-positive  List positively classified files
-  list-negative  List negatively classified files
-  move           Move playlist to a new location and rebase paths
-  reconcile      Reconcile playlist with disk (drop deleted, re-add reappeared files)
-  help           Print this message or the help of the given subcommand(s)
-
-Options:
-      --log-level <LOG_LEVEL>  [default: info]
-      --log-file <LOG_FILE>    Write log output to this file. When set, logs always go to the file, even while the interactive TUI is running (which suppresses stderr logs)
-  -h, --help                   Print help
+classi-cine [OPTIONS] <COMMAND>
 ```
 
-### Build Command
+| Command | Purpose |
+| ---------------- | ------------------------------------------------------------- |
+| `build` | Build a playlist through interactive classification |
+| `score` | Rank files using trained classifiers (no interaction) |
+| `list-positive` | List positively classified files |
+| `list-negative` | List negatively classified files |
+| `move` | Move a playlist to a new location and rebase its paths |
+| `reconcile` | Drop deleted files and re-add reappeared ones |
+| `help` | Print help for a command |
 
-Build a playlist through interactive VLC classification:
+Global options: `--log-level` (default `info`), `--log-file` (log to a file, always, even while the TUI runs), `-h`/`--help`. Run `classi-cine --help` for the full listing.
+
+### build
 
 ```bash
 classi-cine build [OPTIONS] <PLAYLIST> [DIRS]...
-
-Arguments:
-  <PLAYLIST>  M3U playlist file
-  [DIRS]...   Directories to scan for video files
-
-Options:
-      --exclude <GLOB>                 Glob patterns of files/dirs to exclude (gitignore-flavored: no-slash matches basename anywhere, with-slash matches absolute path). Repeatable. A matching directory is pruned entirely
-      --video-exts <VIDEO_EXTS>         Video file extensions to scan for [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
-      --windows <WINDOWS>               [default: 5]
-      --file-size-bias <FILE_SIZE_BIAS> Bias scoring based on file sizes (log base, > 1.0). Negative reverses bias
-      --file-size-offset <FILE_SIZE_OFFSET> Offset to add to file size before log scaling [default: 1048576]
-      --dir-size-bias <DIR_SIZE_BIAS>   Bias scoring based on directory sizes (log base, > 1.0). Negative reverses bias
-      --dir-size-offset <DIR_SIZE_OFFSET> Offset to add to directory size before log scaling [default: 0]
-      --file-age-bias <FILE_AGE_BIAS>   Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score)
-      --file-age-offset <FILE_AGE_OFFSET> Offset to add to file age in seconds before log scaling [default: 86400]
-      --fullscreen                      Fullscreen VLC playback
-      --vlc-timeout <VLC_TIMEOUT>       Timeout in seconds for VLC startup [default: 60]
-      --vlc-poll-interval <VLC_POLL_INTERVAL> Polling interval in milliseconds for VLC status checks [default: 100]
-      --selection-p <SELECTION_P>       Iterate top-scored entries and select the first where rand() <= p
-  -h, --help                            Print help
 ```
 
-### Score Command
+Discover videos, train on your keep/skip calls, and interactively build a playlist. Notable options:
 
-Score files using trained classifiers without interactive classification:
+- `--exclude <GLOB>` — gitignore-flavored exclude patterns, repeatable.
+- `--video-exts` — extensions to scan (default: common video formats).
+- `--windows`, `--combinations` — ngram window size and orderless-combination order for path tokens.
+- `--file-size-bias`, `--dir-size-bias`, `--file-age-bias` — log-base biases (negative reverses); each has a matching `--*-offset`.
+- `--cache-ttl-days` — ffprobe feature cache TTL (default 30; 0 = never expire).
+- `--features-combinations`, `--features-smoothing`, `--features-bucket-base`, `--features-fps-base` — tune the media-features classifier (see `docs/media-features-classifier.md`).
+- `--fullscreen`, `--selection-p`, `--vlc-timeout`, `--vlc-poll-interval`.
+
+Run `classi-cine build --help` for the full list.
+
+### score
 
 ```bash
 classi-cine score [OPTIONS] <PLAYLIST> [DIRS]...
-
-Arguments:
-  <PLAYLIST>  M3U playlist file
-  [DIRS]...   Directories to scan for video files
-
-Options:
-      --exclude <GLOB>                 Glob patterns of files/dirs to exclude (gitignore-flavored: no-slash matches basename anywhere, with-slash matches absolute path). Repeatable. A matching directory is pruned entirely
-      --video-exts <VIDEO_EXTS>         Video file extensions to scan for [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
-      --windows <WINDOWS>               [default: 5]
-      --file-size-bias <FILE_SIZE_BIAS> Bias scoring based on file sizes (log base, > 1.0). Negative reverses bias
-      --file-size-offset <FILE_SIZE_OFFSET> Offset to add to file size before log scaling [default: 1048576]
-      --dir-size-bias <DIR_SIZE_BIAS>   Bias scoring based on directory sizes (log base, > 1.0). Negative reverses bias
-      --dir-size-offset <DIR_SIZE_OFFSET> Offset to add to directory size before log scaling [default: 0]
-      --file-age-bias <FILE_AGE_BIAS>   Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score)
-      --file-age-offset <FILE_AGE_OFFSET> Offset to add to file age in seconds before log scaling [default: 86400]
-      --include-classified              Include already classified files in the score listing
-      --no-header                       Skip header output for machine-readable format
-      --include-size                    Include file size in bytes in output
-      --json                            Output results in JSON format
-      --reverse                         Reverse output order (lowest scores first)
-      --by-dir                          Group results by directory and aggregate scores
-      --absolute                        Display absolute paths instead of relative to current directory
-  -h, --help                            Print help
 ```
 
-### List Commands
+Train on the classifications already in a playlist, then rank discovered files by combined score — no VLC interaction. Shares `build`'s discovery, bias, cache, and feature options, plus output controls:
 
-List positively or negatively classified files:
+- `--include-classified` — include already-classified files in the listing.
+- `--by-dir` — group results by directory and aggregate scores.
+- `--json`, `--no-header`, `--include-size`, `--reverse`, `--absolute`.
+
+### list-positive / list-negative
 
 ```bash
 classi-cine list-positive [OPTIONS] <PLAYLIST>
 classi-cine list-negative [OPTIONS] <PLAYLIST>
-
-Arguments:
-  <PLAYLIST>  M3U playlist file
-
-Options:
-      --absolute  Display absolute paths instead of relative to current directory
-      --exists    Only print entries whose file still exists on disk
-  -h, --help      Print help
 ```
 
-### Move Command
+Options: `--absolute`, `--exists` (only files still on disk).
 
-Move playlist to a new location and rebase paths:
+### move
 
 ```bash
 classi-cine move <ORIGINAL> <NEW>
-
-Arguments:
-  <ORIGINAL>  Original M3U playlist file
-  <NEW>       New M3U playlist file location
-
-Options:
-  -h, --help  Print help
 ```
 
-### Reconcile Command
+Write the playlist to a new location, rebasing its relative paths.
 
-Rewrite the playlist file so its on-disk form matches the current state of disk: bare filename lines are dropped for positive entries whose files have been deleted, and re-added for files that reappeared. The `#{...}` classification metadata is always preserved so training data survives.
+### reconcile
 
 ```bash
 classi-cine reconcile <PLAYLIST>
-
-Arguments:
-  <PLAYLIST>  M3U playlist file
-
-Options:
-  -h, --help  Print help
 ```
 
-## Technical Details
+Rewrite the playlist to match disk: drop bare lines for deleted files and re-add them for files that reappeared. `#{...}` classification metadata is always preserved, so training data survives.
 
-Under the hood, Classi-Cine combines several techniques to turn your keep/skip calls into accurate rankings:
+## How it ranks
 
-**Multi-Classifier Architecture:**
+Several classifiers score each candidate; their normalized scores combine into the final ranking:
 
-- **Naive Bayes Classifier**: Uses byte-pair encoding tokenization to learn patterns from file paths and folder names
-- **File Size Classifier**: Logarithmic scoring based on file sizes (configurable bias for larger/smaller files)
-- **Directory Size Classifier**: Scoring based on number of files in directories
-- **File Age Classifier**: Scoring based on file creation time
-- All classifiers use normalized scores that are combined for final ranking
+- **Naive Bayes over path ngrams** — byte-pair encoding tokenizes file and folder names; orderless combinations learn which tokens tend to appear together in kept vs. skipped files. Language- and encoding-agnostic.
+- **Naive Bayes over media features** — ffprobe-derived codec, resolution, aspect ratio, duration, bitrate, and fps are bucketed and smoothed into tokens that feed the Naive Bayes instance. See `docs/media-features-classifier.md`.
+- **File-size, directory-size, and file-age classifiers** — logarithmic biases you can tune or reverse per dimension.
 
-**Advanced Tokenization:**
+Under the hood:
 
-- Byte pair encoding learns frequent character sequences from your specific collection
-- Language and character set agnostic - works with any naming convention
-- Adaptive tokenization learns from your library's patterns
-- N-gram analysis for sequence pattern recognition
-
-**Performance Optimizations:**
-
-- Probabilistic filters and parallel processing for efficient tokenization
-- Sharded data structures for multi-core processing
-- Background VLC control with multi-threaded communication
-- Incremental M3U saves for long classification sessions
-
-**VLC Integration:**
-
-- Uses VLC's HTTP interface for status monitoring
-- Multi-threaded VLC control with background processing
-- Automatic process lifecycle management
-- Real-time classification feedback loop
+- **ffprobe cache** — a persistent, sharded, TTL-based cache under your XDG cache dir amortizes probing across runs. A corrupt shard or a failed probe is skipped, never fatal; delete the cache directory to reset. See `docs/ffprobe-cache.md`.
+- **Adaptive tokenization** — BPE learns frequent character sequences from *your* library.
+- **Incremental learning** — each keep/skip updates the model immediately.
+- **Background VLC control** — multi-threaded, via VLC's HTTP interface, with automatic process cleanup on exit.
 
 ## Contributing
 
-We're open to contributions! Enhancements, bug fixes, documentation improvements, and more are all welcome.
+Contributions welcome — enhancements, bug fixes, docs, and more.
 
 ## License
 
-This project is licensed under the MIT License. See LICENSE for details.
+MIT. See [LICENSE](LICENSE).
 
-## Special Thanks
+______________________________________________________________________
 
 Made with ❤️ and Rust.
