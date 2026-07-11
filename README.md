@@ -69,73 +69,190 @@ cd classi-cine && cargo install --path=.
 
 ## Usage
 
-```bash
-classi-cine [OPTIONS] <COMMAND>
+```text
+$ classi-cine --help
+Usage: classi-cine [OPTIONS] <COMMAND>
+
+Commands:
+  build          Build playlist through interactive classification
+  score          Score files using trained classifiers without interactive classification
+  list-positive  List positively classified files
+  list-negative  List negatively classified files
+  move           Move playlist to a new location and rebase paths
+  reconcile      Reconcile playlist with disk: drop bare lines for deleted files and re-add them for files that reappeared
+  help           Print this message or the help of the given subcommand(s)
+
+Options:
+      --log-level <LOG_LEVEL>  [default: info]
+      --log-file <LOG_FILE>    Write log output to this file. When set, logs always go to the file, even while the interactive TUI is running (which suppresses stderr logs)
+  -h, --help                   Print help
 ```
-
-- `build` — Build a playlist through interactive classification.
-- `score` — Rank files using trained classifiers (no interaction).
-- `list-positive` / `list-negative` — List positively or negatively classified files.
-- `move` — Move a playlist to a new location and rebase its paths.
-- `reconcile` — Drop deleted files and re-add reappeared ones.
-- `help` — Print help for a command.
-
-Global options: `--log-level` (default `info`), `--log-file` (log to a file, always, even while the TUI runs), `-h`/`--help`. Run `classi-cine --help` for the full listing.
 
 ### build
 
-```bash
-classi-cine build [OPTIONS] <PLAYLIST> [DIRS]...
+```text
+$ classi-cine build --help
+Build playlist through interactive classification
+
+Usage: classi-cine build [OPTIONS] <PLAYLIST> [DIRS]...
+
+Arguments:
+  <PLAYLIST>  M3U playlist file
+  [DIRS]...   Directories to scan for video files
+
+Options:
+      --exclude <GLOB>
+          Glob patterns of files and directories to exclude from the walk, matched against the normalized absolute path. A directory that matches is pruned entirely (its subtree is never descended into). Uses gitignore-flavored rules: a pattern with **no slash** is matched against the file/directory *name* (so `*.tmp` excludes any `.tmp` file at any depth and `sample` prunes any directory *or* file named `sample` anywhere); a pattern **with a slash** is matched against the full absolute path (so `**/trailers/**` excludes files under any `trailers` dir and `/abs/dir/**` anchors to a specific path). `globset` with `literal_separator(true)` applies: `*` matches a single path component and `**` spans any number of them. May be given multiple times; all patterns are OR-ed together
+      --video-exts <VIDEO_EXTS>
+          Video file extensions to scan for [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
+      --windows <WINDOWS>
+          Maximum contiguous window size for ngram features. Set to 0 to disable windows and rely solely on --combinations [default: 5]
+      --combinations <COMBINATIONS>
+          Generate orderless combinations of up to k tokens (default pairs) as ngram features. Independent of --windows, so --windows=0 leaves only combinations; set --combinations=0 to disable them entirely [default: 2]
+      --file-size-bias <FILE_SIZE_BIAS>
+          Bias scoring based on file sizes (log base, > 1.0). Negative reverses bias
+      --file-size-offset <FILE_SIZE_OFFSET>
+          Offset to add to file size before log scaling [default: 1048576]
+      --dir-size-bias <DIR_SIZE_BIAS>
+          Bias scoring based on directory sizes (log base, > 1.0). Negative reverses bias
+      --dir-size-offset <DIR_SIZE_OFFSET>
+          Offset to add to directory size before log scaling [default: 0]
+      --file-age-bias <FILE_AGE_BIAS>
+          Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score)
+      --file-age-offset <FILE_AGE_OFFSET>
+          Offset to add to file age in seconds before log scaling [default: 86400]
+      --cache-ttl-days <CACHE_TTL_DAYS>
+          Cache TTL in days for the ffprobe feature cache. Entries whose key is not seen among the collected files for this long are expired. 0 disables expiry entirely (useful for cold, stable libraries). To force expire everything, delete the cache directory [default: 30]
+      --features-combinations <FEATURES_COMBINATIONS>
+          Orderless cross-feature combination order. Feature tokens (categorical singletons + per-continuous-feature neighbor singletons) are fed to `Ngrams::combinations` at this order, producing cross-feature ngrams like `{video_codec:h264, duration:21}`. `0` disables feature ngrams entirely (the feature `combinations` call is skipped). Independent of `--combinations`. See `docs/media-features-classifier.md` [default: 2]
+      --features-smoothing <FEATURES_SMOOTHING>
+          Neighbor smoothing half-width for continuous buckets. A value in bucket `i` also emits its immediate neighbors `[i-w, i+w]` (clamped to `>= 0`), so adjacent buckets share signal through overlapping singletons. `0` disables smoothing (plain 1-bucket singletons) [default: 1]
+      --features-bucket-base <FEATURES_BUCKET_BASE>
+          Geometric bucket base for `duration` / `filesize` / `bitrate` (> 1.0). `bucket(v) = floor(log_base(max(v, 1.0)))`. Power-of-2 bases are too coarse for media; 1.5 yields ~22 duration buckets across 1s–4h [default: 1.5]
+      --features-fps-base <FEATURES_FPS_BASE>
+          Geometric bucket base for `fps` (> 1.0), separate from `--features-bucket-base` because the fps range is narrow (~10–120) and clustered at standard rates. 1.1 keeps NTSC/PAL partners (23.976/24, 29.97/30, 59.94/60) in single buckets while separating adjacent groups [default: 1.1]
+      --fullscreen
+          Fullscreen VLC playback
+      --vlc-timeout <VLC_TIMEOUT>
+          Timeout in seconds for VLC startup [default: 60]
+      --vlc-poll-interval <VLC_POLL_INTERVAL>
+          Polling interval in milliseconds for VLC status checks [default: 100]
+      --selection-p <SELECTION_P>
+          Iterate top-scored entries and select the first where rand() <= p
+  -h, --help
+          Print help
 ```
-
-Discover videos, train on your keep/skip calls, and interactively build a playlist. Notable options:
-
-- `--exclude <GLOB>` — gitignore-flavored exclude patterns, repeatable.
-- `--video-exts` — extensions to scan (default: common video formats).
-- `--windows`, `--combinations` — ngram window size and orderless-combination order for path tokens.
-- `--file-size-bias`, `--dir-size-bias`, `--file-age-bias` — log-base biases (negative reverses); each has a matching `--*-offset`.
-- `--cache-ttl-days` — ffprobe feature cache TTL (default 30; 0 = never expire).
-- `--features-combinations`, `--features-smoothing`, `--features-bucket-base`, `--features-fps-base` — tune the media-features classifier (see `docs/media-features-classifier.md`).
-- `--fullscreen`, `--selection-p`, `--vlc-timeout`, `--vlc-poll-interval`.
-
-Run `classi-cine build --help` for the full list.
 
 ### score
 
-```bash
-classi-cine score [OPTIONS] <PLAYLIST> [DIRS]...
+```text
+$ classi-cine score --help
+Score files using trained classifiers without interactive classification
+
+Usage: classi-cine score [OPTIONS] <PLAYLIST> [DIRS]...
+
+Arguments:
+  <PLAYLIST>  M3U playlist file
+  [DIRS]...   Directories to scan for video files
+
+Options:
+      --exclude <GLOB>
+          Glob patterns of files and directories to exclude from the walk, matched against the normalized absolute path. A directory that matches is pruned entirely (its subtree is never descended into). Uses gitignore-flavored rules: a pattern with **no slash** is matched against the file/directory *name* (so `*.tmp` excludes any `.tmp` file at any depth and `sample` prunes any directory *or* file named `sample` anywhere); a pattern **with a slash** is matched against the full absolute path (so `**/trailers/**` excludes files under any `trailers` dir and `/abs/dir/**` anchors to a specific path). `globset` with `literal_separator(true)` applies: `*` matches a single path component and `**` spans any number of them. May be given multiple times; all patterns are OR-ed together
+      --video-exts <VIDEO_EXTS>
+          Video file extensions to scan for [default: avi,flv,mov,f4v,flv,m2ts,m4v,mkv,mpg,webm,wmv,mp4]
+      --windows <WINDOWS>
+          Maximum contiguous window size for ngram features. Set to 0 to disable windows and rely solely on --combinations [default: 5]
+      --combinations <COMBINATIONS>
+          Generate orderless combinations of up to k tokens (default pairs) as ngram features. Independent of --windows, so --windows=0 leaves only combinations; set --combinations=0 to disable them entirely [default: 2]
+      --file-size-bias <FILE_SIZE_BIAS>
+          Bias scoring based on file sizes (log base, > 1.0). Negative reverses bias
+      --file-size-offset <FILE_SIZE_OFFSET>
+          Offset to add to file size before log scaling [default: 1048576]
+      --dir-size-bias <DIR_SIZE_BIAS>
+          Bias scoring based on directory sizes (log base, > 1.0). Negative reverses bias
+      --dir-size-offset <DIR_SIZE_OFFSET>
+          Offset to add to directory size before log scaling [default: 0]
+      --file-age-bias <FILE_AGE_BIAS>
+          Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score)
+      --file-age-offset <FILE_AGE_OFFSET>
+          Offset to add to file age in seconds before log scaling [default: 86400]
+      --cache-ttl-days <CACHE_TTL_DAYS>
+          Cache TTL in days for the ffprobe feature cache. Entries whose key is not seen among the collected files for this long are expired. 0 disables expiry entirely (useful for cold, stable libraries). To force expire everything, delete the cache directory [default: 30]
+      --features-combinations <FEATURES_COMBINATIONS>
+          Orderless cross-feature combination order. Feature tokens (categorical singletons + per-continuous-feature neighbor singletons) are fed to `Ngrams::combinations` at this order, producing cross-feature ngrams like `{video_codec:h264, duration:21}`. `0` disables feature ngrams entirely (the feature `combinations` call is skipped). Independent of `--combinations`. See `docs/media-features-classifier.md` [default: 2]
+      --features-smoothing <FEATURES_SMOOTHING>
+          Neighbor smoothing half-width for continuous buckets. A value in bucket `i` also emits its immediate neighbors `[i-w, i+w]` (clamped to `>= 0`), so adjacent buckets share signal through overlapping singletons. `0` disables smoothing (plain 1-bucket singletons) [default: 1]
+      --features-bucket-base <FEATURES_BUCKET_BASE>
+          Geometric bucket base for `duration` / `filesize` / `bitrate` (> 1.0). `bucket(v) = floor(log_base(max(v, 1.0)))`. Power-of-2 bases are too coarse for media; 1.5 yields ~22 duration buckets across 1s–4h [default: 1.5]
+      --features-fps-base <FEATURES_FPS_BASE>
+          Geometric bucket base for `fps` (> 1.0), separate from `--features-bucket-base` because the fps range is narrow (~10–120) and clustered at standard rates. 1.1 keeps NTSC/PAL partners (23.976/24, 29.97/30, 59.94/60) in single buckets while separating adjacent groups [default: 1.1]
+      --include-classified
+          Include already classified files in the score listing
+      --no-header
+          Skip header output for machine-readable format
+      --include-size
+          Include file size in bytes in output
+      --json
+          Output results in JSON format
+      --reverse
+          Reverse output order (lowest scores first)
+      --by-dir
+          Group results by directory and aggregate scores
+      --absolute
+          Display absolute paths instead of relative to current directory
+  -h, --help
+          Print help
 ```
-
-Train on the classifications already in a playlist, then rank discovered files by combined score — no VLC interaction. Shares `build`'s discovery, bias, cache, and feature options, plus output controls:
-
-- `--include-classified` — include already-classified files in the listing.
-- `--by-dir` — group results by directory and aggregate scores.
-- `--json`, `--no-header`, `--include-size`, `--reverse`, `--absolute`.
 
 ### list-positive / list-negative
 
-```bash
-classi-cine list-positive [OPTIONS] <PLAYLIST>
-classi-cine list-negative [OPTIONS] <PLAYLIST>
+```text
+$ classi-cine list-positive --help
+List positively classified files
+
+Usage: classi-cine list-positive [OPTIONS] <PLAYLIST>
+
+Arguments:
+  <PLAYLIST>  M3U playlist file
+
+Options:
+      --absolute  Display absolute paths instead of relative to current directory
+      --exists    Only print entries whose file still exists on disk
+  -h, --help      Print help
 ```
 
-Options: `--absolute`, `--exists` (only files still on disk).
+`list-negative` takes the same arguments and prints negatively classified files.
 
 ### move
 
-```bash
-classi-cine move <ORIGINAL> <NEW>
-```
+```text
+$ classi-cine move --help
+Move playlist to a new location and rebase paths
 
-Write the playlist to a new location, rebasing its relative paths.
+Usage: classi-cine move <ORIGINAL> <NEW>
+
+Arguments:
+  <ORIGINAL>  Original M3U playlist file
+  <NEW>       New M3U playlist file location
+
+Options:
+  -h, --help  Print help
+```
 
 ### reconcile
 
-```bash
-classi-cine reconcile <PLAYLIST>
-```
+```text
+$ classi-cine reconcile --help
+Reconcile playlist with disk: drop bare lines for deleted files and re-add them for files that reappeared
 
-Rewrite the playlist to match disk: drop bare lines for deleted files and re-add them for files that reappeared. `#{...}` classification metadata is always preserved, so training data survives.
+Usage: classi-cine reconcile <PLAYLIST>
+
+Arguments:
+  <PLAYLIST>  M3U playlist file
+
+Options:
+  -h, --help  Print help
+```
 
 ## How it ranks
 
