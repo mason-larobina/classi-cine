@@ -181,14 +181,6 @@ impl M3uPlaylist {
             }
         }
 
-        // Reconcile the on-disk file with the in-memory entries so that the M3U
-        // invariant holds: every entry carries a `#{...}` metadata line, and a
-        // bare filename line is present *only* for positive entries whose file
-        // still exists on disk. This keeps the playlist usable by VLC (which
-        // only understands the bare filename lines) by dropping references to
-        // deleted files and re-adding references to files that reappeared.
-        playlist.reconcile()?;
-
         Ok(playlist)
     }
 
@@ -200,7 +192,7 @@ impl M3uPlaylist {
     ///
     /// The file is only touched when the rendered content differs from what is
     /// already on disk, so opening an already-consistent playlist is a no-op.
-    fn reconcile(&self) -> Result<(), Error> {
+    pub fn reconcile(&self) -> Result<(), Error> {
         let context = PathDisplayContext::RelativeTo(self.root.to_path_buf());
         let mut rendered = String::new();
         rendered.push_str(M3U_HEADER);
@@ -233,8 +225,9 @@ impl M3uPlaylist {
     /// relative to this playlist's root from the supplied absolute path.
     ///
     /// This appends a new line pair; the full-file invariant (bare filename
-    /// lines only for alive positive entries) is re-established by
-    /// [`reconcile`](Self::reconcile) on the next [`open`](Self::open).
+    /// lines only for alive positive entries) is re-established on demand by
+    /// [`reconcile`](Self::reconcile), invoked explicitly via the `reconcile`
+    /// subcommand.
     fn append_entry(
         &mut self,
         abs_path: &AbsPath,
@@ -522,11 +515,19 @@ mod tests {
         assert!(content.contains("\nmusic/track1.mp3\n"));
         assert!(content.contains("\nmusic/track2.mp3\n"));
 
-        // Delete track1. On reopen, its bare line must be dropped while the
-        // `#{...}` metadata line is preserved (so the classification survives
-        // for training).
+        // Delete track1. On reopen, its bare line is *not* dropped
+        // automatically (reconcile is opt-in now); it is only removed once
+        // the user runs `reconcile`. The `#{...}` metadata line is preserved
+        // either way, so the classification survives for training.
         std::fs::remove_file(&track1)?;
         let playlist = M3uPlaylist::open(&playlist_path)?;
+        let content = std::fs::read_to_string(&playlist_path)?;
+        // Before reconciling, the stale bare line for track1 is still on disk.
+        assert!(content.contains("\nmusic/track1.mp3\n"));
+        assert!(content.contains("\nmusic/track2.mp3\n"));
+
+        // Explicit reconcile drops the bare line for the deleted file.
+        playlist.reconcile()?;
         let content = std::fs::read_to_string(&playlist_path)?;
         assert!(!content.contains("\nmusic/track1.mp3\n"));
         assert!(content.contains("\nmusic/track2.mp3\n"));
@@ -535,10 +536,13 @@ mod tests {
         assert!(playlist.entries()[0].is_positive());
         assert!(playlist.entries()[1].is_positive());
 
-        // Re-create track1. On reopen its bare line is re-added so VLC picks
-        // it up again.
+        // Re-create track1. On reopen its bare line is still absent until we
+        // reconcile, which re-adds it so VLC picks it up again.
         std::fs::write(&track1, b"test")?;
-        let _playlist = M3uPlaylist::open(&playlist_path)?;
+        let playlist = M3uPlaylist::open(&playlist_path)?;
+        let content = std::fs::read_to_string(&playlist_path)?;
+        assert!(!content.contains("\nmusic/track1.mp3\n"));
+        playlist.reconcile()?;
         let content = std::fs::read_to_string(&playlist_path)?;
         assert!(content.contains("\nmusic/track1.mp3\n"));
         assert!(content.contains("\nmusic/track2.mp3\n"));
@@ -546,7 +550,9 @@ mod tests {
         Ok(())
     }
 
-    /// Opening an already-consistent playlist is a no-op on disk.
+    /// Opening a playlist never rewrites it: reconcile is an explicit,
+    /// opt-in operation. Calling `reconcile` on an already-consistent playlist
+    /// is a no-op on disk.
     #[test]
     fn test_reconcile_is_noop_when_consistent() -> Result<(), Error> {
         let temp_dir = tempdir()?;
@@ -561,7 +567,8 @@ mod tests {
         playlist.add_positive(&track1, &test_features())?;
 
         let before = std::fs::read_to_string(&playlist_path)?;
-        let _playlist = M3uPlaylist::open(&playlist_path)?;
+        let playlist = M3uPlaylist::open(&playlist_path)?;
+        playlist.reconcile()?;
         let after = std::fs::read_to_string(&playlist_path)?;
         assert_eq!(before, after);
 

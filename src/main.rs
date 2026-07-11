@@ -296,12 +296,13 @@ struct ReconcileArgs {
 }
 
 fn reconcile_playlist(playlist_path: &Path) -> Result<(), Error> {
-    // Read the on-disk content before opening so we can report whether the
-    // reconcile actually rewrote the file. `M3uPlaylist::open` runs the
-    // reconcile on load, re-establishing the M3U invariant in memory and on
-    // disk.
+    // Read the on-disk content before reconciling so we can report whether
+    // the reconcile actually rewrote the file. Reconcile is an explicit,
+    // opt-in operation: `M3uPlaylist::open` no longer reconciles on load, so
+    // the playlist is only re-written when the user runs this subcommand.
     let before = std::fs::read_to_string(playlist_path).unwrap_or_default();
     let playlist = M3uPlaylist::open(playlist_path)?;
+    playlist.reconcile()?;
     let after = std::fs::read_to_string(playlist_path).unwrap_or_default();
 
     if before == after {
