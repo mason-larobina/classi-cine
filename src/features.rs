@@ -158,7 +158,7 @@ fn label_at(unit: Unit, k: i64, base: f64, prec: usize) -> String {
 /// differs from the labels of buckets `k-1` and `k+1`. Depends only on
 /// `(unit, k, base)`, so every file emitting bucket `k` gets the same string.
 fn bucket_label(unit: Unit, k: i64, base: f64) -> String {
-    let mut label = label_at(unit, k, base, 2);
+    let mut label = String::new();
     for prec in 2..=6 {
         label = label_at(unit, k, base, prec);
         let clash = label == label_at(unit, k + 1, base, prec)
@@ -172,7 +172,7 @@ fn bucket_label(unit: Unit, k: i64, base: f64) -> String {
 
 /// Push neighbor-singleton token **strings** `name:label(k)` for every `k` in
 /// `[i-w, i+w]` (clamped to `>= 0`), where `i = bucket(v, base)`. `w == 0`
-/// yields just `name:i`. Indices are always distinct integers (the lower
+/// yields just `name:label(i)`. Indices are always distinct integers (the lower
 /// clamp never duplicates an upper index), so no explicit dedup is needed.
 ///
 /// This is the string core of the smoothing scheme: a value in bucket `i`
