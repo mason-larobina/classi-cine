@@ -25,7 +25,7 @@ mutable without re-probing the library (the raw-on-disk principle from
   path `windows`.
 - **Categorical features → one token per unique value.** `video_codec`,
   `audio_codec`, derived `aspect_ratio`, and raw `resolution` become stable
-  string tokens like `video_codec:av1`, `aspect:16:9`, `resolution:1920x1080`.
+  string tokens like `video_codec:av1`, `aspect:16/9`, `resolution:1920x1080`.
 - **Continuous, near-unique features → bucketed.** `duration`, `file_size`,
   derived `bitrate`, and `fps` are too sparse / too clustered to use raw. They
   are bucketed geometrically — `duration`/`filesize`/`bitrate` share a base
@@ -122,7 +122,7 @@ Categorical / derived features emit **one token per unique value**:
 |-------------------|-----------------------------------|-------|
 | `video_codec`      | `video_codec:h264`                | Empty codec name (ffprobe omitted it) → **no token**. |
 | `audio_codec`      | `audio_codec:aac`                | No audio stream → `audio_codec:none` (a real signal). |
-| `aspect_ratio`     | `aspect:16:9`, `aspect:4:3`      | Derived: `w:h` reduced by GCD. The colon in the value is fine — the whole string is the token id. |
+| `aspect_ratio`     | `aspect:16/9`, `aspect:4/3`      | Derived: `w:h` reduced by GCD. The `/` separator keeps the value unambiguous next to the `name:` colon. |
 | `resolution`       | `resolution:1920x1080`           | Raw `width`x`height` (unreduced). `width == 0` or `height == 0` (no / failed probe) → **no token**. |
 
 Categorical features are **not** smoothed or bucketed; they are already
@@ -168,10 +168,19 @@ bucket(v) = floor( log_B( max(v, 1.0) ) )      // v in seconds / bytes / bits-pe
   (TV episode vs. short film vs. feature vs. epic) without exploding the
   vocabulary. Empty low buckets simply never mint tokens, so a fine base costs
   nothing for ranges the library doesn't cover.
-- The bucket index is a **plain integer label** in the token string
-  (`duration:21`, not `duration:5m-10m`). Human-readable ranges are a *display*
-  concern; the token is the index. (`ffprobe-cache.md` keeps the raw value, so a
-  future TUI can always map index `i` back to `[B^i, B^(i+1))` for display.)
+- The token string is labelled by the bucket's **lower edge** `B^k`, scaled to a
+  unit and rounded to at most 2 decimals (trailing zeros and `.` trimmed):
+  `duration:1.39h`, `filesize:6.76GB`, `bitrate:7.37Mbps`, `fps:23.23`. Bucketing
+  and smoothing still work on the integer index; only the string changes.
+  Units: `duration` s (< 60) / m (< 3600) / h; `filesize` B/KB/MB/GB/TB (steps of
+  1024, as in the TUI size display); `bitrate` bps/Kbps/Mbps/Gbps (steps of
+  1000); `fps` a plain number.
+- **Collision guard**: with a small `--features-bucket-base` (e.g. 1.01) adjacent
+  buckets could round to the same label. The label starts at 2 decimals and the
+  precision is raised (up to 6) until it differs from the labels of buckets
+  `k-1` and `k+1`. The label depends only on `(feature, k, base)`, so a bucket
+  gets the same string whichever file emits it. Tokens are rebuilt from raw
+  values every run and never persisted, so label changes need no migration.
 - `v <= 0` (no data) → **no token** for that feature.
 
 ### Per-feature base
@@ -188,21 +197,21 @@ near-equal rates share signal. At base **1.1**:
 bucket(fps) = floor( log_1.1( max(fps, 1.0) ) )
 
 fps       i    tokens emitted (w=1)
-23.976    33   fps:32 fps:33 fps:34
-24        33   fps:32 fps:33 fps:34
-25        33   fps:32 fps:33 fps:34   // 23.976/24/25 coalesce
-29.97     35   fps:34 fps:35 fps:36
-30        35   fps:34 fps:35 fps:36
-48        40   fps:39 fps:40 fps:41
-50        41   fps:40 fps:41 fps:42
-59.94     42   fps:41 fps:42 fps:43
-60        42   fps:41 fps:42 fps:43   // 59.94/60 coalesce
-120       50   fps:49 fps:50 fps:51
+23.976    33   fps:21.11 fps:23.23 fps:25.55
+24        33   fps:21.11 fps:23.23 fps:25.55
+25        33   fps:21.11 fps:23.23 fps:25.55   // 23.976/24/25 coalesce
+29.97     35   fps:25.55 fps:28.1 fps:30.91
+30        35   fps:25.55 fps:28.1 fps:30.91
+48        40   fps:41.14 fps:45.26 fps:49.79
+50        41   fps:45.26 fps:49.79 fps:54.76
+59.94     42   fps:49.79 fps:54.76 fps:60.24
+60        42   fps:49.79 fps:54.76 fps:60.24   // 59.94/60 coalesce
+120       50   fps:106.72 fps:117.39 fps:129.13
 ```
 
 Adjacent standard *groups* share signal without collapsing the ladder:
-the 24-group and the 30-group share exactly one token (`fps:34`), while the
-truly close pairs 48/50 and 50/60 share two (`fps:40,41` and `fps:41,42`) —
+the 24-group and the 30-group share exactly one token (`fps:25.55`), while the
+truly close pairs 48/50 and 50/60 share two (`fps:45.26`, `fps:49.79` and `fps:49.79`, `fps:54.76`) —
 appropriate, since those rates are within ~4% of each other. The shared
 global base remains available for `fps` by setting `--features-fps-base` equal
 to `--features-bucket-base` if ever desired.
@@ -225,7 +234,7 @@ For a continuous value in bucket `i`, with **smoothing half-width** `w`
 this is exactly three tokens per continuous feature:
 
 ```
-duration:(i-1)      duration:i      duration:(i+1)
+duration:label(i-1)   duration:label(i)   duration:label(i+1)
 ```
 
 i.e. the bucket itself plus its immediate left and right neighbors — the
@@ -319,9 +328,9 @@ to `Ngrams::combinations` with order `k = --features-combinations` (default
 **2**), producing orderless cross-feature ngrams:
 
 ```
-{video_codec:h264, duration:21}
-{aspect:16:9, bitrate:39}
-{audio_codec:ac3, filesize:56, duration:21}     // k = 3
+{video_codec:h264, duration:1.39h}
+{aspect:16/9, bitrate:7.37Mbps}
+{audio_codec:ac3, filesize:6.76GB, duration:1.39h}     // k = 3
 ```
 
 These capture feature *co-occurrence* (e.g. "h264 + high bitrate + 1080p"
@@ -418,7 +427,7 @@ contribution, and a future `--no-features` can simply skip the feature
 ### Why no windows for features
 
 `Ngrams::windows` generates *contiguous* subsequences of the token slice.
-Features have no meaningful order — `{video_codec:h264, duration:21}` is the
+Features have no meaningful order — `{video_codec:h264, duration:1.39h}` is the
 same signal regardless of which is "first" — so contiguous windows would be
 arbitrary and order-dependent. Only `Ngrams::combinations` (which sorts each
 combo before hashing) is order-invariant and therefore correct for features.

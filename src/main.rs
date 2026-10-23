@@ -172,7 +172,7 @@ struct CommonArgs {
     /// Orderless cross-feature combination order. Feature tokens (categorical
     /// singletons + per-continuous-feature neighbor singletons) are fed to
     /// `Ngrams::combinations` at this order, producing cross-feature ngrams
-    /// like `{video_codec:h264, duration:21}`. `0` disables feature ngrams
+    /// like `{video_codec:h264, duration:1.39h}`. `0` disables feature ngrams
     /// entirely (the feature `combinations` call is skipped). Independent of
     /// `--combinations`. See `docs/media-features-classifier.md`.
     #[clap(long, default_value_t = 2)]

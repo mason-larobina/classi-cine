@@ -124,7 +124,7 @@ Options:
       --cache-ttl-days <CACHE_TTL_DAYS>
           Cache TTL in days for the ffprobe feature cache. Entries whose key is not seen among the collected files for this long are expired. 0 disables expiry entirely (useful for cold, stable libraries). To force expire everything, delete the cache directory [default: 30]
       --features-combinations <FEATURES_COMBINATIONS>
-          Orderless cross-feature combination order. Feature tokens (categorical singletons + per-continuous-feature neighbor singletons) are fed to `Ngrams::combinations` at this order, producing cross-feature ngrams like `{video_codec:h264, duration:21}`. `0` disables feature ngrams entirely (the feature `combinations` call is skipped). Independent of `--combinations`. See `docs/media-features-classifier.md` [default: 2]
+          Orderless cross-feature combination order. Feature tokens (categorical singletons + per-continuous-feature neighbor singletons) are fed to `Ngrams::combinations` at this order, producing cross-feature ngrams like `{video_codec:h264, duration:1.39h}`. `0` disables feature ngrams entirely (the feature `combinations` call is skipped). Independent of `--combinations`. See `docs/media-features-classifier.md` [default: 2]
       --features-smoothing <FEATURES_SMOOTHING>
           Neighbor smoothing half-width for continuous buckets. A value in bucket `i` also emits its immediate neighbors `[i-w, i+w]` (clamped to `>= 0`), so adjacent buckets share signal through overlapping singletons. `0` disables smoothing (plain 1-bucket singletons) [default: 1]
       --features-bucket-base <FEATURES_BUCKET_BASE>
@@ -179,7 +179,7 @@ Options:
       --cache-ttl-days <CACHE_TTL_DAYS>
           Cache TTL in days for the ffprobe feature cache. Entries whose key is not seen among the collected files for this long are expired. 0 disables expiry entirely (useful for cold, stable libraries). To force expire everything, delete the cache directory [default: 30]
       --features-combinations <FEATURES_COMBINATIONS>
-          Orderless cross-feature combination order. Feature tokens (categorical singletons + per-continuous-feature neighbor singletons) are fed to `Ngrams::combinations` at this order, producing cross-feature ngrams like `{video_codec:h264, duration:21}`. `0` disables feature ngrams entirely (the feature `combinations` call is skipped). Independent of `--combinations`. See `docs/media-features-classifier.md` [default: 2]
+          Orderless cross-feature combination order. Feature tokens (categorical singletons + per-continuous-feature neighbor singletons) are fed to `Ngrams::combinations` at this order, producing cross-feature ngrams like `{video_codec:h264, duration:1.39h}`. `0` disables feature ngrams entirely (the feature `combinations` call is skipped). Independent of `--combinations`. See `docs/media-features-classifier.md` [default: 2]
       --features-smoothing <FEATURES_SMOOTHING>
           Neighbor smoothing half-width for continuous buckets. A value in bucket `i` also emits its immediate neighbors `[i-w, i+w]` (clamped to `>= 0`), so adjacent buckets share signal through overlapping singletons. `0` disables smoothing (plain 1-bucket singletons) [default: 1]
       --features-bucket-base <FEATURES_BUCKET_BASE>

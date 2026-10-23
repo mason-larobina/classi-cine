@@ -94,7 +94,83 @@ fn gcd(mut a: u32, mut b: u32) -> u32 {
     a
 }
 
-/// Push neighbor-singleton token **strings** `name:k` for every `k` in
+/// Unit ladder used to render a bucket's lower edge for display.
+#[derive(Debug, Clone, Copy)]
+enum Unit {
+    /// Seconds: `s` below 60, `m` below 3600, otherwise `h`.
+    Duration,
+    /// Bytes, binary steps (matches `human_size` in `app.rs`): B/KB/MB/GB/TB.
+    Bytes,
+    /// Bits per second, decimal steps: bps/Kbps/Mbps/Gbps.
+    Bitrate,
+    /// Plain number, no suffix.
+    Plain,
+}
+
+impl Unit {
+    /// Scale `v` to the unit chosen for its own magnitude.
+    fn scale(self, v: f64) -> (f64, &'static str) {
+        match self {
+            Unit::Duration => {
+                if v < 60.0 {
+                    (v, "s")
+                } else if v < 3600.0 {
+                    (v / 60.0, "m")
+                } else {
+                    (v / 3600.0, "h")
+                }
+            }
+            Unit::Bytes => ladder(v, 1024.0, &["B", "KB", "MB", "GB", "TB"]),
+            Unit::Bitrate => ladder(v, 1000.0, &["bps", "Kbps", "Mbps", "Gbps"]),
+            Unit::Plain => (v, ""),
+        }
+    }
+}
+
+fn ladder(v: f64, step: f64, names: &[&'static str]) -> (f64, &'static str) {
+    let mut v = v;
+    let mut i = 0;
+    while v >= step && i + 1 < names.len() {
+        v /= step;
+        i += 1;
+    }
+    (v, names[i])
+}
+
+/// Format `v` with `prec` decimals, trimming trailing zeros and a trailing `.`.
+fn trim_num(v: f64, prec: usize) -> String {
+    let s = format!("{:.*}", prec, v);
+    if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        s
+    }
+}
+
+/// Label of bucket `k` (lower edge `base^k`) at a fixed precision.
+fn label_at(unit: Unit, k: i64, base: f64, prec: usize) -> String {
+    let (v, suffix) = unit.scale(base.powi(k as i32));
+    format!("{}{}", trim_num(v, prec), suffix)
+}
+
+/// Deterministic human-readable label for bucket `k`: the lower edge
+/// `base^k` scaled to a unit, at 2 decimals, raised (up to 6) until it
+/// differs from the labels of buckets `k-1` and `k+1`. Depends only on
+/// `(unit, k, base)`, so every file emitting bucket `k` gets the same string.
+fn bucket_label(unit: Unit, k: i64, base: f64) -> String {
+    let mut label = label_at(unit, k, base, 2);
+    for prec in 2..=6 {
+        label = label_at(unit, k, base, prec);
+        let clash = label == label_at(unit, k + 1, base, prec)
+            || (k > 0 && label == label_at(unit, k - 1, base, prec));
+        if !clash {
+            break;
+        }
+    }
+    label
+}
+
+/// Push neighbor-singleton token **strings** `name:label(k)` for every `k` in
 /// `[i-w, i+w]` (clamped to `>= 0`), where `i = bucket(v, base)`. `w == 0`
 /// yields just `name:i`. Indices are always distinct integers (the lower
 /// clamp never duplicates an upper index), so no explicit dedup is needed.
@@ -106,14 +182,21 @@ fn gcd(mut a: u32, mut b: u32) -> u32 {
 /// estimate even when individual buckets hold only one or two files. The
 /// token-id form ([`feature_tokens`]) simply mints each string into the
 /// shared [`TokenMap`].
-fn emit_neighbor_strings(out: &mut Vec<String>, name: &str, v: f64, base: f64, w: usize) {
+fn emit_neighbor_strings(
+    out: &mut Vec<String>,
+    name: &str,
+    unit: Unit,
+    v: f64,
+    base: f64,
+    w: usize,
+) {
     let Some(i) = bucket(v, base) else {
         return;
     };
     let lo = (i - w as i64).max(0);
     let hi = i + w as i64;
     for k in lo..=hi {
-        out.push(format!("{}:{}", name, k));
+        out.push(format!("{}:{}", name, bucket_label(unit, k, base)));
     }
 }
 
@@ -162,7 +245,7 @@ pub fn feature_token_strings(f: &MediaFeatures, cfg: &FeatureConfig) -> Vec<Stri
         out.push(format!("audio_codec:{}", f.audio_codec));
     }
     if let Some((aw, ah)) = reduce_ratio(f.width, f.height) {
-        out.push(format!("aspect:{}:{}", aw, ah));
+        out.push(format!("aspect:{}/{}", aw, ah));
     }
     if f.width > 0 && f.height > 0 {
         out.push(format!("resolution:{}x{}", f.width, f.height));
@@ -171,12 +254,20 @@ pub fn feature_token_strings(f: &MediaFeatures, cfg: &FeatureConfig) -> Vec<Stri
     // --- Continuous: bucket + neighbor singletons ---
     // fps uses its own finer base (default 1.1); the others share bucket_base.
     if let Some(fps) = f.fps {
-        emit_neighbor_strings(&mut out, "fps", fps, cfg.fps_base, cfg.smoothing);
+        emit_neighbor_strings(
+            &mut out,
+            "fps",
+            Unit::Plain,
+            fps,
+            cfg.fps_base,
+            cfg.smoothing,
+        );
     }
     if f.duration_secs > 0.0 {
         emit_neighbor_strings(
             &mut out,
             "duration",
+            Unit::Duration,
             f.duration_secs,
             cfg.bucket_base,
             cfg.smoothing,
@@ -186,6 +277,7 @@ pub fn feature_token_strings(f: &MediaFeatures, cfg: &FeatureConfig) -> Vec<Stri
         emit_neighbor_strings(
             &mut out,
             "filesize",
+            Unit::Bytes,
             f.file_size as f64,
             cfg.bucket_base,
             cfg.smoothing,
@@ -194,7 +286,14 @@ pub fn feature_token_strings(f: &MediaFeatures, cfg: &FeatureConfig) -> Vec<Stri
     if f.duration_secs > 0.0 {
         let bitrate = (f.file_size as f64) * 8.0 / f.duration_secs;
         if bitrate.is_finite() && bitrate > 0.0 {
-            emit_neighbor_strings(&mut out, "bitrate", bitrate, cfg.bucket_base, cfg.smoothing);
+            emit_neighbor_strings(
+                &mut out,
+                "bitrate",
+                Unit::Bitrate,
+                bitrate,
+                cfg.bucket_base,
+                cfg.smoothing,
+            );
         }
     }
     out
@@ -295,7 +394,7 @@ mod tests {
         let c = cfg();
         let set_for = |fps: f64| {
             let mut out = Vec::new();
-            emit_neighbor_strings(&mut out, "fps", fps, c.fps_base, c.smoothing);
+            emit_neighbor_strings(&mut out, "fps", Unit::Plain, fps, c.fps_base, c.smoothing);
             out
         };
         let s23976 = set_for(23.976);
@@ -313,7 +412,7 @@ mod tests {
     #[test]
     fn emit_neighbors_width_zero_is_singleton() {
         let mut out = Vec::new();
-        emit_neighbor_strings(&mut out, "duration", 100.0, 1.5, 0);
+        emit_neighbor_strings(&mut out, "duration", Unit::Duration, 100.0, 1.5, 0);
         assert_eq!(out.len(), 1, "w=0 emits exactly the bucket singleton");
     }
 
@@ -322,10 +421,10 @@ mod tests {
         // A value in bucket 0 with w=1 emits {s_0, s_1} (two tokens), never a
         // phantom s_{-1}.
         let mut out = Vec::new();
-        emit_neighbor_strings(&mut out, "duration", 1.0, 1.5, 1);
+        emit_neighbor_strings(&mut out, "duration", Unit::Duration, 1.0, 1.5, 1);
         assert_eq!(
             out,
-            vec!["duration:0".to_string(), "duration:1".to_string()]
+            vec!["duration:1s".to_string(), "duration:1.5s".to_string()]
         );
         assert_eq!(out.len(), 2);
     }
@@ -356,7 +455,7 @@ mod tests {
         let strs = token_strs(&out, m);
         assert!(strs.contains(&"video_codec:h264".to_string()));
         assert!(strs.contains(&"audio_codec:aac".to_string()));
-        assert!(strs.contains(&"aspect:16:9".to_string()));
+        assert!(strs.contains(&"aspect:16/9".to_string()));
         assert!(strs.contains(&"resolution:1920x1080".to_string()));
         // duration_secs == 0 -> no duration / bitrate tokens.
         assert!(!strs.iter().any(|s| s.starts_with("duration:")));
@@ -495,5 +594,100 @@ mod tests {
             .map(|t| m.get_str(*t).unwrap().to_string())
             .collect();
         assert_eq!(resolved, strs);
+    }
+
+    #[test]
+    fn unit_formatting_table() {
+        // (unit, bucket k, base, expected label)
+        let cases: &[(Unit, i64, f64, &str)] = &[
+            (Unit::Duration, 0, 1.5, "1s"),
+            (Unit::Duration, 1, 1.5, "1.5s"),
+            (Unit::Duration, 10, 1.5, "57.67s"),
+            (Unit::Duration, 11, 1.5, "1.44m"),
+            (Unit::Duration, 20, 1.5, "55.42m"),
+            (Unit::Duration, 21, 1.5, "1.39h"),
+            (Unit::Bytes, 0, 1.5, "1B"),
+            (Unit::Bytes, 17, 1.5, "985.26B"),
+            (Unit::Bytes, 18, 1.5, "1.44KB"),
+            (Unit::Bytes, 40, 1.5, "10.55MB"),
+            (Unit::Bytes, 52, 1.5, "1.34GB"),
+            (Unit::Bytes, 70, 1.5, "1.93TB"),
+            (Unit::Bitrate, 0, 1.5, "1bps"),
+            (Unit::Bitrate, 20, 1.5, "3.33Kbps"),
+            (Unit::Bitrate, 36, 1.5, "2.18Mbps"),
+            (Unit::Bitrate, 53, 1.5, "2.15Gbps"),
+            (Unit::Plain, 32, 1.1, "21.11"),
+            (Unit::Plain, 33, 1.1, "23.23"),
+        ];
+        for (unit, k, base, want) in cases {
+            let got = bucket_label(*unit, *k, *base);
+            assert_eq!(&got, want, "{:?} k={} base={}", unit, k, base);
+        }
+    }
+
+    #[test]
+    fn trim_num_trims_zeros_and_dot() {
+        assert_eq!(trim_num(5.0, 2), "5");
+        assert_eq!(trim_num(1.5, 2), "1.5");
+        assert_eq!(trim_num(12.34, 2), "12.34");
+        assert_eq!(trim_num(12.3400, 4), "12.34");
+        assert_eq!(trim_num(100.0, 2), "100");
+        assert_eq!(trim_num(0.0, 0), "0");
+    }
+
+    #[test]
+    fn small_base_labels_stay_distinct() {
+        for unit in [Unit::Duration, Unit::Bytes, Unit::Bitrate, Unit::Plain] {
+            let labels: Vec<String> = (0..1500).map(|k| bucket_label(unit, k, 1.01)).collect();
+            for w in labels.windows(2) {
+                assert_ne!(w[0], w[1], "{:?}: adjacent labels collide", unit);
+            }
+        }
+    }
+
+    #[test]
+    fn neighbor_labels_match_own_bucket_label() {
+        // A bucket must get the same string whichever file emits it.
+        let mut a = Vec::new();
+        let mut b = Vec::new();
+        emit_neighbor_strings(&mut a, "duration", Unit::Duration, 100.0, 1.01, 1);
+        emit_neighbor_strings(&mut b, "duration", Unit::Duration, 101.0, 1.01, 1);
+        let k = bucket(100.0, 1.01).unwrap();
+        let want = format!("duration:{}", bucket_label(Unit::Duration, k, 1.01));
+        assert_eq!(a[1], want);
+        assert_eq!(a[2], b[1]);
+    }
+
+    #[test]
+    fn typical_file_token_sample() {
+        let f = MediaFeatures {
+            width: 1920,
+            height: 1080,
+            file_size: 8_000_000_000,
+            video_codec: "h264".into(),
+            audio_codec: "ac3".into(),
+            duration_secs: 5400.0,
+            fps: Some(24.0),
+        };
+        let strs = feature_token_strings(&f, &cfg());
+        let want = [
+            "video_codec:h264",
+            "audio_codec:ac3",
+            "aspect:16/9",
+            "resolution:1920x1080",
+            "fps:21.11",
+            "fps:23.23",
+            "fps:25.55",
+            "duration:55.42m",
+            "duration:1.39h",
+            "duration:2.08h",
+            "filesize:4.51GB",
+            "filesize:6.76GB",
+            "filesize:10.15GB",
+            "bitrate:7.37Mbps",
+            "bitrate:11.06Mbps",
+            "bitrate:16.59Mbps",
+        ];
+        assert_eq!(strs, want);
     }
 }
