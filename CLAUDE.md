@@ -48,6 +48,7 @@ Classi-Cine is a Rust CLI tool that uses machine learning to build smart video p
 - `M3uPlaylist` (`playlist.rs`): M3U playlist format handling with relative path management
 - `Walk` (`walk.rs`): Parallel file system traversal with video file filtering
 - `normalize.rs`: Path normalization utilities
+- `Cache` (`cache.rs`): Append-only ffprobe feature cache in `<playlist root>/.classi-cine-ffprobe-cache.jsonl`, keyed by (relative path, mtime seconds, size); never expires or compacts, so several machines can share it (see `docs/ffprobe-cache.md`)
 
 ### Key Design Patterns
 

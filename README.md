@@ -121,8 +121,6 @@ Options:
           Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score)
       --file-age-offset <FILE_AGE_OFFSET>
           Offset to add to file age in seconds before log scaling [default: 86400]
-      --cache-ttl-days <CACHE_TTL_DAYS>
-          Cache TTL in days for the ffprobe feature cache. Entries whose key is not seen among the collected files for this long are expired. 0 disables expiry entirely (useful for cold, stable libraries). To force expire everything, delete the cache directory [default: 30]
       --features-combinations <FEATURES_COMBINATIONS>
           Orderless cross-feature combination order. Feature tokens (categorical singletons + per-continuous-feature neighbor singletons) are fed to `Ngrams::combinations` at this order, producing cross-feature ngrams like `{video_codec:h264, duration:1.39h}`. `0` disables feature ngrams entirely (the feature `combinations` call is skipped). Independent of `--combinations`. See `docs/media-features-classifier.md` [default: 2]
       --features-smoothing <FEATURES_SMOOTHING>
@@ -176,8 +174,6 @@ Options:
           Bias scoring based on file age (log base, > 1.0). Negative reverses bias (older files get higher score)
       --file-age-offset <FILE_AGE_OFFSET>
           Offset to add to file age in seconds before log scaling [default: 86400]
-      --cache-ttl-days <CACHE_TTL_DAYS>
-          Cache TTL in days for the ffprobe feature cache. Entries whose key is not seen among the collected files for this long are expired. 0 disables expiry entirely (useful for cold, stable libraries). To force expire everything, delete the cache directory [default: 30]
       --features-combinations <FEATURES_COMBINATIONS>
           Orderless cross-feature combination order. Feature tokens (categorical singletons + per-continuous-feature neighbor singletons) are fed to `Ngrams::combinations` at this order, producing cross-feature ngrams like `{video_codec:h264, duration:1.39h}`. `0` disables feature ngrams entirely (the feature `combinations` call is skipped). Independent of `--combinations`. See `docs/media-features-classifier.md` [default: 2]
       --features-smoothing <FEATURES_SMOOTHING>
@@ -264,7 +260,7 @@ Several classifiers score each candidate; their normalized scores combine into t
 
 Under the hood:
 
-- **ffprobe cache** — a persistent, sharded, TTL-based cache under your XDG cache dir amortizes probing across runs. A corrupt shard or a failed probe is skipped, never fatal; delete the cache directory to reset. See `docs/ffprobe-cache.md`.
+- **ffprobe cache** — one append-only file, `.classi-cine-ffprobe-cache.jsonl`, next to the playlist amortizes probing across runs and can be shared by machines mounting the same library. Entries never expire; a torn line or a failed probe is skipped, never fatal; delete the file to reset. See `docs/ffprobe-cache.md`.
 - **Adaptive tokenization** — BPE learns frequent character sequences from *your* library.
 - **Incremental learning** — each keep/skip updates the model immediately.
 - **Background VLC control** — multi-threaded, via VLC's HTTP interface, with automatic process cleanup on exit.

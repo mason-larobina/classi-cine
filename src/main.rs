@@ -163,12 +163,6 @@ struct CommonArgs {
     dir_size: DirSizeArgs,
     #[command(flatten)]
     file_age: FileAgeArgs,
-    /// Cache TTL in days for the ffprobe feature cache. Entries whose key is
-    /// not seen among the collected files for this long are expired. 0
-    /// disables expiry entirely (useful for cold, stable libraries). To force
-    /// expire everything, delete the cache directory.
-    #[clap(long, default_value_t = 30)]
-    cache_ttl_days: u32,
     /// Orderless cross-feature combination order. Feature tokens (categorical
     /// singletons + per-continuous-feature neighbor singletons) are fed to
     /// `Ngrams::combinations` at this order, producing cross-feature ngrams
@@ -348,6 +342,16 @@ fn move_playlist(original_path: &Path, new_path: &Path) -> Result<(), Error> {
             },
             abs.display()
         );
+    }
+
+    // The ffprobe cache lives next to the playlist: carry its entries over
+    // (rebased) when the root changes. The old file stays; other playlists in
+    // that directory may share it.
+    if original_playlist.root() != new_playlist.root() {
+        match cache::Cache::new(original_playlist.root()).rebase_into(new_playlist.root()) {
+            Ok(n) => info!("Copied {} ffprobe cache entries to the new location", n),
+            Err(e) => warn!("Could not copy ffprobe cache entries: {}", e),
+        }
     }
 
     println!(

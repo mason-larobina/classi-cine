@@ -1,5 +1,5 @@
 use crate::Error;
-use crate::cache::{Cache, MediaFeatures, entry_hash};
+use crate::cache::{Cache, CacheKey, MediaFeatures};
 use crate::classifier::{
     Classifier, DirSizeClassifier, FileAgeClassifier, FileSizeClassifier, NaiveBayesClassifier,
 };
@@ -426,33 +426,26 @@ impl App {
         }
     }
 
-    /// Run the ffprobe feature cache populate pass (load → compact →
-    /// write-survivors → delete → probe+write-missing) over every file seen by
-    /// the walk. See `docs/ffprobe-cache.md`. The cache lives under the XDG
-    /// cache directory and is rewritten as a fresh shard generation every
-    /// startup. Never aborts the run: a missing/unusable cache dir degrades to
-    /// a full re-probe, and per-file probe failures leave the file uncached
+    /// Run the ffprobe feature cache populate pass (load, probe missing,
+    /// append) over every file seen by the walk. See `docs/ffprobe-cache.md`.
+    /// The cache is a single append-only file next to the playlist, shareable
+    /// between machines. Never aborts the run: I/O errors degrade to probing
+    /// without caching, and per-file probe failures leave the file uncached
     /// (retried next run).
-    ///
-    /// Returns the `entry_hash → MediaFeatures` lookup for every entry now on
-    /// disk; [`attach_features`](Self::attach_features) uses it to populate
-    /// each builder entry's `features`.
-    fn populate_cache(&self) -> HashMap<String, MediaFeatures> {
-        let Some(cache) = Cache::with_default_dir(self.common_args.cache_ttl_days) else {
-            warn!("ffprobe cache: cannot resolve cache directory; skipping");
-            return HashMap::new();
-        };
+    fn populate_cache(&self) -> HashMap<CacheKey, MediaFeatures> {
+        let cache = Cache::new(self.playlist.root());
         let probe = crate::ffprobe::FfprobeProbe::new();
         cache.populate(&self.collected_files, &probe)
     }
 
     /// Attach the ffprobe-extracted features to every builder entry by looking
-    /// each file up in the cache map by its `(path, mtime, size)` key. Files
-    /// absent from the map (e.g. their probe failed) keep the all-zero default
-    /// — the field stays present and required, just unpopulated.
-    fn attach_features(&mut self, features_map: &HashMap<String, MediaFeatures>) {
+    /// each file up in the cache map by its `(relative path, mtime, size)`
+    /// key. Files absent from the map (e.g. their probe failed) keep the
+    /// all-zero default.
+    fn attach_features(&mut self, features_map: &HashMap<CacheKey, MediaFeatures>) {
+        let cache = Cache::new(self.playlist.root());
         for entry in &mut self.entries {
-            let key = entry_hash(&entry.path, entry.created, entry.size);
+            let key = cache.key_for(&entry.path, entry.created, entry.size);
             if let Some(features) = features_map.get(&key) {
                 entry.features = features.clone();
             }
