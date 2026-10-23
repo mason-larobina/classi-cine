@@ -17,7 +17,7 @@ use log::*;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -330,10 +330,7 @@ impl Appender {
 
     fn open(&mut self) -> Option<&mut fs::File> {
         if self.file.is_none() && !self.failed {
-            self.needs_newline = match fs::read(&self.path) {
-                Ok(c) => c.last().is_some_and(|&b| b != b'\n'),
-                Err(_) => false,
-            };
+            self.needs_newline = ends_without_newline(&self.path);
             match OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -385,6 +382,16 @@ impl Appender {
             let _ = f.sync_all();
         }
     }
+}
+
+/// True if the file exists, is non-empty, and its last byte is not `\n`.
+/// Seeks to the last byte rather than reading the whole cache.
+fn ends_without_newline(path: &Path) -> bool {
+    let Ok(mut f) = fs::File::open(path) else {
+        return false;
+    };
+    let mut last = [0u8; 1];
+    f.seek(SeekFrom::End(-1)).is_ok() && f.read_exact(&mut last).is_ok() && last[0] != b'\n'
 }
 
 /// Convert a `SystemTime` to unix seconds (whole-second granularity).
