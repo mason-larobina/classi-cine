@@ -1,4 +1,4 @@
-use crate::bloom::{Bloom, ToMask};
+use crate::bloom::{Bloom, BloomMask};
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -8,12 +8,6 @@ pub struct Token(pub(crate) u32);
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub struct Pair(pub Token, pub Token);
-
-impl ToMask for Pair {
-    fn to_mask(&self) -> u128 {
-        Bloom::mask(self)
-    }
-}
 
 #[derive(Debug, Default, Clone)]
 pub struct Tokens {
@@ -64,18 +58,50 @@ impl Tokens {
         &mut self,
         token_map: &TokenMap,
         from: &Tokens,
-        Pair(a, b): Pair,
+        pair: Pair,
         merged: Token,
     ) -> bool {
+        self.replace_impl(token_map, from, pair, merged, None)
+    }
+
+    /// Like [`Tokens::replace_with`], but also records in `consumed` (resized
+    /// to `from.len()`) which positions of `from` were part of a merge site.
+    pub fn replace_with_consumed(
+        &mut self,
+        token_map: &TokenMap,
+        from: &Tokens,
+        pair: Pair,
+        merged: Token,
+        consumed: &mut Vec<bool>,
+    ) -> bool {
+        self.replace_impl(token_map, from, pair, merged, Some(consumed))
+    }
+
+    fn replace_impl(
+        &mut self,
+        token_map: &TokenMap,
+        from: &Tokens,
+        Pair(a, b): Pair,
+        merged: Token,
+        mut consumed: Option<&mut Vec<bool>>,
+    ) -> bool {
         self.tokens.clear();
-        let mut i = 0;
         let len = from.len();
+        if let Some(c) = consumed.as_deref_mut() {
+            c.clear();
+            c.resize(len, false);
+        }
+        let mut i = 0;
         while i < len {
             let token_a = from.tokens[i];
             if a == token_a && (i + 1) < len {
                 let token_b = from.tokens[i + 1];
                 if b == token_b {
                     self.tokens.push(merged);
+                    if let Some(c) = consumed.as_deref_mut() {
+                        c[i] = true;
+                        c[i + 1] = true;
+                    }
                     i += 2;
                     continue;
                 }
@@ -103,8 +129,8 @@ impl Tokens {
         }
     }
 
-    pub fn contains<M: ToMask>(&self, e: &M) -> bool {
-        self.bloom.contains(e)
+    pub fn contains(&self, mask: BloomMask) -> bool {
+        self.bloom.contains_mask(mask)
     }
 
     pub fn len(&self) -> usize {

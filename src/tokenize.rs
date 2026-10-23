@@ -1,102 +1,19 @@
-use crate::bloom::Bloom;
+use crate::bloom::{Bloom, BloomMask};
 use crate::tokens::*;
-use ahash::{AHashMap as HashMap, AHasher};
+use ahash::AHashMap as HashMap;
 use log::*;
 use rayon::prelude::*;
-use std::collections::hash_map::Entry;
-use std::hash::{Hash, Hasher};
+use std::collections::BinaryHeap;
 use std::sync::Mutex;
-
-trait PairUpdater {
-    /// Modifies the count of `pair` by an amount `delta`.
-    /// If the resulting count is zero, it removes the pair from the data structure.
-    fn update_pair(&mut self, pair: Pair, delta: i64);
-}
-
-impl PairUpdater for HashMap<Pair, i64> {
-    fn update_pair(&mut self, pair: Pair, delta: i64) {
-        match self.entry(pair) {
-            Entry::Occupied(mut entry) => {
-                // Update the existing count by adding delta.
-                let count = entry.get().saturating_add(delta);
-                // If the count goes to zero, remove the entry entirely.
-                if count == 0 {
-                    entry.remove();
-                } else {
-                    entry.insert(count);
-                }
-            }
-            // If the pair is not present, insert it with the new delta as the count.
-            Entry::Vacant(entry) => {
-                entry.insert(delta);
-            }
-        }
-    }
-}
-
-impl PairUpdater for PairCounts {
-    fn update_pair(&mut self, pair: Pair, delta: i64) {
-        let map = self.get_map(pair);
-        map.update_pair(pair, delta);
-    }
-}
-
-/// A structure that maintains pair counts across multiple shards (HashMaps).
-/// Each shard stores a portion of key/value pairs based on hashing.
-#[derive(Debug)]
-struct PairCounts {
-    counts: Vec<HashMap<Pair, i64>>,
-}
-
-impl PairCounts {
-    fn new() -> Self {
-        // Determine how many shards to create based on the number of CPU cores.
-        let shards = num_cpus::get();
-        let mut counts = Vec::with_capacity(shards);
-        for _ in 0..shards {
-            counts.push(HashMap::new());
-        }
-        Self { counts }
-    }
-
-    /// Returns a mutable reference to the correct shard for `item`,
-    /// determined by hashing `item` modulo the number of shards.
-    fn get_map<T: Hash + Copy>(&mut self, item: T) -> &mut HashMap<Pair, i64> {
-        let mut hasher = AHasher::default();
-        item.hash(&mut hasher);
-        // Modulo the result by the number of shards to pick the correct index.
-        let len = self.counts.len() as u64;
-        let index = hasher.finish() % len;
-        &mut self.counts[index as usize]
-    }
-
-    /// Finds the pair with the maximum count within a single shard's HashMap.
-    /// Returns `(count, pair)` if found, or None if the shard is empty.
-    fn map_max_count(counts: &HashMap<Pair, i64>) -> Option<(i64, Pair)> {
-        counts.iter().map(|(pair, count)| (*count, *pair)).max()
-    }
-
-    /// Finds the pair with the maximum count by looking across all shards in parallel.
-    /// Returns `(count, pair)` if found, or None if empty.
-    fn max(&self) -> Option<(i64, Pair)> {
-        self.counts.par_iter().filter_map(Self::map_max_count).max()
-    }
-
-    /// Applies a batch of updates (stored in `delta`) to the pair counts.
-    fn apply(&mut self, delta: HashMap<Pair, i64>) {
-        for (pair, delta) in delta {
-            let map = self.get_map(pair);
-            map.update_pair(pair, delta);
-        }
-    }
-}
 
 /// A tokenization structure that merges frequently co-occurring token pairs
 /// and stores those merges for subsequent use.
 #[derive(Debug)]
 pub struct PairTokenizer {
     token_map: TokenMap,
-    merges: Vec<(Pair, Token)>,
+    /// Each merge with its prehashed Bloom mask, so `tokenize` doesn't rehash
+    /// every pair for every path.
+    merges: Vec<(Pair, Token, BloomMask)>,
 }
 
 impl PairTokenizer {
@@ -144,86 +61,126 @@ impl PairTokenizer {
         info!("merge min freq {:?}", min_freq);
 
         // Holds the record of merges performed as `(Pair, Token)`.
-        let mut merges = Vec::new();
-
-        // Shared, sharded structure to count how often each pair appears.
-        let counts = Mutex::new(PairCounts::new());
-        // A reference to use inside parallel closures.
-        let counts_ref = &counts;
+        let mut merges: Vec<(Pair, Token)> = Vec::new();
 
         // Populate initial pair counts by iterating over all strings and their pairs.
-        {
-            let mut pair_counts_h = counts.lock().unwrap();
-            for s in strings.iter() {
-                for p in s.pairs(&token_map) {
-                    pair_counts_h.update_pair(p, 1);
-                }
+        let mut counts: HashMap<Pair, i64> = HashMap::new();
+        for s in strings.iter() {
+            for p in s.pairs(&token_map) {
+                *counts.entry(p).or_insert(0) += 1;
             }
         }
+
+        // Lazy max-heap of `(count, pair)`. Entries whose count no longer matches
+        // `counts` are stale and are discarded when popped.
+        let mut heap: BinaryHeap<(i64, Pair)> = counts.iter().map(|(p, c)| (*c, *p)).collect();
 
         // Determine the chunk size for parallel processing of strings.
         let chunk_size = usize::max(100, strings.len() / num_cpus::get());
 
         // Continuously find and merge the most frequent pair until no pairs exceed the min_freq threshold.
         loop {
-            // Find the pair with the maximum count across all shards.
-            let pair = match counts.lock().unwrap().max() {
-                Some((count, pair)) => {
-                    // If the highest frequency is below min_freq, break out of the loop.
-                    if count < min_freq {
-                        break;
+            // Pop until an up-to-date entry is found; it is the max by `(count, pair)`.
+            let pair = loop {
+                match heap.pop() {
+                    Some((count, pair)) => {
+                        if counts.get(&pair) != Some(&count) {
+                            continue;
+                        }
+                        // If the highest frequency is below min_freq, we are done.
+                        if count < min_freq {
+                            break None;
+                        }
+                        break Some(pair);
                     }
-                    // Log and keep track of the pair chosen for merging.
-                    //info!("{:?} {:?}", count, pair.to_string(&token_map));
-                    pair
+                    None => break None,
                 }
-                _ => {
-                    // If no pairs are found, break.
-                    break;
-                }
+            };
+            let Some(pair) = pair else {
+                break;
             };
 
             // Merge the chosen pair into a single new token in the token map.
             let merged = token_map.merge(pair);
             merges.push((pair, merged));
 
-            // Prepare a Bloom filter to quickly check if a Tokens object might contain this pair.
-            let mut bloom = Bloom::default();
-            bloom.set(pair);
+            // Prepare a Bloom mask to quickly check if a Tokens object might contain this pair.
+            let mask = Bloom::mask(pair);
 
-            // Reference to the token_map for use in parallel processing.
+            // References for use in parallel processing.
             let token_map_ref = &token_map;
+            let last_special = token_map.last_special();
+            let deltas: Mutex<Vec<HashMap<Pair, i64>>> = Mutex::new(Vec::new());
+            let deltas_ref = &deltas;
 
             // Process the strings in chunks in parallel.
             strings.par_chunks_mut(chunk_size).for_each(move |chunk| {
                 // `delta` accumulates changes to pair counts that happen within this chunk.
-                let mut delta = HashMap::new();
+                let mut delta: HashMap<Pair, i64> = HashMap::new();
                 // `tmp` is a temporary Tokens structure used during replacement.
                 let mut tmp = Tokens::default();
+                // Which positions of the old string were part of a merge site.
+                let mut consumed: Vec<bool> = Vec::new();
 
                 // Iterate over each string in the chunk.
                 for s in chunk {
                     // If the string can't possibly have the pair (not in Bloom filter), skip it.
-                    if !s.contains(&bloom) {
+                    if !s.contains(mask) {
                         continue;
                     }
                     // Attempt to replace all occurrences of `pair` with the merged token in `s`.
-                    if tmp.replace_with(token_map_ref, s, pair, merged) {
-                        // If replacements occurred, we adjust the pair counts accordingly.
-                        for p in s.pairs(token_map_ref) {
-                            delta.update_pair(p, -1);
+                    if tmp.replace_with_consumed(token_map_ref, s, pair, merged, &mut consumed) {
+                        // Only windows touching a merge site change: remove the old ones...
+                        for (i, w) in s.as_slice().windows(2).enumerate() {
+                            if (consumed[i] || consumed[i + 1])
+                                && w[0] > last_special
+                                && w[1] > last_special
+                            {
+                                *delta.entry(Pair(w[0], w[1])).or_insert(0) -= 1;
+                            }
                         }
-                        for p in tmp.pairs(token_map_ref) {
-                            delta.update_pair(p, 1);
+                        // ...and add the new ones involving the merged token.
+                        for w in tmp.as_slice().windows(2) {
+                            if (w[0] == merged || w[1] == merged)
+                                && w[0] > last_special
+                                && w[1] > last_special
+                            {
+                                *delta.entry(Pair(w[0], w[1])).or_insert(0) += 1;
+                            }
                         }
                         // Swap `s` with `tmp` to finalize the updated tokens.
                         std::mem::swap(s, &mut tmp);
                     }
                 }
-                // Apply the collected updates from this chunk to the global pair counts.
-                counts_ref.lock().unwrap().apply(delta);
+                deltas_ref.lock().unwrap().push(delta);
             });
+
+            // Fold the chunk deltas into one total, then apply it to counts and the heap.
+            let mut total: HashMap<Pair, i64> = HashMap::new();
+            for delta in deltas.into_inner().unwrap() {
+                for (p, v) in delta {
+                    *total.entry(p).or_insert(0) += v;
+                }
+            }
+            for (p, v) in total {
+                if v == 0 {
+                    continue;
+                }
+                let new_count = counts.get(&p).copied().unwrap_or(0) + v;
+                if new_count == 0 {
+                    counts.remove(&p);
+                } else {
+                    counts.insert(p, new_count);
+                    heap.push((new_count, p));
+                }
+            }
         }
+
+        // Precompute Bloom masks so `tokenize` doesn't rehash each pair per path.
+        let merges = merges
+            .into_iter()
+            .map(|(pair, merged)| (pair, merged, Bloom::mask(pair)))
+            .collect();
 
         // Return a `PairTokenizer` that includes the final token map and merges performed.
         PairTokenizer { token_map, merges }
@@ -238,8 +195,8 @@ impl PairTokenizer {
         // A temporary structure to apply merges one by one.
         let mut tmp = Tokens::default();
         // For each learned merge, apply it if `tokens` contains the pair.
-        for (pair, merged) in self.merges.iter().cloned() {
-            if tokens.contains(&pair) && tmp.replace_with(&self.token_map, &tokens, pair, merged) {
+        for (pair, merged, mask) in self.merges.iter().copied() {
+            if tokens.contains(mask) && tmp.replace_with(&self.token_map, &tokens, pair, merged) {
                 // Swap to finalize the replacement result.
                 std::mem::swap(&mut tmp, &mut tokens);
             }
@@ -265,26 +222,88 @@ impl PairTokenizer {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_hash_map_pair_updater() {
-        let mut map = HashMap::new();
-        let pair = Pair(Token(0), Token(1));
-        map.update_pair(pair, 3);
-        assert_eq!(map.get(&pair), Some(&3));
-        map.update_pair(pair, -3);
-        assert!(!map.contains_key(&pair));
+    /// Naive reference trainer: recounts every pair from scratch each round.
+    fn reference_train(corpus: &[String]) -> (Vec<(Pair, Token)>, Vec<Tokens>) {
+        let mut special_chars = String::new();
+        special_chars.push(' ');
+        special_chars.push(std::path::MAIN_SEPARATOR);
+        let mut token_map = TokenMap::new(&special_chars);
+        let mut strings: Vec<Tokens> = corpus
+            .iter()
+            .map(|s| Tokens::from_str_and_create(s, &mut token_map))
+            .collect();
+        let min_freq: i64 = i64::max(2, (strings.len() as f64 + 1.0).log2() as i64);
+        let mut merges = Vec::new();
+        loop {
+            let mut counts: std::collections::HashMap<Pair, i64> = Default::default();
+            for s in &strings {
+                for p in s.pairs(&token_map) {
+                    *counts.entry(p).or_insert(0) += 1;
+                }
+            }
+            let Some((count, pair)) = counts.iter().map(|(p, c)| (*c, *p)).max() else {
+                break;
+            };
+            if count < min_freq {
+                break;
+            }
+            let merged = token_map.merge(pair);
+            merges.push((pair, merged));
+            let mut tmp = Tokens::default();
+            for s in strings.iter_mut() {
+                if tmp.replace_with(&token_map, s, pair, merged) {
+                    std::mem::swap(s, &mut tmp);
+                }
+            }
+        }
+        (merges, strings)
+    }
+
+    fn synthetic_corpus() -> Vec<String> {
+        let sep = std::path::MAIN_SEPARATOR;
+        let dirs = ["media", "movies", "tv shows", "home videos", "archive"];
+        let words = [
+            "holiday", "summer", "episode", "season", "final", "cut", "trailer", "beach", "family",
+            "birthday",
+        ];
+        let mut state: u64 = 0x1234_5678_9abc_def1;
+        let mut next = move |n: usize| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((state >> 33) as usize) % n
+        };
+        let mut out = Vec::new();
+        for i in 0..2000 {
+            let d1 = dirs[next(dirs.len())];
+            let d2 = words[next(words.len())];
+            let w1 = words[next(words.len())];
+            let w2 = words[next(words.len())];
+            let name = match i % 5 {
+                0 => format!("{w1} {w2} {}", next(100)),
+                1 => format!("{w1}_{w2}_s{:02}e{:02}", next(10), next(30)),
+                2 => format!("aaaa{w1}abab{}ababab", "aaaaaa"),
+                3 => format!("{}{w1}", "abab".repeat(1 + next(5))),
+                _ => format!("{w1}-{w2}-{w1}-{w2}-{}", "a".repeat(2 + next(8))),
+            };
+            out.push(format!("{d1}{sep}{d2}{sep}{name}.mkv"));
+        }
+        out
     }
 
     #[test]
-    fn test_pair_counts_update_and_max() {
-        let mut pc = PairCounts::new();
-        let pair = Pair(Token(1), Token(2));
-        pc.update_pair(pair, 5);
-        let max_pair = pc.max().unwrap();
-        assert_eq!(max_pair.0, 5);
-        assert_eq!(max_pair.1, pair);
-        pc.update_pair(pair, -5);
-        assert!(pc.max().is_none());
+    fn test_matches_naive_reference() {
+        let corpus = synthetic_corpus();
+        let (ref_merges, ref_strings) = reference_train(&corpus);
+        assert!(ref_merges.len() > 20, "corpus should yield many merges");
+
+        let pt = PairTokenizer::new(corpus.iter().map(String::as_str));
+        let got: Vec<(Pair, Token)> = pt.merges.iter().map(|(p, t, _)| (*p, *t)).collect();
+        assert_eq!(got, ref_merges);
+
+        for (s, expected) in corpus.iter().zip(ref_strings.iter()) {
+            assert_eq!(pt.tokenize(s).as_slice(), expected.as_slice(), "{s}");
+        }
     }
 
     #[test]
